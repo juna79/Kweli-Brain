@@ -3,220 +3,192 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Kweli Mission Control</title>
+<title>Kweli Brain — The Institutional Intelligence Platform</title>
 <style>
   :root{
-    --ink:#08161E; --bg:#0B1F2A; --panel:#0F2733; --panel2:#11303E; --raise:#143544;
-    --line:#1E3D4D;
-    --txt:#E8EEF1; --muted:#8AA4B0; --faint:#5F7C89;
-    --brass:#C9A24B; --brass-d:#A6822F; --green:#3FB984; --amber:#E0A33E; --red:#E06A4E;
-    --radius:12px;
+    --bg:#070E14; --panel:#0E1E2A; --panel2:#122636; --raise:#16303F;
+    --line:rgba(255,255,255,.07); --line-s:rgba(255,255,255,.12);
+    --txt:#EAF1F4; --muted:#90A6B2; --faint:#5E7785;
+    --gold:#C9A24B; --gold-d:#A6822F; --gold-soft:rgba(201,162,75,.13);
+    --green:#46B98A; --amber:#E0A340; --red:#E0654B;
+    --r:14px;
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
-  body{
-    background:var(--bg); color:var(--txt);
-    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    -webkit-font-smoothing:antialiased; font-size:14px; line-height:1.5;
-  }
-  a{color:var(--brass);text-decoration:none}
-  ::selection{background:rgba(201,162,75,.3)}
+  body{background:var(--bg);color:var(--txt);font-size:14px;line-height:1.55;
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:var(--gold);text-decoration:none}
+  ::selection{background:rgba(201,162,75,.28)}
+  .serif{font-family:Georgia,"Times New Roman",serif}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .muted{color:var(--muted)} .faint{color:var(--faint)}
 
-  /* ---------- layout ---------- */
+  /* layout */
   .app{display:flex;min-height:100vh}
-  .sidebar{
-    width:228px;flex:none;background:var(--ink);border-right:1px solid var(--line);
-    padding:20px 14px;position:fixed;top:0;bottom:0;left:0;overflow-y:auto;z-index:40;
-    transition:transform .22s ease;
-  }
-  .main{flex:1;margin-left:228px;min-width:0}
-  .brand{display:flex;align-items:center;gap:11px;padding:4px 6px 18px}
-  .brand-mark{
-    width:34px;height:34px;border-radius:8px;flex:none;display:grid;place-items:center;
-    background:linear-gradient(140deg,var(--brass),#7c6224);color:#08161E;font-weight:800;
-    font-family:ui-monospace,monospace;font-size:18px;
-  }
-  .brand-name{font-weight:680;letter-spacing:-.01em;font-size:15px;line-height:1.1}
-  .brand-sub{font-size:10px;color:var(--faint);font-family:ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
-  .nav{display:flex;flex-direction:column;gap:2px;margin-top:6px}
-  .nav-item{
-    display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:8px;
-    color:var(--muted);cursor:pointer;font-size:13.5px;font-weight:500;border:1px solid transparent;
-  }
+  .sidebar{width:236px;flex:none;background:#060B10;border-right:1px solid var(--line);
+    position:fixed;inset:0 auto 0 0;padding:24px 16px;overflow-y:auto;z-index:40;transition:transform .22s ease}
+  .main{flex:1;margin-left:236px;min-width:0;display:flex;flex-direction:column}
+  .brand{display:flex;align-items:center;gap:12px;padding:2px 8px 22px}
+  .brand-mark{width:36px;height:36px;border-radius:9px;flex:none;display:grid;place-items:center;
+    background:linear-gradient(145deg,var(--gold),#6f571f);color:#070E14;font-weight:800;font-size:19px;font-family:ui-monospace,monospace}
+  .brand-name{font-weight:660;font-size:15.5px;letter-spacing:-.01em;line-height:1.1}
+  .brand-sub{font-size:9.5px;color:var(--faint);letter-spacing:.13em;text-transform:uppercase;font-family:ui-monospace,monospace;margin-top:3px}
+  .nav{display:flex;flex-direction:column;gap:1px;margin-top:4px}
+  .nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:9px;color:var(--muted);
+    cursor:pointer;font-size:13.5px;font-weight:500}
   .nav-item:hover{color:var(--txt);background:var(--panel)}
-  .nav-item.active{color:var(--txt);background:var(--panel2);border-color:var(--line)}
-  .nav-item.active .ico{color:var(--brass)}
+  .nav-item.active{color:var(--txt);background:var(--panel2)}
+  .nav-item.active .ico{color:var(--gold)}
   .nav-item .ico{width:17px;height:17px;flex:none;color:var(--faint)}
-  .nav-badge{margin-left:auto;font-size:10px;font-family:ui-monospace,monospace;
-    background:var(--red);color:#fff;border-radius:9px;padding:1px 6px;font-weight:700}
-  .nav-sect{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
-    font-family:ui-monospace,monospace;padding:16px 11px 6px}
+  .nav-badge{margin-left:auto;font-size:10px;font-family:ui-monospace,monospace;background:var(--red);color:#fff;border-radius:9px;padding:1px 7px;font-weight:700}
+  .nav-sect{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-family:ui-monospace,monospace;padding:18px 12px 7px}
 
-  .topbar{display:none;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);
-    position:sticky;top:0;background:var(--bg);z-index:30}
-  .hamb{background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--txt);
-    width:38px;height:38px;cursor:pointer;font-size:18px;display:grid;place-items:center}
+  /* top bar */
+  .topbar{display:flex;align-items:center;gap:14px;padding:14px 34px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;background:rgba(7,14,20,.86);backdrop-filter:blur(10px);z-index:30}
+  .hamb{display:none;background:var(--panel);border:1px solid var(--line);border-radius:9px;color:var(--txt);width:38px;height:38px;cursor:pointer;font-size:18px}
+  .searchwrap{position:relative;flex:1;max-width:560px}
+  .searchwrap .ico{position:absolute;left:13px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--faint)}
+  #globalSearch{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:11px;color:var(--txt);
+    padding:11px 14px 11px 38px;font-size:14px;font-family:inherit;outline:none;transition:border-color .15s}
+  #globalSearch:focus{border-color:var(--gold)}
+  .search-panel{position:absolute;top:52px;left:0;right:0;background:var(--panel);border:1px solid var(--line-s);border-radius:13px;
+    box-shadow:0 24px 60px -22px rgba(0,0,0,.8);max-height:60vh;overflow-y:auto;z-index:50;padding:8px}
+  .search-group-h{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-family:ui-monospace,monospace;padding:10px 12px 5px}
+  .search-res{padding:9px 12px;border-radius:9px;cursor:pointer;display:flex;gap:10px;align-items:baseline}
+  .search-res:hover{background:var(--panel2)}
+  .search-res .r-title{font-size:13.5px;color:var(--txt)}
+  .search-res .r-sub{font-size:11.5px;color:var(--faint);margin-left:auto;white-space:nowrap}
+  .search-res .r-snip{font-size:12px;color:var(--muted);margin-top:2px;display:block}
+  .search-empty{padding:18px 14px;color:var(--faint);font-size:13px;text-align:center}
+
+  .content{padding:38px 34px 90px;max-width:1120px;margin:0 auto;width:100%}
   .scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:35}
+  .scrim.show{display:block}
 
-  .content{padding:30px 34px 70px;max-width:1180px;margin:0 auto}
-  .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap}
-  .page-title{font-size:23px;font-weight:680;letter-spacing:-.015em}
-  .page-sub{font-size:13px;color:var(--muted);margin-top:3px}
-  .eyebrow{font-family:ui-monospace,monospace;font-size:10.5px;letter-spacing:.18em;
-    text-transform:uppercase;color:var(--brass)}
+  /* headings */
+  .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:30px;flex-wrap:wrap}
+  .eyebrow{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--gold)}
+  .page-title{font-size:26px;font-weight:660;letter-spacing:-.02em;margin-top:6px}
+  .page-sub{font-size:13.5px;color:var(--muted);margin-top:5px}
+  .greeting{font-size:13px;color:var(--muted);font-family:ui-monospace,monospace;letter-spacing:.04em}
 
-  /* ---------- cards / grid ---------- */
-  .grid{display:grid;gap:14px}
-  .g-3{grid-template-columns:repeat(3,1fr)}
-  .g-2{grid-template-columns:repeat(2,1fr)}
-  .g-auto{grid-template-columns:repeat(auto-fill,minmax(290px,1fr))}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
-  .card.tight{padding:14px 16px}
-  .card-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-  .card-h h3{margin:0;font-size:13px;font-weight:620;letter-spacing:.01em}
-  .card-h .eyebrow{margin:0}
+  /* cards */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:22px}
+  .sec{margin-bottom:30px}
+  .sec-h{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .sec-h h2{font-size:13px;font-weight:600;letter-spacing:.02em;margin:0}
+  .sec-h .count{font-family:ui-monospace,monospace;font-size:11px;color:var(--faint);margin-left:auto}
+  .grid{display:grid;gap:16px}
+  .g2{grid-template-columns:1fr 1fr}
+  .g-auto{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
 
-  .stat{display:flex;flex-direction:column;gap:6px}
-  .stat-n{font-size:30px;font-weight:720;letter-spacing:-.02em;line-height:1}
-  .stat-l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-family:ui-monospace,monospace}
-  .stat.warn .stat-n{color:var(--red)}
-  .stat.due .stat-n{color:var(--amber)}
-  .stat.ok .stat-n{color:var(--green)}
+  /* action row item (dashboard / followups) */
+  .row-item{display:flex;align-items:center;gap:14px;padding:15px 18px;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;cursor:pointer;margin-bottom:9px;transition:border-color .15s}
+  .row-item:hover{border-color:var(--line-s)}
+  .row-item.alert{border-color:rgba(224,101,75,.4)}
+  .udot{width:9px;height:9px;border-radius:50%;flex:none}
+  .row-main{flex:1;min-width:0}
+  .row-title{font-size:14.5px;font-weight:560}
+  .row-meta{font-size:12px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row-right{font-size:11.5px;font-family:ui-monospace,monospace;white-space:nowrap}
+  .score{flex:none;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;font-weight:740;font-size:14px;font-family:ui-monospace,monospace;border:1px solid var(--line)}
 
-  /* ---------- opportunity cards ---------- */
-  .opp-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
-    padding:16px;cursor:pointer;transition:border-color .15s ease,transform .05s ease;position:relative;display:flex;flex-direction:column;gap:10px}
-  .opp-card:hover{border-color:var(--brass)}
-  .opp-card.overdue{border-color:rgba(224,106,78,.55);box-shadow:0 0 0 1px rgba(224,106,78,.18)}
-  .opp-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
-  .opp-name{font-size:15.5px;font-weight:650;letter-spacing:-.01em}
-  .opp-cat{font-size:11px;color:var(--muted);font-family:ui-monospace,monospace;letter-spacing:.04em;margin-top:2px}
-  .score{flex:none;width:42px;height:42px;border-radius:9px;display:grid;place-items:center;
-    font-weight:750;font-size:15px;font-family:ui-monospace,monospace;border:1px solid var(--line)}
-  .opp-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
-  .opp-next{font-size:13px;color:var(--txt);background:var(--ink);border:1px solid var(--line);
-    border-radius:7px;padding:7px 9px;line-height:1.4}
-  .opp-next .lbl{color:var(--faint);font-family:ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;display:block;margin-bottom:2px}
+  /* chips */
+  .chip{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;padding:4px 11px;border-radius:30px;border:1px solid var(--line);background:var(--panel2);color:var(--muted)}
+  .chip .dot{width:7px;height:7px;border-radius:50%}
+  .warm{color:var(--green)} .cold{color:var(--faint)}
 
-  .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;padding:3px 9px;border-radius:20px;
-    border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-weight:500}
-  .chip .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
-  .due-tag{font-size:11px;font-family:ui-monospace,monospace;padding:2px 8px;border-radius:6px}
-  .due-tag.overdue{background:rgba(224,106,78,.14);color:var(--red);border:1px solid rgba(224,106,78,.4)}
-  .due-tag.today{background:rgba(224,163,62,.14);color:var(--amber);border:1px solid rgba(224,163,62,.4)}
-  .due-tag.soon{background:var(--panel2);color:var(--muted);border:1px solid var(--line)}
+  /* company / people cards */
+  .ent-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;cursor:pointer;
+    display:flex;flex-direction:column;gap:11px;transition:border-color .15s}
+  .ent-card:hover{border-color:var(--gold)}
+  .ent-card.alert{border-color:rgba(224,101,75,.45)}
+  .ent-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+  .ent-name{font-size:16px;font-weight:600;letter-spacing:-.01em}
+  .ent-sub{font-size:11.5px;color:var(--faint);font-family:ui-monospace,monospace;margin-top:3px}
+  .ent-line{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+  .ent-next{font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 11px;line-height:1.45}
+  .ent-next .lbl{display:block;font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);font-family:ui-monospace,monospace;margin-bottom:3px}
 
-  /* ---------- buttons / inputs ---------- */
-  .btn{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;
-    padding:9px 15px;font-size:13px;font-weight:550;cursor:pointer;font-family:inherit;
-    transition:all .15s ease;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
-  .btn:hover{border-color:var(--brass);color:var(--txt)}
-  .btn.gold{background:var(--brass);color:#08161E;border-color:var(--brass);font-weight:680}
+  /* buttons / inputs */
+  .btn{background:var(--panel2);border:1px solid var(--line-s);color:var(--txt);border-radius:10px;padding:10px 16px;
+    font-size:13px;font-weight:540;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;transition:all .15s}
+  .btn:hover{border-color:var(--gold)}
+  .btn.gold{background:var(--gold);color:#070E14;border-color:var(--gold);font-weight:660}
   .btn.gold:hover{filter:brightness(1.08)}
-  .btn.sm{padding:6px 11px;font-size:12px}
+  .btn.sm{padding:7px 12px;font-size:12px;border-radius:9px}
   .btn.ghost{background:transparent}
   .btn.danger:hover{border-color:var(--red);color:var(--red)}
   .btn .ico{width:15px;height:15px}
-
-  .input,.select,textarea.input{
-    width:100%;background:var(--ink);border:1px solid var(--line);border-radius:8px;color:var(--txt);
-    padding:10px 12px;font-size:13.5px;font-family:inherit;outline:none;transition:border-color .15s,box-shadow .15s}
-  .input:focus,.select:focus,textarea.input:focus{border-color:var(--brass);box-shadow:0 0 0 2px rgba(201,162,75,.16)}
+  .input,.select,textarea.input{width:100%;background:var(--bg);border:1px solid var(--line-s);border-radius:10px;color:var(--txt);
+    padding:11px 13px;font-size:13.5px;font-family:inherit;outline:none;transition:border-color .15s}
+  .input:focus,.select:focus,textarea.input:focus{border-color:var(--gold)}
   textarea.input{resize:vertical;line-height:1.55}
-  .select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%238AA4B0' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
-    background-repeat:no-repeat;background-position:right 12px center;padding-right:30px}
-  label.fl{display:block;font-size:11px;color:var(--muted);font-family:ui-monospace,monospace;
-    letter-spacing:.1em;text-transform:uppercase;margin:0 0 6px}
-  .field{margin-bottom:14px}
-  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-
-  .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
+  .select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M1 1l4 4 4-4' stroke='%2390A6B2' stroke-width='1.4' fill='none' stroke-linecap='round'/></svg>");background-repeat:no-repeat;background-position:right 13px center;padding-right:32px}
+  label.fl{display:block;font-size:10px;color:var(--muted);font-family:ui-monospace,monospace;letter-spacing:.11em;text-transform:uppercase;margin:0 0 7px}
+  .field{margin-bottom:15px}
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+  .toolbar{display:flex;gap:11px;align-items:center;flex-wrap:wrap;margin-bottom:22px}
   .toolbar .input,.toolbar .select{width:auto}
-  .search{flex:1;min-width:180px}
+  .toolbar .search-in{flex:1;min-width:180px}
+  .seg{display:inline-flex;border:1px solid var(--line-s);border-radius:10px;overflow:hidden}
+  .seg button{background:transparent;border:none;color:var(--muted);padding:8px 14px;font-size:12.5px;cursor:pointer;font-family:inherit}
+  .seg button.active{background:var(--panel2);color:var(--gold)}
+  .right{margin-left:auto}
 
-  /* ---------- table ---------- */
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  thead th{text-align:left;font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.12em;
-    text-transform:uppercase;color:var(--faint);padding:10px 12px;border-bottom:1px solid var(--line);font-weight:600}
-  tbody td{padding:11px 12px;border-bottom:1px solid var(--line)}
-  tbody tr{cursor:pointer}
-  tbody tr:hover{background:var(--panel2)}
-
-  /* ---------- detail ---------- */
-  .detail-grid{display:grid;grid-template-columns:1.6fr 1fr;gap:16px;align-items:start}
-  .kv{display:flex;flex-direction:column;gap:3px;padding:10px 0;border-bottom:1px solid var(--line)}
+  /* detail */
+  .detail-grid{display:grid;grid-template-columns:1.55fr 1fr;gap:18px;align-items:start}
+  .kv{display:flex;flex-direction:column;gap:3px;padding:11px 0;border-bottom:1px solid var(--line)}
   .kv:last-child{border-bottom:none}
-  .kv .k{font-size:10px;font-family:ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
-  .kv .v{font-size:14px;color:var(--txt);word-break:break-word}
-  .block{margin-top:18px}
-  .block h4{font-size:11px;font-family:ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;
-    color:var(--brass);margin:0 0 9px}
-  .prose{white-space:pre-wrap;font-family:Georgia,"Times New Roman",serif;font-size:14.5px;line-height:1.6;color:#DCE6EB}
+  .kv .k{font-size:9.5px;font-family:ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .kv .v{font-size:14px;word-break:break-word}
+  .block{margin-top:20px}
+  .block h4{font-size:10px;font-family:ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);margin:0 0 10px}
+  .prose{white-space:pre-wrap;font-family:Georgia,"Times New Roman",serif;font-size:14.5px;line-height:1.65;color:#DCE7EC}
+
+  /* timeline */
   .timeline{list-style:none;margin:0;padding:0}
-  .timeline li{position:relative;padding:0 0 14px 20px;border-left:1px solid var(--line);margin-left:4px}
+  .timeline li{position:relative;padding:0 0 18px 22px;border-left:1px solid var(--line);margin-left:5px}
   .timeline li:last-child{border-left-color:transparent;padding-bottom:0}
-  .timeline li::before{content:"";position:absolute;left:-4px;top:4px;width:7px;height:7px;border-radius:50%;background:var(--brass)}
-  .timeline .t-date{font-size:10.5px;font-family:ui-monospace,monospace;color:var(--faint);letter-spacing:.06em}
-  .timeline .t-text{font-size:13.5px;color:var(--txt);margin-top:2px}
+  .timeline li::before{content:"";position:absolute;left:-5px;top:3px;width:9px;height:9px;border-radius:50%;background:var(--gold);border:2px solid var(--bg)}
+  .t-meta{font-size:9.5px;font-family:ui-monospace,monospace;letter-spacing:.06em;color:var(--faint);text-transform:uppercase}
+  .t-text{font-size:13.5px;margin-top:3px}
+  .t-type{color:var(--gold)}
 
-  .prompt-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .prompt-btns .btn{justify-content:flex-start;font-size:12.5px}
+  /* prompt / workspace output */
+  .out{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:18px;white-space:pre-wrap;
+    font-family:ui-monospace,monospace;font-size:12.5px;line-height:1.62;color:#C6D6DD;max-height:520px;overflow:auto}
+  .ws-actions{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+  .ws-actions .btn.active{background:var(--gold-soft);border-color:var(--gold);color:var(--gold)}
 
-  /* ---------- brain ---------- */
-  .brain-grid{display:grid;grid-template-columns:1fr;gap:14px}
-  .brain-sec textarea{min-height:auto}
-  .brain-sec.big textarea{min-height:120px}
+  /* empty */
+  .empty{text-align:center;padding:60px 24px;border:1px dashed var(--line-s);border-radius:var(--r);background:var(--panel)}
+  .empty .em{width:50px;height:50px;border-radius:13px;margin:0 auto 16px;display:grid;place-items:center;background:var(--panel2);color:var(--gold)}
+  .empty h3{margin:0 0 7px;font-size:17px;font-weight:600}
+  .empty p{margin:0 0 20px;color:var(--muted);font-size:13.5px}
+  .empty .row{display:flex;gap:11px;justify-content:center;flex-wrap:wrap}
 
-  /* ---------- prompt output ---------- */
-  .prompt-out{background:var(--ink);border:1px solid var(--line);border-radius:10px;padding:16px;
-    white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:12.5px;line-height:1.6;color:#CBDAE0;
-    max-height:440px;overflow:auto}
-
-  /* ---------- empty ---------- */
-  .empty{text-align:center;padding:54px 24px;border:1px dashed var(--line);border-radius:var(--radius);background:var(--panel)}
-  .empty .e-mark{width:48px;height:48px;border-radius:12px;margin:0 auto 14px;display:grid;place-items:center;
-    background:var(--panel2);border:1px solid var(--line);color:var(--brass)}
-  .empty h3{margin:0 0 6px;font-size:16px}
-  .empty p{margin:0 0 18px;color:var(--muted);font-size:13.5px}
-  .empty .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
-
-  /* ---------- modal ---------- */
-  .modal-scrim{position:fixed;inset:0;background:rgba(4,12,16,.66);z-index:60;display:flex;
-    align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto}
-  .modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;width:100%;max-width:640px;
-    padding:24px;box-shadow:0 24px 60px -20px rgba(0,0,0,.7)}
-  .modal-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
-  .modal-h h2{margin:0;font-size:18px}
-  .x{background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1;padding:4px}
+  /* modal */
+  .modal-scrim{position:fixed;inset:0;background:rgba(3,8,12,.7);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding:44px 16px;overflow-y:auto}
+  .modal{background:var(--panel);border:1px solid var(--line-s);border-radius:16px;width:100%;max-width:620px;padding:26px;box-shadow:0 30px 70px -24px rgba(0,0,0,.8)}
+  .modal.lg{max-width:680px}
+  .modal-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+  .modal-h h2{margin:0;font-size:19px;font-weight:620}
+  .x{background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;line-height:1;padding:2px 6px}
   .x:hover{color:var(--txt)}
-  .modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:6px}
+  .modal-foot{display:flex;justify-content:flex-end;gap:11px;margin-top:8px}
 
-  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--raise);
-    border:1px solid var(--brass);color:var(--txt);padding:11px 18px;border-radius:10px;font-size:13px;
-    z-index:80;box-shadow:0 12px 30px -12px rgba(0,0,0,.6);opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:var(--raise);border:1px solid var(--gold);
+    color:var(--txt);padding:12px 20px;border-radius:11px;font-size:13px;z-index:80;opacity:0;pointer-events:none;transition:opacity .2s;box-shadow:0 14px 34px -14px rgba(0,0,0,.7)}
   .toast.show{opacity:1}
 
-  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-  .seg button{background:transparent;border:none;color:var(--muted);padding:7px 13px;font-size:12.5px;cursor:pointer;font-family:inherit}
-  .seg button.active{background:var(--panel2);color:var(--brass)}
-
-  .muted{color:var(--muted)}
-  .faint{color:var(--faint)}
-  .mono{font-family:ui-monospace,monospace}
-  .right{margin-left:auto}
-  .nowrap{white-space:nowrap}
-
-  @media(max-width:860px){
-    .sidebar{transform:translateX(-100%)}
-    .sidebar.open{transform:translateX(0)}
-    .main{margin-left:0}
-    .topbar{display:flex}
-    .scrim.show{display:block}
-    .content{padding:20px 16px 60px}
-    .g-3,.g-2{grid-template-columns:1fr}
-    .detail-grid{grid-template-columns:1fr}
-    .field-row{grid-template-columns:1fr}
-    .prompt-btns{grid-template-columns:1fr}
+  @media(max-width:880px){
+    .sidebar{transform:translateX(-100%)} .sidebar.open{transform:translateX(0)}
+    .main{margin-left:0} .hamb{display:grid;place-items:center}
+    .topbar{padding:12px 16px} .content{padding:24px 16px 70px}
+    .g2,.detail-grid,.field-row{grid-template-columns:1fr}
   }
   @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -226,774 +198,588 @@
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <div class="brand-mark">K</div>
-      <div>
-        <div class="brand-name">Kweli</div>
-        <div class="brand-sub">Mission Control</div>
-      </div>
+      <div><div class="brand-name">Kweli Brain</div><div class="brand-sub">Institutional Intelligence</div></div>
     </div>
     <nav class="nav" id="nav"></nav>
   </aside>
-
   <div class="scrim" id="scrim" onclick="toggleSidebar(false)"></div>
-
   <div class="main">
     <div class="topbar">
       <button class="hamb" onclick="toggleSidebar(true)">&#9776;</button>
-      <div class="brand-name">Kweli Mission Control</div>
+      <div class="searchwrap">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="globalSearch" placeholder="Search companies, people, notes, objections, lessons, ideas…" autocomplete="off"
+          oninput="runSearch(this.value)" onfocus="runSearch(this.value)">
+        <div id="searchPanel"></div>
+      </div>
+      <button class="btn gold right" onclick="quickAdd()">+ Quick add</button>
     </div>
     <div class="content" id="content"></div>
   </div>
 </div>
-
 <div id="modal-root"></div>
 <div class="toast" id="toast"></div>
 
 <script>
-/* ============================================================ *
- *  KWELI MISSION CONTROL — single-file founder operating system
- *  Vanilla JS · localStorage · no backend · no build step
- * ============================================================ */
+/* ============================================================
+   KWELI BRAIN — Institutional Intelligence Platform (single file)
+   Vanilla JS · localStorage · no backend · no build step
+   ============================================================ */
+const STORE='kweli_brain_v2';
 
-const STORE = 'kweli_mc_v1';
+const CATEGORIES=["Labs","Insurance","Exporters","Banks/Lenders","Governance/Legal","Agriculture/FMCG","Professional Services","Investors","Other"];
+const STAGES=["Identified","Researched","Contacted","Replied","Meeting booked","Meeting done","Proposal sent","Pilot discussion","Pilot agreed","Closed","Paused"];
+const STATUSES=["Active","Won","Lost","On hold"];
+const INVEST_STATUS=["Researching","Contacted","Pitched","In discussion","Term sheet","Committed","Passed"];
+const WARMTH=["Warm","Neutral","Cold"];
+const WAITING_STAGES=["Contacted","Proposal sent"];
+const CLOSED=["Closed","Paused"];
+const STAGE_COLOR={"Identified":"#6E8794","Researched":"#7CA0B0","Contacted":"#C9A24B","Replied":"#D9B968","Meeting booked":"#4FA3D1","Meeting done":"#5FB0C9","Proposal sent":"#C9A24B","Pilot discussion":"#6FBE9E","Pilot agreed":"#46B98A","Closed":"#46B98A","Paused":"#5E7785"};
+const ACT_TYPES=["Note","Research","Email","Meeting","Proposal","Follow-up","Pilot","Stage"];
 
-/* ---------- constants ---------- */
-const CATEGORIES = ["Labs","Insurance","Exporters","Banks/Lenders","Governance/Legal","Agriculture/FMCG","Professional Services","Investors","Other"];
-const STAGES = ["Identified","Researched","Contacted","Replied","Meeting booked","Meeting done","Proposal sent","Pilot discussion","Pilot agreed","Closed","Paused"];
-const STATUSES = ["Active","Won","Lost","On hold"];
-const STAGE_COLOR = {
-  "Identified":"#6E8794","Researched":"#7CA0B0","Contacted":"#C9A24B","Replied":"#D9B968",
-  "Meeting booked":"#4FA3D1","Meeting done":"#5FB0C9","Proposal sent":"#C9A24B",
-  "Pilot discussion":"#6FBE9E","Pilot agreed":"#3FB984","Closed":"#3FB984","Paused":"#5F7C89"
+const WS_ACTIONS=[
+  {id:'research',label:'Research'},{id:'brief',label:'Meeting brief'},{id:'followup',label:'Follow-up'},
+  {id:'reply',label:'Reply'},{id:'pilot',label:'Pilot'},{id:'objections',label:'Objections'},
+  {id:'summary',label:'Summary'},{id:'brainupd',label:'Brain update'},{id:'investor',label:'Investor notes'}
+];
+const TASKS={
+  research:"TASK: Using only the pasted material and the Brain, map where high-value regulated documents move into and out of this organisation, who issues each, who relies on it, and the financial/legal/compliance risk if one were forged, altered, or never issued. Separate confirmed facts from [inferred]. End with the 1-2 documents most worth Kweli-verifying.",
+  brief:"TASK: Prepare a meeting brief. 5-6 discovery questions that surface where documents move and what a bad document costs them; 3 likely objections each with a one-line response (hold the precision rule); the recommended pilot in one line; 2-3 ROI metrics the pilot could move.",
+  followup:"TASK: Write a follow-up email from Juna using a DIFFERENT angle from previous touches. Under 150 words, one fresh hook (audit readiness, a peer signal, a specific document risk), one soft ask. No guilt, no 'just checking in'.",
+  reply:"TASK: The prospect's reply is in the pasted material. Read what they are really saying, then draft Juna's response under 150 words that moves toward a call or pilot without pushing, holding the precision rule. Note any objection worth logging.",
+  pilot:"TASK: Propose a tightly-scoped Kweli pilot. One document category, one business unit, the single measurable proof point, a success metric, a rough timeline, and the tier (design partner $10-15K or commercial pilot $20-35K). Hold the precision rule.",
+  objections:"TASK: List the 4-6 objections this organisation is most likely to raise, each with a crisp one-line response grounded in the Brain. Hold the precision rule. Flag any objection you cannot yet answer.",
+  summary:"TASK: From the pasted notes produce: a 3-line summary; action items (owner + date where stated); new insights; objections raised; recommended next steps; a draft follow-up under 150 words; and any suggested Brain or Lessons-Learned updates. Invent nothing not in the notes.",
+  brainupd:"TASK: From the pasted material, propose specific updates to the Kweli Brain. Quote the section name and give exact replacement/addition text. Only propose changes grounded in the material. Flag anything the founder must confirm.",
+  investor:"TASK: From the pasted material produce concise investor notes for Juna: what this investor cares about, likely questions, the strongest Kweli framing for them (e.g. digital public infrastructure for environmental trust; the lab/export beachhead; pricing and ACV), risks they will probe, and 3 sharp talking points. Do not invent the investor's portfolio, theses, or facts."
 };
-const CLOSED_STAGES = ["Closed","Paused"];
+const PLAYBOOK_MAP={"Labs":"labs","Insurance":"insurance","Exporters":"export","Agriculture/FMCG":"export","Banks/Lenders":"banking","Investors":"investors"};
 
-const PROMPT_TYPES = [
-  {id:'research',  label:'Research this company'},
-  {id:'fit',       label:'Score Kweli fit'},
-  {id:'champion',  label:'Find best champion'},
-  {id:'email',     label:'Draft outreach email'},
-  {id:'linkedin',  label:'Draft LinkedIn message'},
-  {id:'brief',     label:'Prepare meeting brief'},
-  {id:'reply',     label:'Handle prospect reply',   extra:"Paste the prospect's reply"},
-  {id:'followup',  label:'Write follow-up email',   extra:'Notes on previous touches (optional)'},
-  {id:'summarise', label:'Summarise meeting notes', extra:'Paste the messy meeting notes'},
-  {id:'brainupd',  label:'Update Kweli Brain from notes', extra:'Paste notes / learnings'},
+const BRAIN_SECTIONS=[
+  ["product","Product"],["industries","Industries"],["insurance","Insurance"],["labs","Labs"],
+  ["export","Export"],["banking","Banking"],["investors","Investors"],["pricing","Pricing"],
+  ["pilotFramework","Pilot Framework"],["objections","Objections"],["futureIdeas","Future Ideas"]
 ];
 
-const TASKS = {
-  research:"TASK: Research this company. Map where high-value regulated documents move into and out of it, who issues each, who relies on it, and the financial/legal/compliance risk if one were forged, altered, or never issued. Separate confirmed facts from anything [inferred]. End with the 1-2 documents most worth Kweli-verifying.",
-  fit:"TASK: Score Kweli fit. Begin with a single line: VERDICT: Strong | Plausible | Weak | No fit -- one-line why. Then: WHERE KWELI FITS (tie to specific documents and the risk they carry); WHERE KWELI DOES NOT FIT HERE (hold the precision rule, be honest); RECOMMENDED PILOT (one document category, one business unit, the measurable proof point, and tier: design partner $10-15K or commercial pilot $20-35K). If No fit, say plainly: do not pursue, and why.",
-  champion:"TASK: Identify the best champion. Give 2-4 roles by title/function; for each, why they would care (tie to a document/risk) and what they will be sceptical of. Name a real individual ONLY with a verifiable public source you can cite; otherwise give the role and exactly how Juna can find the right person. Never invent a name or email.",
-  email:"TASK: Draft ONE outreach email from Juna (Founder & CEO, Kweli). Under 150 words, founder-led and human, no hype. One specific hook tied to a document/risk for this org; one soft ask (a short call or a design-partner conversation). Include a SUBJECT line. Then 2-3 rationale bullets and what to verify before sending.",
-  linkedin:"TASK: Draft a LinkedIn first message from Juna. Under 80 words, warm and specific, no pitch-dump, one reason to talk. No invented mutual connections or facts.",
-  brief:"TASK: Prepare a meeting brief. 5-6 discovery questions that surface where high-value documents move and what a bad document costs them; 3 likely objections each with a one-line response (hold the precision rule); the recommended pilot in one line; 2-3 ROI metrics the pilot could move.",
-  reply:"TASK: The prospect's reply is in EXTRA CONTEXT. Read what they are really saying, then draft Juna's response under 150 words that moves toward a call or pilot without pushing, holding the precision rule. Note any objection worth logging.",
-  followup:"TASK: Write a follow-up email from Juna using a DIFFERENT angle from previous touches (see notes / EXTRA CONTEXT). Under 150 words, one fresh hook (audit readiness, a peer signal, a specific document risk), one soft ask. No guilt, no 'just checking in'.",
-  summarise:"TASK: From the meeting notes in EXTRA CONTEXT produce: a 3-line summary; action items (owner + date where stated); new insights; objections raised; recommended next steps; a draft follow-up email under 150 words; and any suggested updates to the Kweli Brain. Do not invent anything not in the notes.",
-  brainupd:"TASK: From the notes in EXTRA CONTEXT, propose specific updates to the Kweli Brain. Quote the section name and give the exact replacement or addition text. Only propose changes grounded in the notes. Flag anything the founder must confirm.",
-};
+function defaultBrain(){return {
+  product:"Kweli is verification infrastructure. An organisation registers a cryptographic fingerprint (hash) of a document on the Base blockchain; the document itself is never uploaded or stored - only the fingerprint and verification metadata are anchored. Anyone can later upload the document; Kweli hashes it and compares. Three results: VERIFIED (authentic, unaltered issued document), VERIFICATION FAILED (altered or not the issued version), DOCUMENT NOT FOUND (no record of issuance). The original never leaves the customer; Kweli stores no document contents.\n\nWHAT KWELI IS NOT: not a document-management system, not fraud-detection software, not workflow software, not 'a blockchain product' - the chain is plumbing, never the pitch.\n\nPRECISION RULE (non-negotiable): Kweli proves authenticity of issuance - that a document is the genuine, unaltered one a named issuer registered. It does NOT prove the contents are clinically, factually, or financially correct. A genuinely-issued report with false numbers still verifies. Never claim Kweli detects content fraud, inflated-but-real invoices, or staged events with genuine paperwork. Holding this line keeps the pitch credible.",
+  industries:"Target sectors share one trait: high-value regulated documents that a third party must trust but did not issue. Leading beachhead = agricultural export labs and certification bodies (owner-operated gatekeepers with mandate power). Adjacent: exporters, banks/lenders, insurers (verifier-side), governance/legal, and environmental/impact bodies. Sequence: land issuer-side gatekeepers first, prove the mandate mechanic via unprompted downstream verification, then approach verifier-side buyers.",
+  insurance:"Insurers are VERIFIERS, not issuers - value only appears once issuers (hospitals, garages, assessors) register documents. Hold the precision rule hard: Kweli does NOT catch inflated-but-real invoices or staged claims; it removes the forged/altered/fabricated category. Best play = Model A anchor-mandate: the insurer mandates its provider panel register documents so claims arrive pre-verified. Slow multi-stakeholder enterprise sale - pursue only with a warm anchor. Reimbursement claim documents are a strong entry wedge. Pilot: one document type across a small provider panel.",
+  labs:"Labs issue test reports / certificates of analysis relied on by exporters, buyers, and regulators. Risk: forged or altered COAs cause rejected shipments, food-safety liability, lost market access. Angle: the lab registers each report at issuance; downstream parties verify instantly; the lab becomes a gatekeeper that can mandate verification across its client network (Model A). Pilot: one report type, one season, measure unprompted downstream verifications. Champions: MD/CEO, Quality/Lab Manager, Commercial lead. Leading beachhead wedge.",
+  export:"Exporters move phytosanitary certificates, COAs, certificates of origin, fumigation certs across borders; importers, customs, and buyers rely on them. Risk: forged certs cause shipment rejection, fraud, reputational damage. Angle: the certifier or exporter registers each certificate at issuance; importers and customs verify on receipt. Anchor-mandate: a certification body or large buyer mandates verification across its supplier network. Pilot: one certificate type on one export corridor.",
+  banking:"Lenders rely on bank statements, audited financials, valuation reports, KYC documents, and trade-finance paperwork. Risk: forged statements or valuations drive credit losses. Angle: issuers (auditors, valuers, warehouse operators) register documents; the lender verifies at underwriting, removing fabricated/altered documents from the file. Asset financiers (logbooks, invoices, insurance certificates) are a natural fit. Pilot: one document type inside loan origination.",
+  investors:"Strongest framing: Kweli as digital public infrastructure for environmental trust - unlocking climate tech, GovTech, digital public goods, and carbon-market streams at once. Thematic hooks: Article 6.4 Paris MRV, voluntary carbon market integrity, anti-greenwashing pressure. For commercial investors lead with the lab/export beachhead, the anchor-mandate engine, blended ACV ~$70K, and a clear pre-seed use of funds. Raising $150K pre-seed for ~18 months runway.",
+  pricing:"Hybrid annual subscription. Value metric = verification volume x document categories x business units (GRC subscription-on-complexity). Pre-seed motion: paid design partners $10-15K; commercial pilots $20-35K. Balanced-scenario blended ACV ~$70K. Strongest long-term engine = Model A anchor-mandate, where a concentrated verifier or gatekeeper mandates issuer participation.",
+  pilotFramework:"A pilot must produce a measurable proof point: documents registered, downstream verifications performed, ideally one bad document caught/prevented. Tight scope, time-boxed, single document category, single business unit. Design partner ($10-15K) for co-building; commercial pilot ($20-35K) for a buyer with budget.",
+  objections:"'Isn't this blockchain hype?' -> The chain is plumbing; what you buy is a yes/no on whether a document is the authentic issued one. 'We already have fraud detection.' -> Different problem - that scores content patterns; Kweli answers a prior question: is this even the real document? 'Does this prove the data is correct?' -> No, and we never claim it - it removes the forged/altered/fabricated category. 'Where is our document stored?' -> Nowhere; we hash it and anchor only a fingerprint. 'Why not just call the issuer?' -> That manual check is exactly what Kweli replaces.",
+  futureIdeas:"Park ideas here before they become commitments. Candidates: verifier-side self-serve verification portal; certification-body partnership template; carbon-MRV document pack; embeddable 'Verify with Kweli' badge for issuers."
+};}
+const OLD_TO_NEW={whatIs:'product',whatIsNot:'product',precision:'product',playbookInsurance:'insurance',playbookLabs:'labs',playbookExport:'export',playbookBanking:'banking',pricing:'pricing',pilot:'pilotFramework',objections:'objections'};
 
-const PLAYBOOK_MAP = {
-  "Labs":"playbookLabs","Insurance":"playbookInsurance","Exporters":"playbookExport",
-  "Agriculture/FMCG":"playbookExport","Banks/Lenders":"playbookBanking"
-};
-
-/* ---------- default Kweli Brain ---------- */
-const BRAIN_SECTIONS = [
-  ["whatIs","What Kweli is",false],
-  ["whatIsNot","What Kweli is NOT",false],
-  ["precision","Precision rule — issuance vs correctness",false],
-  ["playbookInsurance","Insurance playbook",true],
-  ["playbookLabs","Labs playbook",true],
-  ["playbookExport","Export playbook",true],
-  ["playbookBanking","Banking playbook",true],
-  ["objections","Objection handling",true],
-  ["pricing","Pricing",false],
-  ["pilot","Pilot framework",false],
-  ["team","Team",false],
-  ["pipeline","Existing pipeline",false],
-];
-
-function defaultBrain(){
-  return {
-    whatIs:"Kweli is verification infrastructure. An organisation registers a cryptographic fingerprint (hash) of a document on the Base blockchain. The document itself is never uploaded or stored - only the fingerprint and verification metadata are anchored. Later anyone uploads the document; Kweli hashes it and compares. Three results: VERIFIED (authentic, unaltered issued document), VERIFICATION FAILED (altered or not the issued version), DOCUMENT NOT FOUND (no record of issuance). The original document never leaves the customer; Kweli stores no document contents.",
-    whatIsNot:"Not a document-management system. Not fraud-detection software. Not workflow software. Not 'a blockchain product' - the chain is plumbing, never the pitch. It does not store, read, or process document contents.",
-    precision:"Kweli proves authenticity of issuance - that a document is the genuine, unaltered one a named issuer registered. It does NOT prove the contents are clinically, factually, or financially correct. A genuinely-issued report with honest-looking but false numbers still verifies. Never claim Kweli detects content fraud, inflated-but-real invoices, or staged events with genuine paperwork. Holding this line is what keeps the pitch credible.",
-    playbookInsurance:"Insurers are VERIFIERS, not issuers - they get value only once issuers (hospitals, garages, assessors) register documents. Hold the precision rule hard: Kweli does NOT catch inflated-but-real invoices or staged claims; it removes the forged / altered / fabricated category (fake hospital invoices, altered assessment reports, fabricated abstracts). Best play = Model A anchor-mandate: the insurer mandates that its provider panel register documents, so claims arrive pre-verified. This is a slow, multi-stakeholder enterprise sale - pursue only with a warm anchor. Pilot: one document type (e.g. garage assessment reports) across a small provider panel.",
-    playbookLabs:"Labs issue test reports / certificates of analysis relied on by exporters, buyers, and regulators. Risk: forged or altered COAs cause rejected shipments, food-safety liability, and lost market access. Kweli angle: the lab registers each report's fingerprint at issuance; any downstream party verifies instantly; the lab becomes a trusted gatekeeper that can mandate verification across its client network (Model A). Pilot: one report type, one season, measure unprompted downstream verifications. Champions: MD/CEO, Quality/Lab Manager, Commercial lead. This is the leading beachhead wedge.",
-    playbookExport:"Exporters move phytosanitary certificates, COAs, certificates of origin, and fumigation certs across borders; importers, customs, and buyers rely on them. Risk: forged certs cause shipment rejection, fraud, and reputational damage. Kweli angle: the certifier or exporter registers each certificate at issuance; importers and customs verify on receipt. Anchor-mandate: a certification body or a large buyer mandates verification across its supplier network. Pilot: one certificate type on one export corridor.",
-    playbookBanking:"Lenders rely on bank statements, audited financials, valuation reports, KYC documents, and trade-finance paperwork. Risk: forged statements or valuations drive credit losses. Kweli angle: the issuers (auditors, valuers, warehouse operators) register documents; the lender verifies at underwriting, removing fabricated and altered documents from the file. Asset financiers (e.g. logbooks, invoices, insurance certificates) are a natural fit. Pilot: one document type inside loan origination.",
-    objections:"'Isn't this blockchain hype?' -> The chain is plumbing; what you buy is a yes/no answer on whether a document is the authentic issued one. 'We already have fraud detection.' -> Different problem - that scores content patterns; Kweli answers a prior question: is this even the real document? Complementary. 'Does this prove the data is correct?' -> No, and we never claim it - it removes the forged/altered/fabricated category so your people focus on content. 'Where is our document stored?' -> Nowhere; we hash it and anchor only a fingerprint. 'Why not just call the issuer?' -> That manual check is exactly what Kweli replaces - instant, self-serve, at scale.",
-    pricing:"Hybrid annual subscription. Value metric = verification volume x document categories x business units (GRC subscription-on-complexity style). Pre-seed motion: paid design partners $10-15K; commercial pilots $20-35K. Balanced-scenario blended ACV ~$70K. Strongest long-term engine = Model A anchor-mandate, where a concentrated verifier or gatekeeper mandates issuer participation.",
-    pilot:"A pilot must produce a measurable proof point: documents registered, downstream verifications performed, ideally one bad document caught or prevented. Tight scope, time-boxed, single document category, single business unit. Design partner ($10-15K) for co-building; commercial pilot ($20-35K) for a buyer with budget.",
-    team:"Juna - Founder & CEO. Mason Strohl - CTO. Paris Foot - Business Development. Based in Nairobi, under EAX Global.",
-    pipeline:"Engaged, no binding agreements: Cropnuts, Kentaste, Watu Credit, Turaco, Spencer West, Save the Elephants.",
-  };
-}
-
-/* ---------- date helpers ---------- */
+/* dates */
 function iso(d){return d.toISOString().slice(0,10)}
 function today(){return iso(new Date())}
 function addDays(n){const d=new Date();d.setDate(d.getDate()+n);return iso(d)}
-function fmtDate(s){if(!s)return"";const d=new Date(s+"T00:00:00");return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}
-function daysUntil(s){if(!s)return null;const a=new Date(s+"T00:00:00"),b=new Date(today()+"T00:00:00");return Math.round((a-b)/86400000)}
+function fmtDate(s){if(!s)return"";return new Date(s+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}
+function daysUntil(s){if(!s)return null;return Math.round((new Date(s+"T00:00:00")-new Date(today()+"T00:00:00"))/864e5)}
+function uid(p){return (p||'o')+Math.random().toString(36).slice(2,9)}
 
-/* ---------- demo data ---------- */
-function demoData(){
-  const mk=(o)=>Object.assign({id:uid(),timeline:[],status:"Active",notes:"",meetingNotes:"",objections:"",website:"",linkedin:"",email:""},o);
-  return [
-    mk({company:"Cropnuts",category:"Labs",contactName:"",contactRole:"Managing Director",stage:"Researched",priority:88,
+/* demo */
+function seed(){
+  const opps=[
+    {company:"Cropnuts",category:"Labs",contactRole:"Managing Director",stage:"Researched",priority:88,status:"Active",
+      website:"https://www.cropnuts.com",linkedin:"",email:"",
       angle:"Lab registers each certificate of analysis at issuance; exporters and buyers verify instantly. Cropnuts becomes the gatekeeper that can mandate verification across its testing clients (Model A).",
       pilot:"One COA type for a single export crop, one season; measure unprompted downstream verifications.",
-      lastInteraction:addDays(-9),followUp:addDays(-2),nextAction:"Send tailored COA-verification angle + propose 20-min call",
-      website:"https://www.cropnuts.com",
-      timeline:[{date:addDays(-9),text:"Identified as leading beachhead lab. Strong gatekeeper potential."},{date:addDays(-2),text:"Drafted research notes; follow-up due."}]}),
-    mk({company:"Kentaste",category:"Agriculture/FMCG",contactRole:"Head of Quality / Export",stage:"Identified",priority:74,
+      notes:"",meetingNotes:"",objections:"",nextAction:"Send tailored COA-verification angle + propose 20-min call",
+      lastInteraction:addDays(-9),followUp:addDays(-2),
+      timeline:[{date:addDays(-14),type:"Note",text:"Added to pipeline as leading beachhead lab."},{date:addDays(-9),type:"Research",text:"Mapped COA flow to exporters/buyers; strong gatekeeper potential."}]},
+    {company:"Kentaste",category:"Agriculture/FMCG",contactRole:"Head of Quality / Export",stage:"Identified",priority:74,status:"Active",
+      website:"",linkedin:"",email:"",
       angle:"Coconut-product exporter relying on COAs, organic and phytosanitary certificates; forged certs risk shipment rejection. Kweli anchors each cert at issuance for buyer/customs verification.",
       pilot:"Phytosanitary or organic certificate on one export corridor; verify on importer receipt.",
-      lastInteraction:addDays(-14),followUp:addDays(3),nextAction:"Map which certificates carry most rejection risk before outreach",
-      timeline:[{date:addDays(-14),text:"Added to pipeline. Needs document-flow mapping."}]}),
-    mk({company:"Turaco",category:"Insurance",contactRole:"Head of Claims / Operations",stage:"Contacted",priority:69,
-      angle:"Insurtech verifier - precision rule applies. Kweli removes forged/altered claim documents (fake invoices, altered assessments). Best as Model A: mandate provider panel to register documents.",
+      notes:"",meetingNotes:"",objections:"",nextAction:"Map which certificates carry most rejection risk before outreach",
+      lastInteraction:addDays(-14),followUp:addDays(3),
+      timeline:[{date:addDays(-14),type:"Note",text:"Added; needs document-flow mapping."}]},
+    {company:"Turaco",category:"Insurance",contactRole:"Head of Claims / Operations",stage:"Contacted",priority:69,status:"Active",
+      website:"",linkedin:"",email:"",
+      angle:"Insurtech verifier - precision rule applies. Kweli removes forged/altered claim documents. Best as Model A: mandate provider panel to register documents.",
       pilot:"One claim-document type across a small provider panel; pre-verified claims intake.",
-      lastInteraction:addDays(-5),followUp:today(),nextAction:"Follow up on intro email - propose discovery call",
-      timeline:[{date:addDays(-5),text:"Sent first outreach. Awaiting reply - follow-up today."}]}),
-    mk({company:"Watu Credit",category:"Banks/Lenders",contactRole:"Head of Credit / Risk",stage:"Replied",priority:71,
-      angle:"Asset financier relying on logbooks, invoices, and insurance certificates. Kweli verifies these at origination, removing fabricated/altered documents from the credit file.",
+      notes:"",meetingNotes:"",objections:"",nextAction:"Follow up on intro email - propose discovery call",
+      lastInteraction:addDays(-5),followUp:today(),
+      timeline:[{date:addDays(-5),type:"Email",text:"Sent first outreach; awaiting reply."}]},
+    {company:"Watu Credit",category:"Banks/Lenders",contactRole:"Head of Credit / Risk",stage:"Replied",priority:71,status:"Active",
+      website:"",linkedin:"",email:"",
+      angle:"Asset financier relying on logbooks, invoices, insurance certificates. Kweli verifies these at origination, removing fabricated/altered documents from the credit file.",
       pilot:"Insurance certificate or logbook verification inside loan origination, one branch.",
-      lastInteraction:addDays(-3),followUp:addDays(5),nextAction:"Answer their question on data privacy; reiterate no contents stored",
-      objections:"Asked where documents are stored - clarify: nowhere, only a fingerprint is anchored.",
-      timeline:[{date:addDays(-8),text:"Outreach sent."},{date:addDays(-3),text:"Replied with interest + privacy question."}]}),
-    mk({company:"Spencer West",category:"Governance/Legal",contactRole:"Partner",stage:"Identified",priority:52,
-      angle:"Law firm handling documents whose authenticity matters in transactions and disputes. Possible verifier-side referrer rather than direct issuer; explore use cases carefully.",
+      notes:"",meetingNotes:"",objections:"Asked where documents are stored - clarify: nowhere, only a fingerprint is anchored.",nextAction:"Answer data-privacy question; reiterate no contents stored",
+      lastInteraction:addDays(-3),followUp:addDays(5),
+      timeline:[{date:addDays(-8),type:"Email",text:"Outreach sent."},{date:addDays(-3),type:"Email",text:"Replied with interest + privacy question."}]},
+    {company:"Spencer West",category:"Governance/Legal",contactRole:"Partner",stage:"Identified",priority:52,status:"Active",
+      website:"",linkedin:"",email:"",
+      angle:"Law firm handling documents whose authenticity matters in transactions and disputes. Possibly a verifier-side referrer rather than direct issuer.",
       pilot:"Undetermined - run a fit-scoring pass before committing time.",
-      lastInteraction:addDays(-20),followUp:addDays(10),nextAction:"Run Kweli-fit scoring; may be low fit",
-      timeline:[{date:addDays(-20),text:"Added speculatively. Fit unclear - score before pursuing."}]}),
-    mk({company:"Save the Elephants",category:"Other",contactRole:"Programmes / Partnerships Lead",stage:"Identified",priority:58,
-      angle:"Conservation NGO producing impact and conservation records relied on by funders and carbon/ESG buyers. Kweli anchors records at issuance for funder verification (digital public infrastructure for environmental trust).",
+      notes:"",meetingNotes:"",objections:"",nextAction:"Run Kweli-fit scoring; may be low fit",
+      lastInteraction:addDays(-20),followUp:addDays(11),
+      timeline:[{date:addDays(-20),type:"Note",text:"Added speculatively; fit unclear."}]},
+    {company:"Save the Elephants",category:"Other",contactRole:"Programmes / Partnerships Lead",stage:"Identified",priority:58,status:"Active",
+      website:"",linkedin:"",email:"",
+      angle:"Conservation NGO producing impact records relied on by funders and carbon/ESG buyers. Kweli anchors records at issuance for funder verification (environmental-trust framing).",
       pilot:"One conservation/impact report type verified for a specific funder.",
-      lastInteraction:addDays(-16),followUp:addDays(14),nextAction:"Identify which records funders most need to trust",
-      timeline:[{date:addDays(-16),text:"Added under environmental-trust framing."}]}),
+      notes:"",meetingNotes:"",objections:"",nextAction:"Identify which records funders most need to trust",
+      lastInteraction:addDays(-16),followUp:addDays(16),
+      timeline:[{date:addDays(-16),type:"Note",text:"Added under environmental-trust framing."}]},
+    {company:"Antler Nairobi",category:"Investors",contactRole:"Partner",stage:"Identified",priority:64,status:"Active",investmentStatus:"Researching",
+      website:"https://www.antler.co",linkedin:"",email:"",
+      angle:"Early-stage investor. Frame Kweli as digital public infrastructure for environmental trust + the lab/export beachhead. $150K pre-seed.",
+      pilot:"N/A - investor.",
+      notes:"Check current cohort timing and eligibility before reaching out.",meetingNotes:"",objections:"",nextAction:"Confirm next Nairobi cohort dates",
+      lastInteraction:addDays(-12),followUp:addDays(7),
+      timeline:[{date:addDays(-12),type:"Note",text:"Added to investor pipeline (very early-stage fit)."}]}
+  ].map(o=>Object.assign({id:uid()},o));
+  const find=n=>opps.find(o=>o.company===n);
+  const people=[
+    {id:uid('p'),name:"Peter",companyId:(find("Turaco")||{}).id||"",company:"Turaco",role:"Claims contact",email:"",linkedin:"",relationship:"Industry source",warmth:"Warm",lastInteraction:addDays(-6),nextAction:"Ask for intro to a provider-panel lead",notes:"Source of the reimbursement-claims insight. Verify full name and exact role."},
+    {id:uid('p'),name:"Cropnuts MD (to confirm)",companyId:(find("Cropnuts")||{}).id||"",company:"Cropnuts",role:"Managing Director",email:"",linkedin:"",relationship:"Target champion",warmth:"Cold",lastInteraction:"",nextAction:"Identify and verify name via leadership page / LinkedIn",notes:"Decision-maker for a lab mandate pilot."}
   ];
+  const lessons=[
+    {id:uid('l'),title:"Reimbursement claims are the strongest insurance entry point",date:addDays(-6),category:"Insurance",source:"Conversation with Peter",description:"Reimbursement claim documents move through a predictable provider->insurer path with clear forgery exposure.",impact:"Reframed the insurance approach toward reimbursement claim documents and a provider-panel mandate.",related:"Turaco"},
+    {id:uid('l'),title:"Certificate verification resonates with exporters",date:addDays(-14),category:"Export",source:"Kentaste",description:"Export certificates (phytosanitary, organic, COA) carry direct shipment-rejection risk if forged.",impact:"Confirmed certificate verification as a concrete, high-stakes wedge for FMCG exporters.",related:"Kentaste"},
+    {id:uid('l'),title:"Lab reports are a strong beachhead",date:addDays(-9),category:"Labs",source:"Cropnuts",description:"Labs sit at an issuance chokepoint and can mandate verification across their client network.",impact:"Solidified agricultural labs as the leading beachhead and Model A anchor.",related:"Cropnuts"}
+  ];
+  return {opps,people,lessons,brain:defaultBrain(),version:2};
 }
 
-/* ---------- state ---------- */
-function uid(){return 'o'+Math.random().toString(36).slice(2,9)}
-let state = load();
-
+/* state */
+let state=load();
+function migrateBrain(b){const nb=defaultBrain();if(!b)return nb;
+  if(b.product||b.industries){return Object.assign(nb,b);} // already v2
+  Object.keys(OLD_TO_NEW).forEach(k=>{if(b[k]){const tk=OLD_TO_NEW[k];nb[tk]=(k==='whatIs'||k==='whatIsNot'||k==='precision')?nb[tk]:b[k];}});
+  return nb;}
 function load(){
-  try{
-    const raw = localStorage.getItem(STORE);
-    if(raw){const s=JSON.parse(raw); s.brain=Object.assign(defaultBrain(),s.brain||{}); return s;}
-  }catch(e){}
-  const fresh = {opps:demoData(), brain:defaultBrain(), seededDemo:true};
-  localStorage.setItem(STORE, JSON.stringify(fresh));
-  return fresh;
+  try{const raw=localStorage.getItem(STORE);if(raw){const s=JSON.parse(raw);
+    s.brain=migrateBrain(s.brain);s.people=s.people||[];s.lessons=s.lessons||[];s.opps=s.opps||[];
+    s.opps.forEach(o=>{o.timeline=o.timeline||[]});return s;}}catch(e){}
+  // migrate from v1 if present
+  try{const v1=localStorage.getItem('kweli_mc_v1');if(v1){const s=JSON.parse(v1);
+    const ns={opps:(s.opps||[]).map(o=>Object.assign({timeline:[]},o)),people:[],lessons:[],brain:migrateBrain(s.brain),version:2};
+    localStorage.setItem(STORE,JSON.stringify(ns));return ns;}}catch(e){}
+  const fresh=seed();localStorage.setItem(STORE,JSON.stringify(fresh));return fresh;
 }
-function save(){localStorage.setItem(STORE, JSON.stringify(state)); refreshBadge();}
+function save(){localStorage.setItem(STORE,JSON.stringify(state));renderNav();}
 
-/* ---------- routing ---------- */
-let route = {view:'dashboard', id:null, oppView:'cards', promptType:'research', promptCompany:'', promptExtra:'', meetingCompany:'', meetingNotes:'', oppFilter:{q:'',cat:'',stage:'',sort:'priority'}};
-
-const NAV = [
-  {id:'dashboard', label:'Dashboard', icon:'grid'},
-  {id:'opportunities', label:'Opportunities', icon:'list'},
-  {id:'followups', label:'Follow-ups', icon:'clock'},
-  {id:'industries', label:'Industries', icon:'layers'},
+/* routing */
+let route={view:'dashboard',id:null,companyView:'cards',
+  oppFilter:{q:'',cat:'',stage:'',sort:'priority'},
+  ws:{task:'research',company:'',text:''}};
+const NAV=[
+  {id:'dashboard',label:'Today',icon:'home'},
+  {id:'companies',label:'Companies',icon:'list'},
+  {id:'people',label:'People',icon:'people'},
+  {id:'followups',label:'Follow-ups',icon:'clock'},
+  {id:'investors',label:'Investors',icon:'invest'},
   {sect:'Intelligence'},
-  {id:'brain', label:'Kweli Brain', icon:'book'},
-  {id:'prompts', label:'Prompt Generator', icon:'spark'},
-  {id:'meeting', label:'Meeting Notes', icon:'doc'},
+  {id:'workspace',label:'AI Workspace',icon:'spark'},
+  {id:'lessons',label:'Lessons Learned',icon:'bulb'},
+  {id:'knowledge',label:'Knowledge Base',icon:'book'},
   {sect:'System'},
-  {id:'settings', label:'Settings / Backup', icon:'gear'},
+  {id:'settings',label:'Settings / Backup',icon:'gear'}
 ];
+function ICON(n){const p={
+  home:'<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>',
+  list:'<rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/>',
+  people:'<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5"/><path d="M16 6.5a3 3 0 0 1 0 6"/><path d="M21 20c0-2.6-1.6-4.2-4-4.7"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  invest:'<path d="M3 17l5-5 4 4 8-9"/><path d="M16 7h4v4"/>',
+  spark:'<path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><path d="M6 6l3 3M15 15l3 3M18 6l-3 3M9 15l-3 3"/>',
+  bulb:'<path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10c1 1 1.5 2 1.5 3h5c0-1 .5-2 1.5-3a6 6 0 0 0-4-10z"/>',
+  book:'<path d="M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"/><path d="M4 4v14"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 13a7 7 0 0 0 0-2l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1L15 3H9l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5L4.6 11a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1L9 21h6l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5z"/>'
+}[n]||'';return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';}
+function renderNav(){const od=overdue().length;
+  document.getElementById('nav').innerHTML=NAV.map(n=>{
+    if(n.sect)return '<div class="nav-sect">'+n.sect+'</div>';
+    const b=(n.id==='followups'&&od)?'<span class="nav-badge">'+od+'</span>':'';
+    return '<div class="nav-item'+(route.view===n.id?' active':'')+'" onclick="go(\''+n.id+'\')">'+ICON(n.icon)+'<span>'+n.label+'</span>'+b+'</div>';
+  }).join('');}
+function go(v,id){route.view=v;if(id!==undefined)route.id=id;clearSearch();toggleSidebar(false);window.scrollTo(0,0);render();}
+function toggleSidebar(o){const sb=document.getElementById('sidebar'),sc=document.getElementById('scrim');if(o===undefined)o=!sb.classList.contains('open');sb.classList.toggle('open',o);sc.classList.toggle('show',o);}
 
-function ICON(name){
-  const p={
-    grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
-    list:'<rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/>',
-    clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-    layers:'<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/>',
-    book:'<path d="M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4z"/><path d="M4 4v14"/>',
-    spark:'<path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><path d="M6 6l3 3M15 15l3 3M18 6l-3 3M9 15l-3 3"/>',
-    doc:'<path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/>',
-    gear:'<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.4 1a7 7 0 0 0-1.7-1L14.5 2h-5l-.3 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.5L3 11a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 1.7 1L9.5 22h5l.3-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/>',
-  }[name]||'';
-  return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';
-}
-
-function renderNav(){
-  const overdue = overdueOpps().length;
-  document.getElementById('nav').innerHTML = NAV.map(n=>{
-    if(n.sect) return '<div class="nav-sect">'+n.sect+'</div>';
-    const badge = (n.id==='followups' && overdue) ? '<span class="nav-badge">'+overdue+'</span>' : '';
-    return '<div class="nav-item'+(route.view===n.id?' active':'')+'" onclick="go(\''+n.id+'\')">'+ICON(n.icon)+'<span>'+n.label+'</span>'+badge+'</div>';
-  }).join('');
-}
-function refreshBadge(){renderNav()}
-
-function go(view, id){route.view=view; if(id!==undefined)route.id=id; toggleSidebar(false); window.scrollTo(0,0); render();}
-function toggleSidebar(open){
-  const sb=document.getElementById('sidebar'), sc=document.getElementById('scrim');
-  if(open===undefined) open=!sb.classList.contains('open');
-  sb.classList.toggle('open',open); sc.classList.toggle('show',open);
-}
-
-/* ---------- helpers ---------- */
-function esc(s){return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+/* helpers */
+function esc(s){return(s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function byId(id){return state.opps.find(o=>o.id===id)}
-function isActive(o){return !CLOSED_STAGES.includes(o.stage) && o.status==='Active'}
-function overdueOpps(){return state.opps.filter(o=>isActive(o)&&o.followUp&&daysUntil(o.followUp)<0)}
-function todayOpps(){return state.opps.filter(o=>isActive(o)&&o.followUp&&daysUntil(o.followUp)===0)}
-function scoreColor(n){n=+n||0; if(n>=80)return 'var(--brass)'; if(n>=60)return 'var(--green)'; if(n>=40)return 'var(--muted)'; return 'var(--faint)'}
-function stageChip(s){return '<span class="chip"><span class="dot" style="background:'+(STAGE_COLOR[s]||'var(--muted)')+'"></span>'+esc(s)+'</span>'}
-function dueTag(o){
-  if(!o.followUp||!isActive(o)) return '';
+function isActive(o){return !CLOSED.includes(o.stage)&&o.status==='Active'}
+function isInv(o){return o.category==='Investors'}
+function overdue(){return state.opps.filter(o=>isActive(o)&&o.followUp&&daysUntil(o.followUp)<0)}
+function dueToday(){return state.opps.filter(o=>isActive(o)&&o.followUp&&daysUntil(o.followUp)===0)}
+function lastTouch(o){const ds=(o.timeline||[]).map(t=>t.date).filter(Boolean);ds.push(o.lastInteraction);return ds.filter(Boolean).sort().slice(-1)[0]||''}
+function scoreColor(n){n=+n||0;return n>=80?'var(--gold)':n>=60?'var(--green)':n>=40?'var(--muted)':'var(--faint)'}
+function urgency(o){if(!o.followUp||!isActive(o))return{cls:'none',label:'No follow-up',color:'var(--faint)'};
   const d=daysUntil(o.followUp);
-  if(d<0) return '<span class="due-tag overdue">overdue '+Math.abs(d)+'d</span>';
-  if(d===0) return '<span class="due-tag today">due today</span>';
-  if(d<=7) return '<span class="due-tag soon">in '+d+'d</span>';
-  return '<span class="due-tag soon">'+fmtDate(o.followUp)+'</span>';
-}
+  if(d<0)return{cls:'overdue',label:'Overdue '+Math.abs(d)+'d',color:'var(--red)'};
+  if(d===0)return{cls:'today',label:'Due today',color:'var(--amber)'};
+  if(d<=7)return{cls:'week',label:'In '+d+'d',color:'var(--green)'};
+  return{cls:'later',label:fmtDate(o.followUp),color:'var(--muted)'};}
+function udot(o){const u=urgency(o);return '<span class="udot" style="background:'+u.color+'"></span>'}
+function stageChip(s){return '<span class="chip"><span class="dot" style="background:'+(STAGE_COLOR[s]||'var(--muted)')+'"></span>'+esc(s)+'</span>'}
+function peopleOf(oppId){return state.people.filter(p=>p.companyId===oppId)}
 
-/* ============================================================ *
- *  VIEWS
- * ============================================================ */
-function render(){
-  renderNav();
-  const c=document.getElementById('content');
-  const v={dashboard:vDashboard,opportunities:vOpps,detail:vDetail,followups:vFollowups,
-    industries:vIndustries,brain:vBrain,prompts:vPrompts,meeting:vMeeting,settings:vSettings}[route.view]||vDashboard;
-  c.innerHTML=v();
-  afterRender();
-}
+/* ============ RENDER ============ */
+function render(){renderNav();
+  const v={dashboard:vDash,companies:vCompanies,investors:vInvestors,people:vPeople,followups:vFollow,
+    lessons:vLessons,workspace:vWorkspace,knowledge:vKnowledge,settings:vSettings,detail:vDetail}[route.view]||vDash;
+  document.getElementById('content').innerHTML=v();afterRender();}
 
-/* ---------- Dashboard ---------- */
-function vDashboard(){
-  const opps=state.opps, active=opps.filter(isActive);
-  const overdue=overdueOpps(), due=todayOpps();
-  const top=[...active].sort((a,b)=>(+b.priority||0)-(+a.priority||0)).slice(0,5);
-  const byStage={}; STAGES.forEach(s=>byStage[s]=0); opps.forEach(o=>byStage[o.stage]=(byStage[o.stage]||0)+1);
-  const byCat={}; opps.forEach(o=>byCat[o.category]=(byCat[o.category]||0)+1);
-  const activity=[...opps].flatMap(o=>(o.timeline||[]).map(t=>({...t,company:o.company,id:o.id})))
-    .sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,6);
-  const suggested=active.filter(o=>o.nextAction).sort((a,b)=>{
-    const da=daysUntil(a.followUp), db=daysUntil(b.followUp);
-    return (da==null?999:da)-(db==null?999:db);
-  }).slice(0,5);
-
-  if(!opps.length) return emptyState();
-
-  return `
-  <div class="page-head">
-    <div><div class="eyebrow">Operating overview</div><div class="page-title">Dashboard</div>
-    <div class="page-sub">${active.length} active &middot; ${opps.length} total opportunities</div></div>
-    <button class="btn gold" onclick="openForm()">+ New opportunity</button>
-  </div>
-
-  <div class="grid g-3" style="margin-bottom:14px">
-    <div class="card stat ${overdue.length?'warn':''}"><span class="stat-l">Overdue follow-ups</span><span class="stat-n">${overdue.length}</span></div>
-    <div class="card stat ${due.length?'due':''}"><span class="stat-l">Due today</span><span class="stat-n">${due.length}</span></div>
-    <div class="card stat ok"><span class="stat-l">In pilot motion</span><span class="stat-n">${opps.filter(o=>['Pilot discussion','Pilot agreed'].includes(o.stage)).length}</span></div>
-  </div>
-
-  <div class="detail-grid">
-    <div>
-      <div class="card" style="margin-bottom:14px">
-        <div class="card-h"><h3>Needs attention</h3><span class="faint mono" style="font-size:11px">${overdue.length+due.length} item(s)</span></div>
-        ${[...overdue,...due].length? [...overdue,...due].map(miniRow).join('') :
-          '<div class="muted" style="padding:8px 0">Nothing overdue or due today. Good.</div>'}
-      </div>
-      <div class="card">
-        <div class="card-h"><h3>Suggested next actions</h3></div>
-        ${suggested.length? suggested.map(o=>`
-          <div class="opp-next" style="margin-bottom:8px;cursor:pointer" onclick="go('detail','${o.id}')">
-            <span class="lbl">${esc(o.company)} &middot; ${esc(o.stage)}</span>${esc(o.nextAction)}
-          </div>`).join('') : '<div class="muted">No next actions set.</div>'}
-      </div>
-    </div>
-
-    <div>
-      <div class="card" style="margin-bottom:14px">
-        <div class="card-h"><h3>Highest priority</h3></div>
-        ${top.map(o=>`<div class="kv" style="cursor:pointer;flex-direction:row;align-items:center;gap:10px" onclick="go('detail','${o.id}')">
-          <span class="score" style="width:34px;height:34px;font-size:13px;color:${scoreColor(o.priority)}">${+o.priority||0}</span>
-          <span style="flex:1"><span class="v">${esc(o.company)}</span><br><span class="k">${esc(o.category)}</span></span>
-          ${dueTag(o)}
-        </div>`).join('')}
-      </div>
-      <div class="card" style="margin-bottom:14px">
-        <div class="card-h"><h3>By stage</h3></div>
-        ${STAGES.filter(s=>byStage[s]).map(s=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:13px">
-          <span class="dot" style="width:8px;height:8px;border-radius:50%;background:${STAGE_COLOR[s]}"></span>
-          <span style="flex:1">${esc(s)}</span><span class="mono faint">${byStage[s]}</span></div>`).join('')}
-      </div>
-      <div class="card">
-        <div class="card-h"><h3>By category</h3></div>
-        ${Object.keys(byCat).sort((a,b)=>byCat[b]-byCat[a]).map(cat=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:13px;cursor:pointer" onclick="route.oppFilter.cat='${esc(cat)}';go('opportunities')">
-          <span style="flex:1">${esc(cat)}</span><span class="mono faint">${byCat[cat]}</span></div>`).join('')}
-      </div>
-    </div>
-  </div>
-
-  <div class="card" style="margin-top:14px">
-    <div class="card-h"><h3>Recent activity</h3></div>
-    ${activity.length? '<ul class="timeline">'+activity.map(a=>`<li>
-      <span class="t-date">${fmtDate(a.date)} &middot; ${esc(a.company)}</span>
-      <span class="t-text">${esc(a.text)}</span></li>`).join('')+'</ul>' : '<div class="muted">No activity logged yet.</div>'}
-  </div>`;
-}
-function miniRow(o){
-  return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer" onclick="go('detail','${o.id}')">
-    <span class="score" style="width:32px;height:32px;font-size:12px;color:${scoreColor(o.priority)}">${+o.priority||0}</span>
-    <span style="flex:1"><strong>${esc(o.company)}</strong><br><span class="k mono" style="font-size:10px;color:var(--faint)">${esc(o.nextAction||'No next action')}</span></span>
-    ${dueTag(o)}</div>`;
-}
-
-/* ---------- Opportunities ---------- */
-function vOpps(){
-  const f=route.oppFilter;
-  let list=state.opps.filter(o=>{
-    if(f.q){const q=f.q.toLowerCase(); if(!(o.company+' '+o.category+' '+(o.angle||'')+' '+(o.contactName||'')).toLowerCase().includes(q))return false;}
-    if(f.cat && o.category!==f.cat)return false;
-    if(f.stage && o.stage!==f.stage)return false;
-    return true;
-  });
-  if(f.sort==='priority')list.sort((a,b)=>(+b.priority||0)-(+a.priority||0));
-  if(f.sort==='followup')list.sort((a,b)=>(a.followUp||'9999').localeCompare(b.followUp||'9999'));
-  if(f.sort==='company')list.sort((a,b)=>a.company.localeCompare(b.company));
-
-  const controls=`
-  <div class="toolbar">
-    <input class="input search" id="oppSearch" placeholder="Search company, contact, angle..." value="${esc(f.q)}" oninput="route.oppFilter.q=this.value;renderOppList()">
-    <select class="select" id="oppCat" onchange="route.oppFilter.cat=this.value;renderOppList()">
-      <option value="">All categories</option>${CATEGORIES.map(c=>`<option ${f.cat===c?'selected':''}>${c}</option>`).join('')}</select>
-    <select class="select" id="oppStage" onchange="route.oppFilter.stage=this.value;renderOppList()">
-      <option value="">All stages</option>${STAGES.map(s=>`<option ${f.stage===s?'selected':''}>${s}</option>`).join('')}</select>
-    <select class="select" onchange="route.oppFilter.sort=this.value;renderOppList()">
-      <option value="priority" ${f.sort==='priority'?'selected':''}>Sort: priority</option>
-      <option value="followup" ${f.sort==='followup'?'selected':''}>Sort: follow-up date</option>
-      <option value="company" ${f.sort==='company'?'selected':''}>Sort: A-Z</option></select>
-    <div class="seg right">
-      <button class="${route.oppView==='cards'?'active':''}" onclick="route.oppView='cards';renderOppList()">Cards</button>
-      <button class="${route.oppView==='table'?'active':''}" onclick="route.oppView='table';renderOppList()">Table</button>
-    </div>
-  </div>`;
-
-  return `
-  <div class="page-head">
-    <div><div class="eyebrow">Pipeline</div><div class="page-title">Opportunities</div></div>
-    <button class="btn gold" onclick="openForm()">+ New opportunity</button>
-  </div>
-  ${controls}
-  <div id="oppList">${renderOppListHtml(list)}</div>`;
-}
-function renderOppList(){
-  const f=route.oppFilter;
-  let list=state.opps.filter(o=>{
-    if(f.q){const q=f.q.toLowerCase(); if(!(o.company+' '+o.category+' '+(o.angle||'')+' '+(o.contactName||'')).toLowerCase().includes(q))return false;}
-    if(f.cat && o.category!==f.cat)return false;
-    if(f.stage && o.stage!==f.stage)return false;
-    return true;
-  });
-  if(f.sort==='priority')list.sort((a,b)=>(+b.priority||0)-(+a.priority||0));
-  if(f.sort==='followup')list.sort((a,b)=>(a.followUp||'9999').localeCompare(b.followUp||'9999'));
-  if(f.sort==='company')list.sort((a,b)=>a.company.localeCompare(b.company));
-  document.getElementById('oppList').innerHTML=renderOppListHtml(list);
-}
-function renderOppListHtml(list){
-  if(!list.length) return '<div class="empty"><div class="e-mark">'+ICON('list')+'</div><h3>No matches</h3><p>No opportunities match these filters.</p></div>';
-  if(route.oppView==='table'){
-    return `<div class="card" style="padding:4px"><table><thead><tr>
-      <th>Company</th><th>Category</th><th>Stage</th><th>Score</th><th>Next action</th><th>Follow-up</th></tr></thead><tbody>
-      ${list.map(o=>`<tr onclick="go('detail','${o.id}')">
-        <td><strong>${esc(o.company)}</strong></td><td class="muted">${esc(o.category)}</td>
-        <td>${stageChip(o.stage)}</td><td><span class="mono" style="color:${scoreColor(o.priority)}">${+o.priority||0}</span></td>
-        <td class="muted" style="max-width:240px">${esc(o.nextAction||'')}</td>
-        <td>${dueTag(o)||'<span class="faint">-</span>'}</td></tr>`).join('')}
-      </tbody></table></div>`;
-  }
-  return '<div class="grid g-auto">'+list.map(oppCard).join('')+'</div>';
-}
-function oppCard(o){
-  return `<div class="opp-card ${isActive(o)&&o.followUp&&daysUntil(o.followUp)<0?'overdue':''}" onclick="go('detail','${o.id}')">
-    <div class="opp-top">
-      <div><div class="opp-name">${esc(o.company)}</div><div class="opp-cat">${esc(o.category)}</div></div>
-      <div class="score" style="color:${scoreColor(o.priority)}">${+o.priority||0}</div>
-    </div>
-    <div class="opp-row">${stageChip(o.stage)} ${dueTag(o)}</div>
-    ${o.nextAction?`<div class="opp-next"><span class="lbl">Next action</span>${esc(o.nextAction)}</div>`:''}
-  </div>`;
-}
-
-/* ---------- Detail ---------- */
-function vDetail(){
-  const o=byId(route.id);
-  if(!o) return vOpps();
-  const kv=(k,v,raw)=>`<div class="kv"><span class="k">${k}</span><span class="v">${raw?v:(v?esc(v):'<span class="faint">-</span>')}</span></div>`;
-  const link=(u,t)=>u?`<a href="${esc(u)}" target="_blank" rel="noopener">${esc(t||u)}</a>`:'<span class="faint">-</span>';
-
-  return `
-  <div class="page-head">
-    <div><div class="eyebrow" style="cursor:pointer" onclick="go('opportunities')">&larr; Opportunities</div>
-    <div class="page-title">${esc(o.company)}</div>
-    <div class="page-sub">${esc(o.category)} &middot; ${esc(o.stage)} &middot; priority ${+o.priority||0} ${dueTag(o)}</div></div>
-    <div style="display:flex;gap:8px">
-      <button class="btn" onclick="openForm('${o.id}')">Edit</button>
-      <button class="btn danger" onclick="delOpp('${o.id}')">Delete</button>
-    </div>
-  </div>
-
-  <div class="detail-grid">
-    <div>
-      <div class="card">
-        ${kv('Kweli angle', o.angle? '<span class="prose">'+esc(o.angle)+'</span>':'', true)}
-        ${kv('Proposed pilot', o.pilot? '<span class="prose">'+esc(o.pilot)+'</span>':'', true)}
-        ${o.notes?`<div class="block"><h4>Notes</h4><div class="prose">${esc(o.notes)}</div></div>`:''}
-        ${o.meetingNotes?`<div class="block"><h4>Meeting notes</h4><div class="prose">${esc(o.meetingNotes)}</div></div>`:''}
-        ${o.objections?`<div class="block"><h4>Objections</h4><div class="prose">${esc(o.objections)}</div></div>`:''}
-      </div>
-
-      <div class="card" style="margin-top:14px">
-        <div class="card-h"><h3>Activity log</h3></div>
-        <div style="display:flex;gap:8px;margin-bottom:14px">
-          <input class="input" id="logText" placeholder="Log an interaction (e.g. 'Called - asked for one-pager')" onkeydown="if(event.key==='Enter')logActivity('${o.id}')">
-          <button class="btn sm" onclick="logActivity('${o.id}')">Log</button>
-        </div>
-        ${(o.timeline&&o.timeline.length)? '<ul class="timeline">'+[...o.timeline].reverse().map(t=>`<li><span class="t-date">${fmtDate(t.date)}</span><span class="t-text">${esc(t.text)}</span></li>`).join('')+'</ul>' : '<div class="muted">No activity yet.</div>'}
-      </div>
-    </div>
-
-    <div>
-      <div class="card">
-        <div class="card-h"><h3>Record</h3></div>
-        ${kv('Website', link(o.website), true)}
-        ${kv('Contact', o.contactName||'')}
-        ${kv('Role', o.contactRole||'')}
-        ${kv('LinkedIn', link(o.linkedin,'profile'), true)}
-        ${kv('Email', o.email? esc(o.email):'<span class="faint">verify before sending</span>', true)}
-        ${kv('Status', o.status||'')}
-        ${kv('Last interaction', fmtDate(o.lastInteraction))}
-        ${kv('Follow-up', o.followUp? fmtDate(o.followUp)+' '+dueTag(o):'', true)}
-        ${kv('Next action', o.nextAction||'')}
-      </div>
-      <div class="card" style="margin-top:14px">
-        <div class="card-h"><h3>Generate Claude prompt</h3></div>
-        <div class="prompt-btns">
-          ${PROMPT_TYPES.slice(0,6).map(p=>`<button class="btn ghost sm" onclick="promptFor('${o.id}','${p.id}')">${p.label}</button>`).join('')}
-        </div>
-        <button class="btn ghost sm" style="width:100%;margin-top:8px;justify-content:center" onclick="route.promptCompany='${o.id}';go('prompts')">More prompt types &rarr;</button>
-      </div>
-    </div>
-  </div>`;
-}
-
-/* ---------- Follow-ups ---------- */
-function vFollowups(){
+/* Dashboard — command centre */
+function greeting(){const h=new Date().getHours();return h<12?'Good morning':h<18?'Good afternoon':'Good evening';}
+function actionRow(o,rightHtml){const u=urgency(o);
+  return '<div class="row-item'+(u.cls==='overdue'?' alert':'')+'" onclick="go(\'detail\',\''+o.id+'\')">'+udot(o)+
+    '<div class="row-main"><div class="row-title">'+esc(o.company)+'</div><div class="row-meta">'+esc(o.nextAction||o.stage)+'</div></div>'+
+    '<div class="row-right" style="color:'+u.color+'">'+(rightHtml||u.label)+'</div></div>';}
+function vDash(){
+  if(!state.opps.length)return emptyDash();
   const active=state.opps.filter(isActive);
-  const overdue=active.filter(o=>o.followUp&&daysUntil(o.followUp)<0).sort((a,b)=>a.followUp.localeCompare(b.followUp));
-  const due=active.filter(o=>o.followUp&&daysUntil(o.followUp)===0);
-  const week=active.filter(o=>o.followUp&&daysUntil(o.followUp)>0&&daysUntil(o.followUp)<=7).sort((a,b)=>a.followUp.localeCompare(b.followUp));
-  const later=active.filter(o=>o.followUp&&daysUntil(o.followUp)>7).sort((a,b)=>a.followUp.localeCompare(b.followUp));
-  const none=active.filter(o=>!o.followUp);
-  const sec=(title,arr,cls)=>arr.length?`<div class="card" style="margin-bottom:14px ${cls==='overdue'?';border-color:rgba(224,106,78,.4)':''}">
-    <div class="card-h"><h3>${title}</h3><span class="faint mono" style="font-size:11px">${arr.length}</span></div>
-    ${arr.map(miniRow).join('')}</div>`:'';
-  if(!active.length) return `<div class="page-head"><div><div class="eyebrow">Cadence</div><div class="page-title">Follow-ups</div></div></div>${emptyMini('No active opportunities to follow up.')}`;
-  return `
-  <div class="page-head"><div><div class="eyebrow">Cadence</div><div class="page-title">Follow-ups</div>
-  <div class="page-sub">${overdue.length} overdue &middot; ${due.length} due today</div></div></div>
-  ${sec('Overdue',overdue,'overdue')}
-  ${sec('Due today',due)}
-  ${sec('Next 7 days',week)}
-  ${sec('Later',later)}
-  ${sec('No follow-up set',none)}`;
+  const od=overdue().sort((a,b)=>a.followUp.localeCompare(b.followUp));
+  const dt=dueToday();
+  const meetings=active.filter(o=>o.stage==='Meeting booked').sort((a,b)=>(a.followUp||'9999').localeCompare(b.followUp||'9999'));
+  const waiting=active.filter(o=>WAITING_STAGES.includes(o.stage));
+  const high=[...active].sort((a,b)=>(+b.priority||0)-(+a.priority||0)).slice(0,5);
+  const recent=[...state.opps].sort((a,b)=>lastTouch(b).localeCompare(lastTouch(a))).slice(0,5);
+  const today=[...od,...dt];
+  const suggest=active.filter(o=>o.nextAction&&!today.includes(o)).sort((a,b)=>{const x=daysUntil(a.followUp),y=daysUntil(b.followUp);return(x==null?999:x)-(y==null?999:y)}).slice(0,5);
+
+  const sec=(title,arr,render,note)=>arr.length?'<div class="sec"><div class="sec-h"><h2>'+title+'</h2><span class="count">'+arr.length+'</span></div>'+arr.map(render).join('')+'</div>':(note?'<div class="sec"><div class="sec-h"><h2>'+title+'</h2></div><div class="card muted">'+note+'</div></div>':'');
+
+  return '<div class="page-head"><div><div class="greeting">'+greeting()+' · '+new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'})+'</div>'+
+    '<div class="page-title">Today</div><div class="page-sub">'+today.length+' need attention · '+active.length+' active</div></div>'+
+    '<button class="btn gold" onclick="quickAdd()">+ Quick add</button></div>'+
+
+    (today.length?'<div class="sec"><div class="sec-h"><h2>Today\u2019s priorities</h2><span class="count">'+today.length+'</span></div>'+today.map(o=>actionRow(o)).join('')+'</div>'
+      :'<div class="sec"><div class="card" style="text-align:center;padding:26px"><div class="muted">Nothing overdue or due today.</div><div class="faint" style="font-size:12.5px;margin-top:4px">A clear runway — pick from suggested actions below.</div></div></div>')+
+
+    '<div class="detail-grid">'+
+      '<div>'+
+        sec('Suggested next actions',suggest,o=>actionRow(o),'No next actions set.')+
+        sec('Waiting for responses',waiting,o=>actionRow(o,esc(o.stage)))+
+      '</div>'+
+      '<div>'+
+        sec('Upcoming meetings',meetings,o=>actionRow(o,o.followUp?fmtDate(o.followUp):'date TBD'))+
+        '<div class="sec"><div class="sec-h"><h2>High priority</h2></div>'+high.map(o=>
+          '<div class="row-item" onclick="go(\'detail\',\''+o.id+'\')"><span class="score" style="width:34px;height:34px;font-size:12px;color:'+scoreColor(o.priority)+'">'+(+o.priority||0)+'</span>'+
+          '<div class="row-main"><div class="row-title">'+esc(o.company)+'</div><div class="row-meta">'+esc(o.category)+'</div></div>'+udot(o)+'</div>').join('')+'</div>'+
+        '<div class="sec"><div class="sec-h"><h2>Recently updated</h2></div>'+recent.map(o=>
+          '<div class="row-item" onclick="go(\'detail\',\''+o.id+'\')"><div class="row-main"><div class="row-title">'+esc(o.company)+'</div>'+
+          '<div class="row-meta">'+(lastTouch(o)?fmtDate(lastTouch(o)):'—')+' · '+esc(o.stage)+'</div></div></div>').join('')+'</div>'+
+      '</div>'+
+    '</div>';
+}
+function emptyDash(){return '<div class="page-head"><div><div class="page-title">Today</div></div></div>'+
+  '<div class="empty"><div class="em">'+ICON('home')+'</div><h3>Your command centre is empty</h3><p>Add your first company or load the sample pipeline.</p>'+
+  '<div class="row"><button class="btn gold" onclick="quickAdd()">+ Quick add</button><button class="btn" onclick="resetDemo()">Load demo data</button></div></div>';}
+
+/* Companies / Investors lists */
+function vCompanies(){return listView('Companies','Pipeline',o=>!isInv(o),true);}
+function vInvestors(){route.oppFilter.cat='';return listView('Investors','Capital',o=>isInv(o),false,true);}
+function listView(title,eyebrow,pred,allowCat,investorAdd){
+  const f=route.oppFilter;
+  return '<div class="page-head"><div><div class="eyebrow">'+eyebrow+'</div><div class="page-title">'+title+'</div></div>'+
+    '<button class="btn gold" onclick="quickAdd('+(investorAdd?'\'Investors\'':'')+')">+ '+(investorAdd?'Add investor':'Quick add')+'</button></div>'+
+    '<div class="toolbar">'+
+      '<input class="input search-in" placeholder="Search '+title.toLowerCase()+'…" value="'+esc(f.q)+'" oninput="route.oppFilter.q=this.value;renderList()">'+
+      (allowCat?'<select class="select" onchange="route.oppFilter.cat=this.value;renderList()"><option value="">All categories</option>'+CATEGORIES.filter(c=>c!=='Investors').map(c=>'<option '+(f.cat===c?'selected':'')+'>'+c+'</option>').join('')+'</select>':'')+
+      '<select class="select" onchange="route.oppFilter.stage=this.value;renderList()"><option value="">All stages</option>'+STAGES.map(s=>'<option '+(f.stage===s?'selected':'')+'>'+s+'</option>').join('')+'</select>'+
+      '<select class="select" onchange="route.oppFilter.sort=this.value;renderList()"><option value="priority"'+(f.sort==='priority'?' selected':'')+'>Sort: priority</option><option value="followup"'+(f.sort==='followup'?' selected':'')+'>Sort: follow-up</option><option value="company"'+(f.sort==='company'?' selected':'')+'>Sort: A–Z</option></select>'+
+      '<div class="seg right"><button class="'+(route.companyView==='cards'?'active':'')+'" onclick="route.companyView=\'cards\';renderList()">Cards</button><button class="'+(route.companyView==='table'?'active':'')+'" onclick="route.companyView=\'table\';renderList()">Table</button></div>'+
+    '</div><div id="listBox">'+listHtml(pred)+'</div>';
+}
+window.__listPred=null;
+function renderList(){document.getElementById('listBox').innerHTML=listHtml(window.__listPred);}
+function listHtml(pred){window.__listPred=pred;const f=route.oppFilter;
+  let list=state.opps.filter(o=>pred(o)).filter(o=>{
+    if(f.q&&!(o.company+' '+o.category+' '+(o.angle||'')+' '+(o.contactRole||'')).toLowerCase().includes(f.q.toLowerCase()))return false;
+    if(f.cat&&o.category!==f.cat)return false;if(f.stage&&o.stage!==f.stage)return false;return true;});
+  if(f.sort==='priority')list.sort((a,b)=>(+b.priority||0)-(+a.priority||0));
+  if(f.sort==='followup')list.sort((a,b)=>(a.followUp||'9999').localeCompare(b.followUp||'9999'));
+  if(f.sort==='company')list.sort((a,b)=>a.company.localeCompare(b.company));
+  if(!list.length)return '<div class="empty"><div class="em">'+ICON('list')+'</div><h3>Nothing here yet</h3><p>No records match.</p><div class="row"><button class="btn gold" onclick="quickAdd()">+ Quick add</button></div></div>';
+  if(route.companyView==='table')return '<div class="card" style="padding:6px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'+
+    ['Company','Category','Stage','Score','Next action','Follow-up'].map(h=>'<th style="text-align:left;padding:11px 12px;border-bottom:1px solid var(--line);font-family:ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">'+h+'</th>').join('')+'</tr></thead><tbody>'+
+    list.map(o=>'<tr style="cursor:pointer" onclick="go(\'detail\',\''+o.id+'\')"><td style="padding:12px;border-bottom:1px solid var(--line)"><strong>'+esc(o.company)+'</strong></td><td class="muted" style="padding:12px;border-bottom:1px solid var(--line)">'+esc(o.category)+'</td><td style="padding:12px;border-bottom:1px solid var(--line)">'+stageChip(o.stage)+'</td><td style="padding:12px;border-bottom:1px solid var(--line)"><span class="mono" style="color:'+scoreColor(o.priority)+'">'+(+o.priority||0)+'</span></td><td class="muted" style="padding:12px;border-bottom:1px solid var(--line);max-width:240px">'+esc(o.nextAction||'')+'</td><td style="padding:12px;border-bottom:1px solid var(--line)">'+udot(o)+' <span class="mono" style="font-size:11px;color:'+urgency(o).color+'">'+urgency(o).label+'</span></td></tr>').join('')+'</tbody></table></div>';
+  return '<div class="grid g-auto">'+list.map(entCard).join('')+'</div>';
+}
+function entCard(o){const u=urgency(o);
+  return '<div class="ent-card'+(u.cls==='overdue'?' alert':'')+'" onclick="go(\'detail\',\''+o.id+'\')">'+
+    '<div class="ent-top"><div><div class="ent-name">'+esc(o.company)+'</div><div class="ent-sub">'+esc(o.category)+(isInv(o)&&o.investmentStatus?' · '+esc(o.investmentStatus):'')+'</div></div>'+
+    '<div class="score" style="color:'+scoreColor(o.priority)+'">'+(+o.priority||0)+'</div></div>'+
+    '<div class="ent-line">'+stageChip(o.stage)+'<span style="display:inline-flex;align-items:center;gap:6px;color:'+u.color+'">'+udot(o)+u.label+'</span></div>'+
+    (o.nextAction?'<div class="ent-next"><span class="lbl">Next action</span>'+esc(o.nextAction)+'</div>':'')+'</div>';
 }
 
-/* ---------- Industries ---------- */
-function vIndustries(){
-  const byCat={}; state.opps.forEach(o=>{(byCat[o.category]=byCat[o.category]||[]).push(o)});
-  return `
-  <div class="page-head"><div><div class="eyebrow">Sector view</div><div class="page-title">Industries</div>
-  <div class="page-sub">Pipeline by category, with the playbook that drives each prompt</div></div></div>
-  <div class="grid g-2">
-    ${CATEGORIES.map(cat=>{
-      const arr=byCat[cat]||[]; const pk=PLAYBOOK_MAP[cat];
-      const pb=pk?state.brain[pk]:'';
-      return `<div class="card">
-        <div class="card-h"><h3>${esc(cat)}</h3><span class="chip" style="cursor:pointer" onclick="route.oppFilter.cat='${esc(cat)}';go('opportunities')">${arr.length} in pipeline</span></div>
-        ${arr.length?arr.slice(0,4).map(o=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer" onclick="go('detail','${o.id}')">
-          <span class="mono" style="width:26px;color:${scoreColor(o.priority)}">${+o.priority||0}</span>
-          <span style="flex:1">${esc(o.company)}</span>${stageChip(o.stage)}</div>`).join(''):'<div class="muted" style="padding:4px 0 10px">No companies yet.</div>'}
-        ${pb?`<div class="block"><h4>Playbook</h4><div class="prose" style="font-size:13px">${esc(pb)}</div></div>`:'<div class="faint mono" style="font-size:11px;margin-top:8px">No dedicated playbook - uses general Brain.</div>'}
-      </div>`;
-    }).join('')}
-  </div>`;
+/* People */
+function vPeople(){
+  if(!state.people.length)return '<div class="page-head"><div><div class="eyebrow">Relationships</div><div class="page-title">People</div></div><button class="btn gold" onclick="personForm()">+ Add person</button></div>'+
+    '<div class="empty"><div class="em">'+ICON('people')+'</div><h3>No people yet</h3><p>Track the humans behind every opportunity.</p><div class="row"><button class="btn gold" onclick="personForm()">+ Add person</button></div></div>';
+  const list=[...state.people].sort((a,b)=>a.name.localeCompare(b.name));
+  return '<div class="page-head"><div><div class="eyebrow">Relationships</div><div class="page-title">People</div><div class="page-sub">'+list.length+' contacts</div></div><button class="btn gold" onclick="personForm()">+ Add person</button></div>'+
+    '<div class="grid g-auto">'+list.map(p=>{const o=p.companyId?byId(p.companyId):null;const wc=p.warmth==='Warm'?'warm':p.warmth==='Cold'?'cold':'';
+      return '<div class="ent-card" onclick="personForm(\''+p.id+'\')"><div class="ent-top"><div><div class="ent-name">'+esc(p.name)+'</div><div class="ent-sub">'+esc(p.role||'')+(p.company?' · '+esc(p.company):'')+'</div></div>'+
+      '<span class="chip"><span class="dot" style="background:'+(p.warmth==='Warm'?'var(--green)':p.warmth==='Cold'?'var(--faint)':'var(--amber)')+'"></span>'+esc(p.warmth||'—')+'</span></div>'+
+      (o?'<div class="ent-line"><a onclick="event.stopPropagation();go(\'detail\',\''+o.id+'\')">'+esc(o.company)+' →</a></div>':'')+
+      (p.nextAction?'<div class="ent-next"><span class="lbl">Next action</span>'+esc(p.nextAction)+'</div>':'')+'</div>';}).join('')+'</div>';
 }
 
-/* ---------- Kweli Brain ---------- */
-function vBrain(){
-  return `
-  <div class="page-head"><div><div class="eyebrow">Institutional knowledge</div><div class="page-title">Kweli Brain</div>
-  <div class="page-sub">Every prompt is built from this. Edit anything - it saves automatically.</div></div>
-  <button class="btn" onclick="resetBrain()">Reset Brain to default</button></div>
-  <div class="brain-grid">
-    ${BRAIN_SECTIONS.map(([k,label,big])=>`<div class="card brain-sec ${big?'big':''}">
-      <label class="fl">${label}</label>
-      <textarea class="input" rows="${big?6:3}" oninput="state.brain['${k}']=this.value;save()">${esc(state.brain[k]||'')}</textarea>
-    </div>`).join('')}
-  </div>`;
+/* Follow-ups */
+function vFollow(){
+  const active=state.opps.filter(isActive);
+  const grp={overdue:[],today:[],week:[],none:[]};
+  active.forEach(o=>{const u=urgency(o);if(u.cls==='overdue')grp.overdue.push(o);else if(u.cls==='today')grp.today.push(o);else if(u.cls==='week')grp.week.push(o);else if(u.cls==='none')grp.none.push(o);});
+  const later=active.filter(o=>urgency(o).cls==='later').sort((a,b)=>a.followUp.localeCompare(b.followUp));
+  grp.overdue.sort((a,b)=>a.followUp.localeCompare(b.followUp));grp.week.sort((a,b)=>a.followUp.localeCompare(b.followUp));
+  const sec=(dotc,title,arr)=>arr.length?'<div class="sec"><div class="sec-h"><span class="udot" style="background:'+dotc+'"></span><h2>'+title+'</h2><span class="count">'+arr.length+'</span></div>'+arr.map(o=>actionRow(o)).join('')+'</div>':'';
+  if(!active.length)return '<div class="page-head"><div><div class="page-title">Follow-ups</div></div></div><div class="empty"><div class="em">'+ICON('clock')+'</div><h3>All clear</h3><p>No active opportunities to follow up.</p></div>';
+  return '<div class="page-head"><div><div class="eyebrow">Cadence</div><div class="page-title">Follow-ups</div><div class="page-sub">'+grp.overdue.length+' overdue · '+grp.today.length+' due today</div></div></div>'+
+    sec('var(--red)','Overdue',grp.overdue)+sec('var(--amber)','Due today',grp.today)+sec('var(--green)','This week',grp.week)+sec('var(--muted)','Later',later)+sec('var(--faint)','No follow-up set',grp.none);
 }
 
-/* ---------- Prompt Generator ---------- */
-function vPrompts(){
-  const opts='<option value="">— no company (general) —</option>'+state.opps.map(o=>`<option value="${o.id}" ${route.promptCompany===o.id?'selected':''}>${esc(o.company)}</option>`).join('');
-  const pt=PROMPT_TYPES.find(p=>p.id===route.promptType)||PROMPT_TYPES[0];
-  return `
-  <div class="page-head"><div><div class="eyebrow">No API needed</div><div class="page-title">Prompt Generator</div>
-  <div class="page-sub">Builds a complete, rule-bound prompt to paste into Claude.</div></div></div>
-  <div class="detail-grid">
-    <div class="card">
-      <div class="field"><label class="fl">Company</label>
-        <select class="select" onchange="route.promptCompany=this.value;renderPromptOut()">${opts}</select></div>
-      <div class="field"><label class="fl">Prompt type</label>
-        <select class="select" onchange="route.promptType=this.value;renderPromptOut()">
-          ${PROMPT_TYPES.map(p=>`<option value="${p.id}" ${route.promptType===p.id?'selected':''}>${p.label}</option>`).join('')}</select></div>
-      <div class="field" id="extraWrap" style="${pt.extra?'':'display:none'}">
-        <label class="fl">${pt.extra||'Extra context'}</label>
-        <textarea class="input" rows="6" id="promptExtra" oninput="route.promptExtra=this.value;renderPromptOut()">${esc(route.promptExtra)}</textarea></div>
-      <div class="faint mono" style="font-size:11px;line-height:1.6">Built-in guardrails: no invented names/emails/facts &middot; issuance-vs-correctness held &middot; outreach &lt;150 words &middot; founder tone &middot; "no fit" allowed.</div>
-    </div>
-    <div class="card">
-      <div class="card-h"><h3>Prompt for Claude</h3><button class="btn gold sm" onclick="copyPrompt()">Copy prompt</button></div>
-      <div class="prompt-out" id="promptOut">${esc(buildPrompt(route.promptType, byId(route.promptCompany), route.promptExtra))}</div>
-    </div>
-  </div>`;
+/* Lessons */
+function vLessons(){
+  if(!state.lessons.length)return '<div class="page-head"><div><div class="eyebrow">Institutional memory</div><div class="page-title">Lessons Learned</div></div><button class="btn gold" onclick="lessonForm()">+ Add lesson</button></div>'+
+    '<div class="empty"><div class="em">'+ICON('bulb')+'</div><h3>No lessons yet</h3><p>Capture what each conversation taught you — this is the memory the company compounds on.</p><div class="row"><button class="btn gold" onclick="lessonForm()">+ Add lesson</button></div></div>';
+  const list=[...state.lessons].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  return '<div class="page-head"><div><div class="eyebrow">Institutional memory</div><div class="page-title">Lessons Learned</div><div class="page-sub">'+list.length+' lessons</div></div><button class="btn gold" onclick="lessonForm()">+ Add lesson</button></div>'+
+    list.map(l=>'<div class="card" style="margin-bottom:14px;cursor:pointer" onclick="lessonForm(\''+l.id+'\')">'+
+      '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline"><div style="font-size:16px;font-weight:600">'+esc(l.title)+'</div><span class="t-meta">'+fmtDate(l.date)+'</span></div>'+
+      '<div class="ent-line" style="margin-top:8px">'+(l.category?'<span class="chip">'+esc(l.category)+'</span>':'')+(l.source?'<span class="faint mono" style="font-size:11px">via '+esc(l.source)+'</span>':'')+(l.related?'<span class="faint mono" style="font-size:11px">· '+esc(l.related)+'</span>':'')+'</div>'+
+      (l.description?'<div class="prose" style="margin-top:12px;font-size:14px">'+esc(l.description)+'</div>':'')+
+      (l.impact?'<div class="block"><h4>Impact</h4><div class="prose" style="font-size:13.5px">'+esc(l.impact)+'</div></div>':'')+'</div>').join('');
 }
-function renderPromptOut(){
-  const pt=PROMPT_TYPES.find(p=>p.id===route.promptType)||PROMPT_TYPES[0];
-  const ew=document.getElementById('extraWrap');
-  if(ew){ew.style.display=pt.extra?'':'none'; const lbl=ew.querySelector('.fl'); if(lbl)lbl.textContent=pt.extra||'Extra context';}
-  document.getElementById('promptOut').textContent=buildPrompt(route.promptType, byId(route.promptCompany), route.promptExtra);
+
+/* Detail */
+function vDetail(){const o=byId(route.id);if(!o)return vCompanies();
+  const kv=(k,v,raw)=>'<div class="kv"><span class="k">'+k+'</span><span class="v">'+(raw?v:(v?esc(v):'<span class="faint">—</span>'))+'</span></div>';
+  const link=(u,t)=>u?'<a href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(t||u)+'</a>':'<span class="faint">—</span>';
+  const tl=[...(o.timeline||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const ppl=peopleOf(o.id);const u=urgency(o);
+  return '<div class="page-head"><div><div class="eyebrow" style="cursor:pointer" onclick="go(\''+(isInv(o)?'investors':'companies')+'\')">← '+(isInv(o)?'Investors':'Companies')+'</div>'+
+    '<div class="page-title">'+esc(o.company)+'</div><div class="page-sub">'+esc(o.category)+' · '+esc(o.stage)+' · priority '+(+o.priority||0)+' · <span style="color:'+u.color+'">'+u.label+'</span></div></div>'+
+    '<div style="display:flex;gap:9px"><button class="btn" onclick="openForm(\''+o.id+'\')">Edit</button><button class="btn" onclick="route.ws.company=\''+o.id+'\';go(\'workspace\')">AI Workspace</button><button class="btn danger" onclick="delOpp(\''+o.id+'\')">Delete</button></div></div>'+
+    '<div class="detail-grid"><div>'+
+      '<div class="card">'+
+        (o.angle?'<div class="block" style="margin-top:0"><h4>Kweli angle</h4><div class="prose">'+esc(o.angle)+'</div></div>':'')+
+        (o.pilot?'<div class="block"><h4>Proposed pilot</h4><div class="prose">'+esc(o.pilot)+'</div></div>':'')+
+        (o.objections?'<div class="block"><h4>Objections</h4><div class="prose">'+esc(o.objections)+'</div></div>':'')+
+        (o.notes?'<div class="block"><h4>Notes</h4><div class="prose">'+esc(o.notes)+'</div></div>':'')+
+        (o.meetingNotes?'<div class="block"><h4>Meeting notes</h4><div class="prose">'+esc(o.meetingNotes)+'</div></div>':'')+
+      '</div>'+
+      '<div class="card" style="margin-top:16px"><div class="sec-h"><h2>Timeline</h2></div>'+
+        '<div style="display:flex;gap:8px;margin-bottom:16px"><select class="select" id="logType" style="width:130px">'+ACT_TYPES.filter(t=>t!=='Stage').map(t=>'<option>'+t+'</option>').join('')+'</select>'+
+        '<input class="input" id="logText" placeholder="Log an interaction…" onkeydown="if(event.key===\'Enter\')logAct(\''+o.id+'\')"><button class="btn sm" onclick="logAct(\''+o.id+'\')">Log</button></div>'+
+        (tl.length?'<ul class="timeline">'+tl.map(t=>'<li><span class="t-meta"><span class="t-type">'+esc(t.type||'Note')+'</span> · '+fmtDate(t.date)+'</span><div class="t-text">'+esc(t.text)+'</div></li>').join('')+'</ul>':'<div class="muted">No activity yet.</div>')+
+      '</div></div>'+
+    '<div><div class="card"><div class="sec-h"><h2>Record</h2></div>'+
+      kv('Website',link(o.website),true)+kv('Role',o.contactRole)+kv('Email',o.email?esc(o.email):'<span class="faint">verify before sending</span>',true)+
+      kv('LinkedIn',link(o.linkedin,'profile'),true)+kv('Status',o.status)+(isInv(o)?kv('Investment status',o.investmentStatus):'')+
+      kv('Last interaction',fmtDate(o.lastInteraction))+kv('Follow-up',o.followUp?fmtDate(o.followUp):'',true)+kv('Next action',o.nextAction)+'</div>'+
+      '<div class="card" style="margin-top:16px"><div class="sec-h"><h2>People</h2><button class="btn sm right" onclick="personForm(null,\''+o.id+'\')">+ Add</button></div>'+
+        (ppl.length?ppl.map(p=>'<div class="kv" style="cursor:pointer" onclick="personForm(\''+p.id+'\')"><span class="v">'+esc(p.name)+'</span><span class="k">'+esc(p.role||'')+' · '+esc(p.warmth||'')+'</span></div>').join(''):'<div class="muted" style="font-size:13px">No people linked yet.</div>')+'</div>'+
+      '<div class="card" style="margin-top:16px"><div class="sec-h"><h2>Generate with Claude</h2></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
+        WS_ACTIONS.slice(0,6).map(a=>'<button class="btn ghost sm" style="justify-content:flex-start" onclick="route.ws.company=\''+o.id+'\';route.ws.task=\''+a.id+'\';go(\'workspace\')">'+a.label+'</button>').join('')+'</div></div>'+
+    '</div></div>';
 }
-function copyPrompt(){copy(buildPrompt(route.promptType, byId(route.promptCompany), route.promptExtra))}
 
-function promptFor(id,type){route.promptCompany=id;route.promptType=type;route.promptExtra='';go('prompts')}
+/* Workspace */
+function vWorkspace(){
+  const opts='<option value="">— no company (general) —</option>'+state.opps.map(o=>'<option value="'+o.id+'"'+(route.ws.company===o.id?' selected':'')+'>'+esc(o.company)+'</option>').join('');
+  return '<div class="page-head"><div><div class="eyebrow">No API needed · paste anything</div><div class="page-title">AI Workspace</div>'+
+    '<div class="page-sub">Paste meeting notes, a website, an annual report, a reply — pick what you need, copy the prompt into Claude.</div></div></div>'+
+    '<div class="detail-grid"><div class="card">'+
+      '<div class="field"><label class="fl">Company context (optional)</label><select class="select" onchange="route.ws.company=this.value;renderWs()">'+opts+'</select></div>'+
+      '<div class="field"><label class="fl">Paste source material</label><textarea class="input" rows="15" id="wsText" placeholder="Meeting notes, website text, LinkedIn profile, an email reply, an article…" oninput="route.ws.text=this.value;renderWs()">'+esc(route.ws.text)+'</textarea></div>'+
+      (route.ws.company?'<button class="btn sm" onclick="saveNotesToCompany()">Save this text to the company timeline</button>':'')+
+    '</div><div class="card">'+
+      '<div class="sec-h"><h2>What do you need?</h2><button class="btn gold sm right" onclick="copyWs()">Copy prompt</button></div>'+
+      '<div class="ws-actions">'+WS_ACTIONS.map(a=>'<button class="btn sm'+(route.ws.task===a.id?' active':'')+'" onclick="route.ws.task=\''+a.id+'\';renderWs()">'+a.label+'</button>').join('')+'</div>'+
+      '<div class="out" id="wsOut">'+esc(buildPrompt(route.ws.task,byId(route.ws.company),route.ws.text))+'</div>'+
+    '</div></div>';
+}
+function renderWs(){document.querySelectorAll('.ws-actions .btn').forEach(b=>b.classList.toggle('active',b.textContent===(WS_ACTIONS.find(a=>a.id===route.ws.task)||{}).label));
+  document.getElementById('wsOut').textContent=buildPrompt(route.ws.task,byId(route.ws.company),route.ws.text);}
+function copyWs(){copy(buildPrompt(route.ws.task,byId(route.ws.company),route.ws.text))}
+function saveNotesToCompany(){const o=byId(route.ws.company);if(!o||!route.ws.text.trim())return;
+  o.timeline=o.timeline||[];o.timeline.push({date:today(),type:'Note',text:route.ws.text.trim().slice(0,400)});o.lastInteraction=today();save();toast('Saved to '+o.company+' timeline');}
 
-function brainText(){return BRAIN_SECTIONS.map(([k,label])=>'## '+label+'\n'+(state.brain[k]||'')).join('\n\n')}
-function companyBlock(o){
-  if(!o) return '(no company selected - this is a general request)';
+/* Knowledge Base */
+function vKnowledge(){
+  return '<div class="page-head"><div><div class="eyebrow">Institutional knowledge</div><div class="page-title">Knowledge Base</div>'+
+    '<div class="page-sub">The source every AI Workspace prompt is built from. Edits save automatically.</div></div><button class="btn" onclick="resetBrain()">Reset to default</button></div>'+
+    '<div class="grid">'+BRAIN_SECTIONS.map(([k,label])=>{const big=['product','insurance','labs','export','banking','investors','objections'].includes(k);
+      return '<div class="card"><label class="fl">'+label+'</label><textarea class="input" rows="'+(big?6:3)+'" oninput="state.brain[\''+k+'\']=this.value;save()">'+esc(state.brain[k]||'')+'</textarea></div>';}).join('')+'</div>';
+}
+
+/* Settings */
+function vSettings(){return '<div class="page-head"><div><div class="eyebrow">Data</div><div class="page-title">Settings / Backup</div><div class="page-sub">All data lives in this browser only. Export regularly.</div></div></div>'+
+  '<div class="grid g2">'+
+  '<div class="card"><div class="sec-h"><h2>Backup</h2></div><p class="muted" style="margin-top:0">Download everything — companies, people, lessons, knowledge — as one JSON file, or restore from one.</p>'+
+    '<div style="display:flex;gap:11px;flex-wrap:wrap"><button class="btn gold" onclick="exportData()">Export backup (.json)</button><button class="btn" onclick="document.getElementById(\'imp\').click()">Import backup</button><input type="file" id="imp" accept="application/json" style="display:none" onchange="importData(this)"></div></div>'+
+  '<div class="card"><div class="sec-h"><h2>Demo data</h2></div><p class="muted" style="margin-top:0">Reload the sample pipeline, or wipe opportunities and start clean.</p>'+
+    '<div style="display:flex;gap:11px;flex-wrap:wrap"><button class="btn" onclick="resetDemo()">Reset demo data</button><button class="btn danger" onclick="clearAll()">Delete all data</button></div></div>'+
+  '<div class="card"><div class="sec-h"><h2>Storage</h2></div>'+
+    '<div class="kv"><span class="k">Companies</span><span class="v">'+state.opps.length+'</span></div><div class="kv"><span class="k">People</span><span class="v">'+state.people.length+'</span></div><div class="kv"><span class="k">Lessons</span><span class="v">'+state.lessons.length+'</span></div><div class="kv"><span class="k">Approx. size</span><span class="v">'+(JSON.stringify(state).length/1024).toFixed(1)+' KB</span></div></div>'+
+  '<div class="card"><div class="sec-h"><h2>Deploy</h2></div><p class="muted" style="margin-top:0;font-size:13px">This is one <span class="mono">index.html</span>. Push to a GitHub repo and connect Netlify, or drag the file onto Netlify Drop. No build command.</p></div>'+
+  '</div>';
+}
+
+/* ============ GLOBAL SEARCH ============ */
+function runSearch(q){const panel=document.getElementById('searchPanel');q=(q||'').trim();
+  if(!q){panel.innerHTML='';return;}
+  const ql=q.toLowerCase();const hit=t=>(t||'').toLowerCase().includes(ql);
+  const groups=[];
+  const comp=state.opps.filter(o=>hit(o.company)||hit(o.category)||hit(o.angle)||hit(o.pilot)||hit(o.objections)||hit(o.notes)||hit(o.meetingNotes)||hit(o.contactRole));
+  if(comp.length)groups.push(['Companies & Investors',comp.map(o=>({title:o.company,sub:o.category,snip:o.nextAction||o.angle,go:"go('detail','"+o.id+"')"}))]);
+  const ppl=state.people.filter(p=>hit(p.name)||hit(p.role)||hit(p.company)||hit(p.notes)||hit(p.relationship));
+  if(ppl.length)groups.push(['People',ppl.map(p=>({title:p.name,sub:p.role||'',snip:p.company,go:"openPerson('"+p.id+"')"}))]);
+  const les=state.lessons.filter(l=>hit(l.title)||hit(l.description)||hit(l.impact)||hit(l.category)||hit(l.source)||hit(l.related));
+  if(les.length)groups.push(['Lessons',les.map(l=>({title:l.title,sub:l.category||'',snip:l.impact,go:"openLesson('"+l.id+"')"}))]);
+  const kb=BRAIN_SECTIONS.filter(([k,label])=>hit(label)||hit(state.brain[k]));
+  if(kb.length)groups.push(['Knowledge Base',kb.map(([k,label])=>({title:label,sub:'section',snip:(state.brain[k]||'').slice(0,90),go:"go('knowledge')"}))]);
+  if(!groups.length){panel.innerHTML='<div class="search-empty">No matches for “'+esc(q)+'”.</div>';return;}
+  panel.innerHTML='<div class="search-panel">'+groups.map(([title,items])=>'<div class="search-group-h">'+title+'</div>'+
+    items.slice(0,6).map(it=>'<div class="search-res" onclick="'+it.go+'"><div style="flex:1;min-width:0"><span class="r-title">'+esc(it.title)+'</span>'+(it.snip?'<span class="r-snip">'+esc(String(it.snip).slice(0,100))+'</span>':'')+'</div><span class="r-sub">'+esc(it.sub)+'</span></div>').join('')).join('')+'</div>';
+}
+function clearSearch(){const i=document.getElementById('globalSearch');if(i)i.value='';const p=document.getElementById('searchPanel');if(p)p.innerHTML='';}
+function openPerson(id){clearSearch();personForm(id);}
+function openLesson(id){clearSearch();lessonForm(id);}
+document.addEventListener('click',e=>{if(!e.target.closest('.searchwrap')){const p=document.getElementById('searchPanel');if(p)p.innerHTML='';}});
+
+/* ============ PROMPT BUILDER ============ */
+function brainText(){return BRAIN_SECTIONS.map(([k,label])=>'## '+label+'\n'+(state.brain[k]||'')).join('\n\n');}
+function companyBlock(o){if(!o)return '(no company selected — general request)';
+  const ppl=peopleOf(o.id).map(p=>p.name+' ('+(p.role||'role unknown')+', '+(p.warmth||'')+')').join('; ');
   return ['Company: '+o.company,'Category: '+o.category,'Website: '+(o.website||'unknown'),
-    'Contact: '+(o.contactName||'unknown')+(o.contactRole?' ('+o.contactRole+')':''),
-    'Email: '+(o.email||'unknown - do not guess'),'Stage: '+o.stage,'Priority: '+(o.priority||0),
-    'Kweli angle (founder hypothesis): '+(o.angle||'none yet'),
-    'Proposed pilot: '+(o.pilot||'none yet'),
-    'Known objections: '+(o.objections||'none logged')].join('\n');
-}
-function notesBlock(o){
-  if(!o) return '';
-  const parts=[];
-  if(o.notes)parts.push('General notes: '+o.notes);
-  if(o.meetingNotes)parts.push('Meeting notes: '+o.meetingNotes);
-  if((o.timeline||[]).length)parts.push('Recent activity: '+o.timeline.slice(-4).map(t=>t.date+' '+t.text).join(' | '));
-  return parts.length?parts.join('\n'):'(none recorded)';
-}
-function buildPrompt(type,o,extra){
-  const playbookKey=o?PLAYBOOK_MAP[o.category]:null;
-  const playbook=playbookKey?state.brain[playbookKey]:'';
-  const rules=`You are the Kweli BD Analyst - the sharpest business-development analyst in Africa, trained only on Kweli. Reason ONLY from the Kweli Brain and the company record below.
-
-RULES (non-negotiable):
-- Do not invent names, emails, titles, or facts. If something is unknown, write "unknown - verify" and say how to find it.
-- Hold the precision rule: Kweli proves a document is the authentic, unaltered issued one; it does NOT prove the contents are correct.
-- Keep any outreach under 150 words, founder-led, human, no hype.
-- If Kweli is not a genuine fit here, say so plainly.`;
-  const sections=[rules,'=== COMPANY RECORD ===\n'+companyBlock(o)];
-  if(o)sections.push('=== RELEVANT NOTES ===\n'+notesBlock(o));
-  if(playbook)sections.push('=== SECTOR PLAYBOOK ('+o.category+') ===\n'+playbook);
-  if(extra&&extra.trim())sections.push('=== EXTRA CONTEXT ===\n'+extra.trim());
-  sections.push('=== KWELI BRAIN ===\n'+brainText());
-  sections.push(TASKS[type]||TASKS.research);
-  return sections.join('\n\n');
+    'Contact role: '+(o.contactRole||'unknown'),'Email: '+(o.email||'unknown — do not guess'),
+    'Stage: '+o.stage,'Priority: '+(o.priority||0),isInv(o)?'Investment status: '+(o.investmentStatus||'—'):'',
+    'Linked people: '+(ppl||'none'),'Kweli angle (founder hypothesis): '+(o.angle||'none yet'),
+    'Proposed pilot: '+(o.pilot||'none yet'),'Known objections: '+(o.objections||'none logged')].filter(Boolean).join('\n');}
+function notesBlock(o){if(!o)return '';const p=[];if(o.notes)p.push('Notes: '+o.notes);if(o.meetingNotes)p.push('Meeting notes: '+o.meetingNotes);
+  const tl=(o.timeline||[]).slice(-5);if(tl.length)p.push('Recent timeline: '+tl.map(t=>t.date+' ['+(t.type||'Note')+'] '+t.text).join(' | '));return p.length?p.join('\n'):'(none recorded)';}
+function buildPrompt(task,o,extra){
+  const pk=o?PLAYBOOK_MAP[o.category]:null;const pb=pk?state.brain[pk]:'';
+  const rules='You are the Kweli BD Analyst — the sharpest business-development analyst in Africa, trained only on Kweli. Reason ONLY from the Kweli Brain, the company record, and the pasted material below.\n\nRULES (non-negotiable):\n- Do not invent names, emails, titles, or facts. If unknown, write "unknown — verify" and say how to find it.\n- Hold the precision rule: Kweli proves a document is the authentic, unaltered issued one; it does NOT prove the contents are correct.\n- Keep any outreach under 150 words, founder-led, human, no hype.\n- If Kweli is not a genuine fit here, say so plainly.';
+  const parts=[rules,'=== COMPANY RECORD ===\n'+companyBlock(o)];
+  if(o)parts.push('=== STORED NOTES ===\n'+notesBlock(o));
+  if(pb)parts.push('=== SECTOR PLAYBOOK ('+o.category+') ===\n'+pb);
+  if(extra&&extra.trim())parts.push('=== PASTED MATERIAL ===\n'+extra.trim());
+  parts.push('=== KWELI BRAIN ===\n'+brainText());
+  parts.push(TASKS[task]||TASKS.research);
+  return parts.join('\n\n');
 }
 
-/* ---------- Meeting Notes ---------- */
-function vMeeting(){
-  const opts='<option value="">— no company —</option>'+state.opps.map(o=>`<option value="${o.id}" ${route.meetingCompany===o.id?'selected':''}>${esc(o.company)}</option>`).join('');
-  return `
-  <div class="page-head"><div><div class="eyebrow">Post-meeting</div><div class="page-title">Meeting Notes &rarr; Prompt</div>
-  <div class="page-sub">Paste raw notes; get a prompt that turns them into summary, actions, objections, follow-up, and Brain updates.</div></div></div>
-  <div class="detail-grid">
-    <div class="card">
-      <div class="field"><label class="fl">Company (optional)</label>
-        <select class="select" onchange="route.meetingCompany=this.value;renderMeetingOut()">${opts}</select></div>
-      <div class="field"><label class="fl">Paste messy meeting notes</label>
-        <textarea class="input" rows="14" id="meetingNotes" placeholder="Whatever you scribbled during or after the call..." oninput="route.meetingNotes=this.value;renderMeetingOut()">${esc(route.meetingNotes)}</textarea></div>
-      ${route.meetingCompany?`<button class="btn sm" onclick="saveMeetingToCompany()">Save notes to company record</button>`:''}
-    </div>
-    <div class="card">
-      <div class="card-h"><h3>Prompt for Claude</h3><button class="btn gold sm" onclick="copyMeeting()">Copy prompt</button></div>
-      <div class="prompt-out" id="meetingOut">${esc(buildPrompt('summarise', byId(route.meetingCompany), route.meetingNotes))}</div>
-    </div>
-  </div>`;
+/* ============ FORMS ============ */
+function quickAdd(cat){
+  document.getElementById('modal-root').innerHTML=
+  '<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>Quick add</h2><button class="x" onclick="closeModal()">×</button></div>'+
+  '<div class="field"><label class="fl">Company *</label><input class="input" id="qa_company" placeholder="Company name" autofocus></div>'+
+  '<div class="field-row"><div class="field"><label class="fl">Category</label><select class="select" id="qa_cat">'+CATEGORIES.map(c=>'<option '+(cat===c?'selected':'')+'>'+c+'</option>').join('')+'</select></div>'+
+  '<div class="field"><label class="fl">Website</label><input class="input" id="qa_web" placeholder="https://"></div></div>'+
+  '<p class="faint" style="font-size:12px;margin:0 0 4px">Everything else can be filled in later on the company page.</p>'+
+  '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="saveQuick()">Add</button></div></div></div>';
+  setTimeout(()=>{const el=document.getElementById('qa_company');if(el)el.focus();},30);
 }
-function renderMeetingOut(){document.getElementById('meetingOut').textContent=buildPrompt('summarise', byId(route.meetingCompany), route.meetingNotes)}
-function copyMeeting(){copy(buildPrompt('summarise', byId(route.meetingCompany), route.meetingNotes))}
-function saveMeetingToCompany(){
-  const o=byId(route.meetingCompany); if(!o)return;
-  o.meetingNotes=(o.meetingNotes?o.meetingNotes+'\n\n':'')+route.meetingNotes;
-  o.timeline=o.timeline||[]; o.timeline.push({date:today(),text:'Meeting notes added'});
-  o.lastInteraction=today(); save(); toast('Saved to '+o.company);
-}
+function saveQuick(){const c=document.getElementById('qa_company').value.trim();if(!c){toast('Company name required');return;}
+  const o={id:uid(),company:c,category:document.getElementById('qa_cat').value,website:document.getElementById('qa_web').value.trim(),
+    contactRole:'',linkedin:'',email:'',stage:'Identified',priority:50,status:'Active',angle:'',pilot:'',notes:'',meetingNotes:'',objections:'',
+    nextAction:'Research and map document flow',lastInteraction:'',followUp:'',timeline:[{date:today(),type:'Note',text:'Added to pipeline'}]};
+  if(o.category==='Investors')o.investmentStatus='Researching';
+  state.opps.push(o);save();closeModal();route.id=o.id;go('detail',o.id);toast('Added '+c);}
 
-/* ---------- Settings ---------- */
-function vSettings(){
-  return `
-  <div class="page-head"><div><div class="eyebrow">Data</div><div class="page-title">Settings / Backup</div>
-  <div class="page-sub">All data lives in this browser only. Export regularly.</div></div></div>
-  <div class="grid g-2">
-    <div class="card"><div class="card-h"><h3>Backup</h3></div>
-      <p class="muted" style="margin-top:0">Download everything (opportunities + Brain) as a JSON file, or restore from one.</p>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn gold" onclick="exportData()">Export backup (.json)</button>
-        <button class="btn" onclick="document.getElementById('importFile').click()">Import backup</button>
-        <input type="file" id="importFile" accept="application/json" style="display:none" onchange="importData(this)">
-      </div>
-    </div>
-    <div class="card"><div class="card-h"><h3>Demo data</h3></div>
-      <p class="muted" style="margin-top:0">Reload the six sample companies, or wipe everything and start clean.</p>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn" onclick="resetDemo()">Reset demo data</button>
-        <button class="btn danger" onclick="clearAll()">Delete all data</button>
-      </div>
-    </div>
-    <div class="card"><div class="card-h"><h3>Storage</h3></div>
-      <div class="kv"><span class="k">Opportunities</span><span class="v">${state.opps.length}</span></div>
-      <div class="kv"><span class="k">Approx. size</span><span class="v">${(JSON.stringify(state).length/1024).toFixed(1)} KB</span></div>
-      <div class="kv"><span class="k">Storage location</span><span class="v">This browser (localStorage)</span></div>
-    </div>
-    <div class="card"><div class="card-h"><h3>Deploy</h3></div>
-      <p class="muted" style="margin-top:0;font-size:13px">This is one <span class="mono">index.html</span>. Push it to a GitHub repo and connect it to Netlify, or drag the file onto Netlify Drop. No build command needed.</p>
-    </div>
-  </div>`;
+function openForm(id){const o=id?byId(id):{};
+  const F=(l,k,t,ph)=>'<div class="field"><label class="fl">'+l+'</label><input class="input" id="f_'+k+'" type="'+(t||'text')+'" value="'+esc(o[k]||'')+'" placeholder="'+(ph||'')+'"></div>';
+  const TA=(l,k,r,ph)=>'<div class="field"><label class="fl">'+l+'</label><textarea class="input" id="f_'+k+'" rows="'+(r||3)+'" placeholder="'+(ph||'')+'">'+esc(o[k]||'')+'</textarea></div>';
+  const SEL=(l,k,arr)=>'<div class="field"><label class="fl">'+l+'</label><select class="select" id="f_'+k+'">'+arr.map(v=>'<option '+(o[k]===v?'selected':'')+'>'+v+'</option>').join('')+'</select></div>';
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal lg"><div class="modal-h"><h2>'+(id?'Edit':'New')+' record</h2><button class="x" onclick="closeModal()">×</button></div>'+
+    F('Company name','company')+
+    '<div class="field-row">'+SEL('Category','category',CATEGORIES)+SEL('Stage','stage',STAGES)+'</div>'+
+    '<div class="field-row">'+F('Website','website','text','https://')+F('Priority (0–100)','priority','number')+'</div>'+
+    '<div class="field-row">'+F('Contact role','contactRole')+F('Email','email','text','verified public email only')+'</div>'+
+    F('LinkedIn','linkedin','text','https://linkedin.com/in/')+
+    TA('Kweli angle','angle',3,'Where Kweli genuinely helps this org')+TA('Proposed pilot','pilot',2,'Tight, measurable, one document type')+
+    '<div class="field-row">'+F('Last interaction','lastInteraction','date')+F('Follow-up date','followUp','date')+'</div>'+
+    F('Next action','nextAction')+TA('Notes','notes',3)+TA('Meeting notes','meetingNotes',3)+TA('Objections','objections',2)+
+    '<div class="field-row">'+SEL('Status','status',STATUSES)+SEL('Investment status (investors)','investmentStatus',['—'].concat(INVEST_STATUS))+'</div>'+
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="saveForm(\''+(id||'')+'\')">'+(id?'Save changes':'Add')+'</button></div></div></div>';
 }
-
-/* ---------- empty states ---------- */
-function emptyState(){
-  return `<div class="page-head"><div><div class="eyebrow">Operating overview</div><div class="page-title">Dashboard</div></div></div>
-  <div class="empty"><div class="e-mark">${ICON('grid')}</div>
-  <h3>No opportunities yet</h3>
-  <p>Add your first target, or load the six sample companies to see how it works.</p>
-  <div class="row"><button class="btn gold" onclick="openForm()">+ New opportunity</button>
-  <button class="btn" onclick="resetDemo()">Load demo data</button></div></div>`;
-}
-function emptyMini(msg){return `<div class="empty"><div class="e-mark">${ICON('clock')}</div><h3>All clear</h3><p>${esc(msg)}</p></div>`}
-
-/* ============================================================ *
- *  FORM MODAL
- * ============================================================ */
-function openForm(id){
-  const o=id?byId(id):{};
-  const F=(label,key,type='text',ph='')=>`<div class="field"><label class="fl">${label}</label>
-    <input class="input" id="f_${key}" type="${type}" value="${esc(o[key]||'')}" placeholder="${ph}"></div>`;
-  const TA=(label,key,rows=3,ph='')=>`<div class="field"><label class="fl">${label}</label>
-    <textarea class="input" id="f_${key}" rows="${rows}" placeholder="${ph}">${esc(o[key]||'')}</textarea></div>`;
-  const SEL=(label,key,arr)=>`<div class="field"><label class="fl">${label}</label>
-    <select class="select" id="f_${key}">${arr.map(v=>`<option ${o[key]===v?'selected':''}>${v}</option>`).join('')}</select></div>`;
-
-  document.getElementById('modal-root').innerHTML=`
-  <div class="modal-scrim" onclick="if(event.target===this)closeModal()">
-    <div class="modal">
-      <div class="modal-h"><h2>${id?'Edit opportunity':'New opportunity'}</h2><button class="x" onclick="closeModal()">&times;</button></div>
-      ${F('Company name','company','text','Acme Labs Ltd')}
-      <div class="field-row">${SEL('Category','category',CATEGORIES)}${SEL('Stage','stage',STAGES)}</div>
-      <div class="field-row">${F('Website','website','text','https://')}${F('Priority score (0-100)','priority','number','0-100')}</div>
-      <div class="field-row">${F('Main contact name','contactName')}${F('Contact role','contactRole')}</div>
-      <div class="field-row">${F('LinkedIn','linkedin','text','https://linkedin.com/in/')}${F('Email','email','text','verified public email only')}</div>
-      ${TA('Kweli angle','angle',3,'Where Kweli genuinely helps this org')}
-      ${TA('Proposed pilot','pilot',2,'Tight, measurable, one document type')}
-      <div class="field-row">${F('Last interaction','lastInteraction','date')}${F('Follow-up date','followUp','date')}</div>
-      ${F('Next action','nextAction','text','The single next thing to do')}
-      ${TA('Notes','notes',3)}
-      ${TA('Meeting notes','meetingNotes',3)}
-      ${TA('Objections','objections',2)}
-      ${SEL('Status','status',STATUSES)}
-      <div class="modal-foot">
-        <button class="btn ghost" onclick="closeModal()">Cancel</button>
-        <button class="btn gold" onclick="saveForm('${id||''}')">${id?'Save changes':'Add opportunity'}</button>
-      </div>
-    </div>
-  </div>`;
-}
-function closeModal(){document.getElementById('modal-root').innerHTML=''}
 function val(k){const el=document.getElementById('f_'+k);return el?el.value.trim():''}
-function saveForm(id){
-  const company=val('company'); if(!company){toast('Company name is required');return;}
-  const data={company,category:val('category'),website:val('website'),contactName:val('contactName'),
-    contactRole:val('contactRole'),linkedin:val('linkedin'),email:val('email'),stage:val('stage'),
-    priority:Math.max(0,Math.min(100,+val('priority')||0)),angle:val('angle'),pilot:val('pilot'),
-    lastInteraction:val('lastInteraction'),followUp:val('followUp'),nextAction:val('nextAction'),
-    notes:val('notes'),meetingNotes:val('meetingNotes'),objections:val('objections'),status:val('status')};
-  if(id){const o=byId(id);
-    if(o.stage!==data.stage){o.timeline=o.timeline||[];o.timeline.push({date:today(),text:'Stage -> '+data.stage});}
-    Object.assign(o,data);
-  }else{
-    data.id=uid();data.timeline=[{date:today(),text:'Added to pipeline ('+data.stage+')'}];
-    state.opps.push(data);
-  }
-  save();closeModal();
-  if(!id){route.id=state.opps[state.opps.length-1].id;go('detail',route.id);}else render();
-  toast(id?'Updated':'Opportunity added');
+function saveForm(id){const company=val('company');if(!company){toast('Company name required');return;}
+  const inv=val('investmentStatus');
+  const d={company,category:val('category'),website:val('website'),contactRole:val('contactRole'),linkedin:val('linkedin'),email:val('email'),
+    stage:val('stage'),priority:Math.max(0,Math.min(100,+val('priority')||0)),angle:val('angle'),pilot:val('pilot'),
+    lastInteraction:val('lastInteraction'),followUp:val('followUp'),nextAction:val('nextAction'),notes:val('notes'),
+    meetingNotes:val('meetingNotes'),objections:val('objections'),status:val('status'),investmentStatus:inv==='—'?'':inv};
+  if(id){const o=byId(id);if(o.stage!==d.stage){o.timeline=o.timeline||[];o.timeline.push({date:today(),type:'Stage',text:'Stage → '+d.stage});}Object.assign(o,d);save();closeModal();render();toast('Updated');}
+  else{d.id=uid();d.timeline=[{date:today(),type:'Note',text:'Added to pipeline ('+d.stage+')'}];state.opps.push(d);save();closeModal();go('detail',d.id);toast('Added');}
 }
-function delOpp(id){
-  const o=byId(id);if(!o)return;
-  if(!confirm('Delete '+o.company+'? This cannot be undone.'))return;
-  state.opps=state.opps.filter(x=>x.id!==id);save();go('opportunities');toast('Deleted');
-}
-function logActivity(id){
-  const el=document.getElementById('logText');const t=el.value.trim();if(!t)return;
-  const o=byId(id);o.timeline=o.timeline||[];o.timeline.push({date:today(),text:t});
-  o.lastInteraction=today();save();render();
-}
+function delOpp(id){const o=byId(id);if(!o)return;if(!confirm('Delete '+o.company+'? This cannot be undone.'))return;
+  state.opps=state.opps.filter(x=>x.id!==id);state.people.forEach(p=>{if(p.companyId===id)p.companyId='';});save();go('companies');toast('Deleted');}
+function logAct(id){const t=document.getElementById('logText').value.trim();if(!t)return;const o=byId(id);
+  o.timeline=o.timeline||[];o.timeline.push({date:today(),type:document.getElementById('logType').value,text:t});o.lastInteraction=today();save();render();}
 
-/* ============================================================ *
- *  BRAIN / DATA actions
- * ============================================================ */
-function resetBrain(){if(confirm('Reset the Kweli Brain to defaults? Your edits will be lost.')){state.brain=defaultBrain();save();render();toast('Brain reset');}}
-function exportData(){
-  const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download='kweli-mission-control-'+today()+'.json';a.click();URL.revokeObjectURL(a.href);
-  toast('Backup downloaded');
+/* People form */
+function personForm(id,companyId){const p=id?state.people.find(x=>x.id===id):{companyId:companyId||''};
+  const F=(l,k,t,ph)=>'<div class="field"><label class="fl">'+l+'</label><input class="input" id="pf_'+k+'" type="'+(t||'text')+'" value="'+esc(p[k]||'')+'" placeholder="'+(ph||'')+'"></div>';
+  const TA=(l,k)=>'<div class="field"><label class="fl">'+l+'</label><textarea class="input" id="pf_'+k+'" rows="3">'+esc(p[k]||'')+'</textarea></div>';
+  const compOpts='<option value="">— none —</option>'+state.opps.map(o=>'<option value="'+o.id+'"'+(p.companyId===o.id?' selected':'')+'>'+esc(o.company)+'</option>').join('');
+  const warmth='<div class="field"><label class="fl">Warmth</label><select class="select" id="pf_warmth">'+WARMTH.map(w=>'<option '+(p.warmth===w?'selected':'')+'>'+w+'</option>').join('')+'</select></div>';
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+(id?'Edit':'New')+' person</h2><button class="x" onclick="closeModal()">×</button></div>'+
+    F('Name','name')+
+    '<div class="field"><label class="fl">Company</label><select class="select" id="pf_companyId" onchange="document.getElementById(\'pf_company\').value=this.selectedOptions[0].text.replace(\'— none —\',\'\')">'+compOpts+'</select></div>'+
+    '<input type="hidden" id="pf_company" value="'+esc(p.company||'')+'">'+
+    '<div class="field-row">'+F('Role','role')+warmth+'</div>'+
+    '<div class="field-row">'+F('Email','email','text','verified only')+F('LinkedIn','linkedin')+'</div>'+
+    '<div class="field-row">'+F('Relationship','relationship','text','e.g. warm intro, target champion')+F('Last interaction','lastInteraction','date')+'</div>'+
+    F('Next action','nextAction')+TA('Notes','notes')+
+    '<div class="modal-foot">'+(id?'<button class="btn danger" style="margin-right:auto" onclick="delPerson(\''+id+'\')">Delete</button>':'')+'<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="savePerson(\''+(id||'')+'\')">'+(id?'Save':'Add')+'</button></div></div></div>';
 }
-function importData(input){
-  const file=input.files[0];if(!file)return;
-  const r=new FileReader();
-  r.onload=()=>{try{
-    const data=JSON.parse(r.result);
-    if(!data.opps)throw new Error('not a valid backup');
-    if(!confirm('Replace all current data with this backup?'))return;
-    state={opps:data.opps,brain:Object.assign(defaultBrain(),data.brain||{})};
-    save();go('dashboard');toast('Backup restored');
-  }catch(e){toast('Import failed: '+e.message)}};
-  r.readAsText(file);input.value='';
-}
-function resetDemo(){if(confirm('Reload demo data? This replaces everything currently stored.')){state={opps:demoData(),brain:defaultBrain()};save();go('dashboard');toast('Demo data loaded');}}
-function clearAll(){if(confirm('Delete ALL opportunities? The Brain is kept. This cannot be undone.')){state.opps=[];save();go('dashboard');toast('All opportunities deleted');}}
+function pval(k){const el=document.getElementById('pf_'+k);return el?el.value.trim():''}
+function savePerson(id){const name=pval('name');if(!name){toast('Name required');return;}
+  const cid=pval('companyId');const comp=cid?(byId(cid)||{}).company||'':pval('company');
+  const d={name,companyId:cid,company:comp,role:pval('role'),warmth:pval('warmth'),email:pval('email'),linkedin:pval('linkedin'),
+    relationship:pval('relationship'),lastInteraction:pval('lastInteraction'),nextAction:pval('nextAction'),notes:pval('notes')};
+  if(id){Object.assign(state.people.find(x=>x.id===id),d);}else{d.id=uid('p');state.people.push(d);}
+  save();closeModal();render();toast(id?'Updated':'Person added');}
+function delPerson(id){if(!confirm('Delete this person?'))return;state.people=state.people.filter(p=>p.id!==id);save();closeModal();render();toast('Deleted');}
 
-/* ---------- clipboard + toast ---------- */
-function copy(text){
-  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>toast('Copied to clipboard'),()=>fallbackCopy(text));}
-  else fallbackCopy(text);
+/* Lessons form */
+function lessonForm(id){const l=id?state.lessons.find(x=>x.id===id):{date:today()};
+  const F=(lab,k,t)=>'<div class="field"><label class="fl">'+lab+'</label><input class="input" id="lf_'+k+'" type="'+(t||'text')+'" value="'+esc(l[k]||'')+'"></div>';
+  const TA=(lab,k)=>'<div class="field"><label class="fl">'+lab+'</label><textarea class="input" id="lf_'+k+'" rows="3">'+esc(l[k]||'')+'</textarea></div>';
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+(id?'Edit':'New')+' lesson</h2><button class="x" onclick="closeModal()">×</button></div>'+
+    F('Title','title')+
+    '<div class="field-row">'+F('Date','date','date')+'<div class="field"><label class="fl">Category</label><select class="select" id="lf_category">'+['',...CATEGORIES].map(c=>'<option '+(l.category===c?'selected':'')+'>'+c+'</option>').join('')+'</select></div></div>'+
+    F('Source','source')+TA('Description','description')+TA('Impact','impact')+F('Related companies','related')+
+    '<div class="modal-foot">'+(id?'<button class="btn danger" style="margin-right:auto" onclick="delLesson(\''+id+'\')">Delete</button>':'')+'<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="saveLesson(\''+(id||'')+'\')">'+(id?'Save':'Add')+'</button></div></div></div>';
 }
-function fallbackCopy(text){const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');toast('Copied to clipboard')}catch(e){toast('Copy failed - select manually')}document.body.removeChild(ta);}
-let toastTimer;
-function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),1900);}
+function lval(k){const el=document.getElementById('lf_'+k);return el?el.value.trim():''}
+function saveLesson(id){const title=lval('title');if(!title){toast('Title required');return;}
+  const d={title,date:lval('date')||today(),category:lval('category'),source:lval('source'),description:lval('description'),impact:lval('impact'),related:lval('related')};
+  if(id){Object.assign(state.lessons.find(x=>x.id===id),d);}else{d.id=uid('l');state.lessons.push(d);}save();closeModal();render();toast(id?'Updated':'Lesson saved');}
+function delLesson(id){if(!confirm('Delete this lesson?'))return;state.lessons=state.lessons.filter(l=>l.id!==id);save();closeModal();render();toast('Deleted');}
 
-/* ---------- init ---------- */
-function afterRender(){
-  if(route.view==='opportunities'){const s=document.getElementById('oppSearch');/* keep focus handled by partial render */}
-}
+function closeModal(){document.getElementById('modal-root').innerHTML=''}
+
+/* data actions */
+function resetBrain(){if(confirm('Reset the Knowledge Base to defaults? Your edits will be lost.')){state.brain=defaultBrain();save();render();toast('Knowledge Base reset');}}
+function exportData(){const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='kweli-brain-'+today()+'.json';a.click();URL.revokeObjectURL(a.href);toast('Backup downloaded');}
+function importData(input){const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.opps&&!d.brain)throw new Error('not a valid backup');if(!confirm('Replace all current data with this backup?'))return;
+  state={opps:d.opps||[],people:d.people||[],lessons:d.lessons||[],brain:migrateBrain(d.brain),version:2};state.opps.forEach(o=>o.timeline=o.timeline||[]);save();go('dashboard');toast('Backup restored');}catch(e){toast('Import failed: '+e.message)}};r.readAsText(f);input.value='';}
+function resetDemo(){if(confirm('Reload demo data? This replaces everything currently stored.')){state=seed();save();go('dashboard');toast('Demo data loaded');}}
+function clearAll(){if(confirm('Delete ALL companies, people and lessons? The Knowledge Base is kept. Cannot be undone.')){state.opps=[];state.people=[];state.lessons=[];save();go('dashboard');toast('Cleared');}}
+
+/* clipboard + toast */
+function copy(t){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(()=>toast('Copied to clipboard'),()=>fb(t));}else fb(t);}
+function fb(t){const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');toast('Copied to clipboard');}catch(e){toast('Copy failed');}document.body.removeChild(ta);}
+let tt;function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),1900);}
+
+function afterRender(){}
 render();
 </script>
 </body>
