@@ -538,6 +538,7 @@ const NAV=[
   {sect:'Intelligence'},
   {id:'workspace',label:'AI Workspace',icon:'spark'},
   {id:'lessons',label:'Lessons Learned',icon:'bulb'},
+  {id:'objections',label:'Objections',icon:'shield'},
   {id:'knowledge',label:'Knowledge Base',icon:'book'},
   {sect:'System'},
   {id:'settings',label:'Settings / Backup',icon:'gear'}
@@ -550,6 +551,7 @@ function ICON(n){const p={
   invest:'<path d="M3 17l5-5 4 4 8-9"/><path d="M16 7h4v4"/>',
   spark:'<path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><path d="M6 6l3 3M15 15l3 3M18 6l-3 3M9 15l-3 3"/>',
   bulb:'<path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10c1 1 1.5 2 1.5 3h5c0-1 .5-2 1.5-3a6 6 0 0 0-4-10z"/>',
+  shield:'<path d="M12 3l7 3v5c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V6z"/><path d="M9 12l2 2 4-4"/>',
   book:'<path d="M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"/><path d="M4 4v14"/>',
   gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 13a7 7 0 0 0 0-2l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1L15 3H9l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5L4.6 11a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1L9 21h6l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5z"/>'
 }[n]||'';return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';}
@@ -581,10 +583,59 @@ function udot(o){const u=urgency(o);return '<span class="udot" style="background
 function stageChip(s){return '<span class="chip"><span class="dot" style="background:'+(STAGE_COLOR[s]||'var(--muted)')+'"></span>'+esc(s)+'</span>'}
 function peopleOf(oppId){return state.people.filter(p=>p.companyId===oppId)}
 
+/* ============ CONNECTED DATA MODEL ============
+   Enter once, reference everywhere, never duplicate.
+   People + Lessons are backed by real synced tables, so links use existing
+   columns (companyId / related / source) — no schema changes, cloud-safe.
+   Objections + Follow-ups are derived from data already stored on the company. */
+function normalizeName(s){return String(s||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();}
+function normalizeText(s){return String(s||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();}
+function samePerson(n1,n2){const a=normalizeName(n1),b=normalizeName(n2);if(!a||!b)return false;if(a===b)return true;
+  const ta=a.split(' '),tb=b.split(' ');const sh=ta.length<=tb.length?ta:tb,lo=ta.length<=tb.length?tb:ta;
+  return sh.every((t,i)=>t===lo[i]);}
+function mergeNonEmpty(target,fields,skip){skip=skip||[];Object.keys(fields||{}).forEach(k=>{if(skip.indexOf(k)>=0)return;const val=fields[k];if(val!==undefined&&val!==null&&String(val).trim()!=='')target[k]=val;});return target;}
+function addSource(list,name){if(!name)return list||'';const cur=String(list||'').split(',').map(s=>s.trim()).filter(Boolean);
+  if(!cur.some(s=>normalizeName(s)===normalizeName(name)))cur.push(name);return cur.join(', ');}
+
+function findOrCreatePerson(name,fields){
+  const matches=state.people.filter(p=>samePerson(p.name,name));
+  let ex=null;
+  if(matches.length===1)ex=matches[0];
+  else if(matches.length>1)ex=matches.find(p=>normalizeName(p.name)===normalizeName(name))||null;
+  if(ex){
+    if(normalizeName(name).split(' ').length>normalizeName(ex.name).split(' ').length)ex.name=name;
+    mergeNonEmpty(ex,fields);ex.dateUpdated=today();persistPerson(ex);return ex;
+  }
+  const np=Object.assign({id:uid('p'),createdBy:userName(),dateCreated:today(),dateUpdated:today()},fields,{name});
+  state.people.push(np);persistPerson(np);return np;
+}
+function findOrCreateLesson(fields,companyName){
+  const tkey=normalizeText(fields.title),dkey=normalizeText(fields.description);
+  let ex=null;
+  if(tkey)ex=state.lessons.find(l=>normalizeText(l.title)===tkey);
+  if(!ex&&!tkey&&dkey)ex=state.lessons.find(l=>normalizeText(l.description)===dkey);
+  if(ex){
+    mergeNonEmpty(ex,fields,['related','source']);
+    if(companyName){ex.related=addSource(ex.related,companyName);if(!ex.source)ex.source=companyName;}
+    ex.dateUpdated=today();persistLesson(ex);return ex;
+  }
+  const nl=Object.assign({id:uid('l'),createdBy:userName(),dateCreated:today(),dateUpdated:today()},fields);
+  if(companyName){nl.related=addSource(fields.related,companyName);if(!nl.source)nl.source=companyName;}
+  state.lessons.push(nl);persistLesson(nl);return nl;
+}
+function linkEntityToCompany(entity,companyName,field){field=field||'related';entity[field]=addSource(entity[field],companyName);return entity;}
+function getCompanyPeople(o){if(!o)return [];const n=normalizeName(o.company);
+  return state.people.filter(p=>p.companyId===o.id||(n&&normalizeName(p.company)===n));}
+function getCompanyLessons(o){if(!o)return [];const n=normalizeName(o.company);if(!n)return [];
+  return state.lessons.filter(l=>normalizeName(l.related).indexOf(n)>=0||normalizeName(l.source).indexOf(n)>=0);}
+function getCompanyFollowUps(o){if(!o||!o.followUp)return [];return [{company:o.company,companyId:o.id,due:o.followUp,task:o.nextAction||'',priority:o.priority,status:o.status}];}
+function getCompanyObjections(o){return (o&&o.objections&&o.objections.trim())?o.objections.trim():'';}
+function allObjections(){return state.opps.filter(o=>getCompanyObjections(o));}
+
 /* ============ RENDER ============ */
 function render(){renderNav();
   const v={dashboard:vDash,companies:vCompanies,investors:vInvestors,people:vPeople,followups:vFollow,
-    lessons:vLessons,workspace:vWorkspace,knowledge:vKnowledge,settings:vSettings,detail:vDetail}[route.view]||vDash;
+    lessons:vLessons,objections:vObjections,workspace:vWorkspace,knowledge:vKnowledge,settings:vSettings,detail:vDetail}[route.view]||vDash;
   document.getElementById('content').innerHTML=v();afterRender();}
 
 /* Dashboard — command centre */
@@ -711,12 +762,23 @@ function vLessons(){
       (l.impact?'<div class="block"><h4>Impact</h4><div class="prose" style="font-size:13.5px">'+esc(l.impact)+'</div></div>':'')+'</div>').join('');
 }
 
+/* Objections — a shared view derived from each company's objections (enter once on the company, referenced here) */
+function vObjections(){
+  const list=allObjections().sort((a,b)=>a.company.localeCompare(b.company));
+  if(!list.length)return '<div class="page-head"><div><div class="eyebrow">Field intelligence</div><div class="page-title">Objections</div></div></div>'+
+    '<div class="empty"><div class="em">'+ICON('shield')+'</div><h3>No objections logged</h3><p>Objections recorded on any company appear here automatically — enter them once on the company record.</p></div>';
+  return '<div class="page-head"><div><div class="eyebrow">Field intelligence</div><div class="page-title">Objections</div><div class="page-sub">'+list.length+' compan'+(list.length===1?'y':'ies')+'</div></div></div>'+
+    list.map(o=>'<div class="card" style="margin-bottom:14px;cursor:pointer" onclick="go(\'detail\',\''+o.id+'\')">'+
+      '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline"><div style="font-size:16px;font-weight:600">'+esc(o.company)+'</div><span class="chip">'+esc(o.category||'')+'</span></div>'+
+      '<div class="prose" style="margin-top:12px;font-size:14px">'+esc(getCompanyObjections(o))+'</div></div>').join('');
+}
+
 /* Detail */
 function vDetail(){const o=byId(route.id);if(!o)return vCompanies();
   const kv=(k,v,raw)=>'<div class="kv"><span class="k">'+k+'</span><span class="v">'+(raw?v:(v?esc(v):'<span class="faint">—</span>'))+'</span></div>';
   const link=(u,t)=>u?'<a href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(t||u)+'</a>':'<span class="faint">—</span>';
   const tl=[...(o.timeline||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  const ppl=peopleOf(o.id);const u=urgency(o);
+  const ppl=peopleOf(o.id);const les=getCompanyLessons(o);const u=urgency(o);
   return '<div class="page-head"><div><div class="eyebrow" style="cursor:pointer" onclick="go(\''+(isInv(o)?'investors':'companies')+'\')">← '+(isInv(o)?'Investors':'Companies')+'</div>'+
     '<div class="page-title">'+esc(o.company)+'</div><div class="page-sub">'+esc(o.category)+' · '+esc(o.stage)+' · priority '+(+o.priority||0)+' · <span style="color:'+u.color+'">'+u.label+'</span></div></div>'+
     '<div style="display:flex;gap:9px"><button class="btn" onclick="openForm(\''+o.id+'\')">Edit</button><button class="btn" onclick="route.ws.company=\''+o.id+'\';go(\'workspace\')">AI Workspace</button><button class="btn danger" onclick="delOpp(\''+o.id+'\')">Delete</button></div></div>'+
@@ -739,6 +801,8 @@ function vDetail(){const o=byId(route.id);if(!o)return vCompanies();
       kv('Last interaction',fmtDate(o.lastInteraction))+kv('Follow-up',o.followUp?fmtDate(o.followUp):'',true)+kv('Next action',o.nextAction)+'</div>'+
       '<div class="card" style="margin-top:16px"><div class="sec-h"><h2>People</h2><button class="btn sm right" onclick="personForm(null,\''+o.id+'\')">+ Add</button></div>'+
         (ppl.length?ppl.map(p=>'<div class="kv" style="cursor:pointer" onclick="personForm(\''+p.id+'\')"><span class="v">'+esc(p.name)+'</span><span class="k">'+esc(p.role||'')+' · '+esc(p.warmth||'')+'</span></div>').join(''):'<div class="muted" style="font-size:13px">No people linked yet.</div>')+'</div>'+
+      '<div class="card" style="margin-top:16px"><div class="sec-h"><h2>Lessons</h2><button class="btn sm right" onclick="lessonForm(\'\',\''+o.id+'\')">+ Add</button></div>'+
+        (les.length?les.map(l=>'<div class="kv" style="cursor:pointer" onclick="lessonForm(\''+l.id+'\')"><span class="v">'+esc(l.title)+'</span><span class="k">'+esc(l.category||'')+'</span></div>').join(''):'<div class="muted" style="font-size:13px">No lessons linked yet.</div>')+'</div>'+
       '<div class="card" style="margin-top:16px"><div class="sec-h"><h2>Generate with Claude</h2></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
         WS_ACTIONS.slice(0,6).map(a=>'<button class="btn ghost sm" style="justify-content:flex-start" onclick="route.ws.company=\''+o.id+'\';route.ws.task=\''+a.id+'\';go(\'workspace\')">'+a.label+'</button>').join('')+'</div></div>'+
     '</div></div>';
@@ -920,24 +984,29 @@ function savePerson(id){const name=pval('name');if(!name){toast('Name required')
   const cid=pval('companyId');const comp=cid?(byId(cid)||{}).company||'':pval('company');
   const d={name,companyId:cid,company:comp,role:pval('role'),warmth:pval('warmth'),email:pval('email'),linkedin:pval('linkedin'),
     relationship:pval('relationship'),lastInteraction:pval('lastInteraction'),nextAction:pval('nextAction'),notes:pval('notes')};
-  if(id){const ex=state.people.find(x=>x.id===id);Object.assign(ex,d);persistPerson(ex);}else{d.id=uid('p');d.createdBy=userName();state.people.push(d);persistPerson(d);}
+  if(id){const ex=state.people.find(x=>x.id===id);Object.assign(ex,d);ex.dateUpdated=today();persistPerson(ex);}
+  else{findOrCreatePerson(name,d);}
   closeModal();render();toast(id?'Updated':'Person added');}
 function delPerson(id){if(!confirm('Delete this person?'))return;state.people=state.people.filter(p=>p.id!==id);persistPersonDelete(id);closeModal();render();toast('Deleted');}
 
 /* Lessons form */
-function lessonForm(id){const l=id?state.lessons.find(x=>x.id===id):{date:today()};
+function lessonForm(id,companyId){const l=id?state.lessons.find(x=>x.id===id):{date:today()};
+  if(!id&&companyId){const c=byId(companyId);if(c){l.related=c.company;l.source=c.company;}}
   const F=(lab,k,t)=>'<div class="field"><label class="fl">'+lab+'</label><input class="input" id="lf_'+k+'" type="'+(t||'text')+'" value="'+esc(l[k]||'')+'"></div>';
   const TA=(lab,k)=>'<div class="field"><label class="fl">'+lab+'</label><textarea class="input" id="lf_'+k+'" rows="3">'+esc(l[k]||'')+'</textarea></div>';
   document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+(id?'Edit':'New')+' lesson</h2><button class="x" onclick="closeModal()">×</button></div>'+
     F('Title','title')+
     '<div class="field-row">'+F('Date','date','date')+'<div class="field"><label class="fl">Category</label><select class="select" id="lf_category">'+['',...CATEGORIES].map(c=>'<option '+(l.category===c?'selected':'')+'>'+c+'</option>').join('')+'</select></div></div>'+
     F('Source','source')+TA('Description','description')+TA('Impact','impact')+F('Related companies','related')+
-    '<div class="modal-foot">'+(id?'<button class="btn danger" style="margin-right:auto" onclick="delLesson(\''+id+'\')">Delete</button>':'')+'<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="saveLesson(\''+(id||'')+'\')">'+(id?'Save':'Add')+'</button></div></div></div>';
+    '<div class="modal-foot">'+(id?'<button class="btn danger" style="margin-right:auto" onclick="delLesson(\''+id+'\')">Delete</button>':'')+'<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="saveLesson(\''+(id||'')+'\',\''+(companyId||'')+'\')">'+(id?'Save':'Add')+'</button></div></div></div>';
 }
 function lval(k){const el=document.getElementById('lf_'+k);return el?el.value.trim():''}
-function saveLesson(id){const title=lval('title');if(!title){toast('Title required');return;}
+function saveLesson(id,companyId){const title=lval('title');if(!title){toast('Title required');return;}
   const d={title,date:lval('date')||today(),category:lval('category'),source:lval('source'),description:lval('description'),impact:lval('impact'),related:lval('related')};
-  if(id){const ex=state.lessons.find(x=>x.id===id);Object.assign(ex,d);persistLesson(ex);}else{d.id=uid('l');d.createdBy=userName();state.lessons.push(d);persistLesson(d);}closeModal();render();toast(id?'Updated':'Lesson saved');}
+  const companyName=companyId?((byId(companyId)||{}).company||''):'';
+  if(id){const ex=state.lessons.find(x=>x.id===id);Object.assign(ex,d);if(companyName)ex.related=addSource(ex.related,companyName);ex.dateUpdated=today();persistLesson(ex);}
+  else{findOrCreateLesson(d,companyName);}
+  closeModal();render();toast(id?'Updated':'Lesson saved');}
 function delLesson(id){if(!confirm('Delete this lesson?'))return;state.lessons=state.lessons.filter(l=>l.id!==id);persistLessonDelete(id);closeModal();render();toast('Deleted');}
 
 function closeModal(){document.getElementById('modal-root').innerHTML=''}
