@@ -192,6 +192,7 @@
   }
   @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div class="app">
@@ -212,12 +213,14 @@
           oninput="runSearch(this.value)" onfocus="runSearch(this.value)">
         <div id="searchPanel"></div>
       </div>
-      <button class="btn gold right" onclick="quickAdd()">+ Quick add</button>
+      <span id="statusPill" class="right" style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);font-family:ui-monospace,monospace"></span>
+      <button class="btn gold" onclick="quickAdd()" style="margin-left:14px">+ Quick add</button>
     </div>
     <div class="content" id="content"></div>
   </div>
 </div>
 <div id="modal-root"></div>
+<div id="authOverlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:100;align-items:center;justify-content:center;padding:20px"></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -225,7 +228,6 @@
    KWELI BRAIN — Institutional Intelligence Platform (single file)
    Vanilla JS · localStorage · no backend · no build step
    ============================================================ */
-const STORE='kweli_brain_v2';
 
 const CATEGORIES=["Labs","Insurance","Exporters","Banks/Lenders","Governance/Legal","Agriculture/FMCG","Professional Services","Investors","Other"];
 const STAGES=["Identified","Researched","Contacted","Replied","Meeting booked","Meeting done","Proposal sent","Pilot discussion","Pilot agreed","Closed","Paused"];
@@ -282,7 +284,7 @@ function today(){return iso(new Date())}
 function addDays(n){const d=new Date();d.setDate(d.getDate()+n);return iso(d)}
 function fmtDate(s){if(!s)return"";return new Date(s+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}
 function daysUntil(s){if(!s)return null;return Math.round((new Date(s+"T00:00:00")-new Date(today()+"T00:00:00"))/864e5)}
-function uid(p){return (p||'o')+Math.random().toString(36).slice(2,9)}
+function uid(p){try{if(crypto&&crypto.randomUUID)return crypto.randomUUID();}catch(e){}return (p||'o')+Math.random().toString(36).slice(2,9)+Math.random().toString(36).slice(2,9);}
 
 /* demo */
 function seed(){
@@ -350,23 +352,178 @@ function seed(){
   return {opps,people,lessons,brain:defaultBrain(),version:2};
 }
 
-/* state */
-let state=load();
+/* ====== Supabase config — paste your two PUBLIC values below. ======
+   Safe to ship in frontend code; Row Level Security is what protects the data.
+   SUPABASE_URL: the base Project URL, e.g. https://xxxx.supabase.co
+   (pasting the .../rest/v1/ endpoint is fine too — it's normalised automatically). */
+const SUPABASE_URL = "PASTE_SUPABASE_PROJECT_URL_HERE";
+const SUPABASE_PUBLISHABLE_KEY = "PASTE_SUPABASE_PUBLISHABLE_KEY_HERE";
+
+const STORE='kweli_brain_v2';      // original local data + migration source (never overwritten in cloud mode)
+const CACHE='kweli_brain_cache';   // cloud-mode offline mirror
+const PENDING='kweli_brain_pending';
+
+let sb=null, currentUser=null, online=true, CLOUD=false, onlineUsers=[];
+const SUPA_READY = /^https:\/\/[a-z0-9-]+\.supabase\.co/i.test(SUPABASE_URL) && /^(sb_|eyJ)/.test(SUPABASE_PUBLISHABLE_KEY) && typeof window!=='undefined' && window.supabase;
+
+let state={opps:[],people:[],lessons:[],brain:defaultBrain(),version:2};
+
 function migrateBrain(b){const nb=defaultBrain();if(!b)return nb;
-  if(b.product||b.industries){return Object.assign(nb,b);} // already v2
+  if(b.product||b.industries){return Object.assign(nb,b);}
   Object.keys(OLD_TO_NEW).forEach(k=>{if(b[k]){const tk=OLD_TO_NEW[k];nb[tk]=(k==='whatIs'||k==='whatIsNot'||k==='precision')?nb[tk]:b[k];}});
   return nb;}
-function load(){
+
+/* local-mode load (also migration source) */
+function legacyLoad(){
   try{const raw=localStorage.getItem(STORE);if(raw){const s=JSON.parse(raw);
     s.brain=migrateBrain(s.brain);s.people=s.people||[];s.lessons=s.lessons||[];s.opps=s.opps||[];
     s.opps.forEach(o=>{o.timeline=o.timeline||[]});return s;}}catch(e){}
-  // migrate from v1 if present
   try{const v1=localStorage.getItem('kweli_mc_v1');if(v1){const s=JSON.parse(v1);
     const ns={opps:(s.opps||[]).map(o=>Object.assign({timeline:[]},o)),people:[],lessons:[],brain:migrateBrain(s.brain),version:2};
     localStorage.setItem(STORE,JSON.stringify(ns));return ns;}}catch(e){}
   const fresh=seed();localStorage.setItem(STORE,JSON.stringify(fresh));return fresh;
 }
-function save(){localStorage.setItem(STORE,JSON.stringify(state));renderNav();}
+function cacheSave(){try{localStorage.setItem(CLOUD?CACHE:STORE,JSON.stringify(state));}catch(e){}renderNav();}
+const save=cacheSave; // legacy alias
+
+function userName(){if(!currentUser)return 'You';const m=currentUser.user_metadata||{};return m.name||(currentUser.email||'user').split('@')[0].replace(/^./,c=>c.toUpperCase());}
+
+/* ---- row mappers (snake_case DB <-> camelCase app) ---- */
+function D(v){return v?v:null;}
+function oppRow(o){return {id:o.id,company:o.company,category:o.category||null,website:o.website||null,linkedin:o.linkedin||null,email:o.email||null,contact_name:o.contactName||null,contact_role:o.contactRole||null,stage:o.stage||null,priority:+o.priority||0,status:o.status||null,investment_status:o.investmentStatus||null,angle:o.angle||null,pilot:o.pilot||null,notes:o.notes||null,meeting_notes:o.meetingNotes||null,objections:o.objections||null,next_action:o.nextAction||null,last_interaction:D(o.lastInteraction),follow_up:D(o.followUp),created_by:o.createdBy||userName(),updated_by:userName()};}
+function rowToOpp(r){return {id:r.id,company:r.company,category:r.category||'Other',website:r.website||'',linkedin:r.linkedin||'',email:r.email||'',contactName:r.contact_name||'',contactRole:r.contact_role||'',stage:r.stage||'Identified',priority:r.priority||0,status:r.status||'Active',investmentStatus:r.investment_status||'',angle:r.angle||'',pilot:r.pilot||'',notes:r.notes||'',meetingNotes:r.meeting_notes||'',objections:r.objections||'',nextAction:r.next_action||'',lastInteraction:r.last_interaction||'',followUp:r.follow_up||'',createdBy:r.created_by||'',timeline:[]};}
+function personRow(p){return {id:p.id,name:p.name,company_id:p.companyId||null,company:p.company||null,role:p.role||null,email:p.email||null,linkedin:p.linkedin||null,relationship:p.relationship||null,warmth:p.warmth||null,last_interaction:D(p.lastInteraction),next_action:p.nextAction||null,notes:p.notes||null,created_by:p.createdBy||userName(),updated_by:userName()};}
+function rowToPerson(r){return {id:r.id,name:r.name,companyId:r.company_id||'',company:r.company||'',role:r.role||'',email:r.email||'',linkedin:r.linkedin||'',relationship:r.relationship||'',warmth:r.warmth||'',lastInteraction:r.last_interaction||'',nextAction:r.next_action||'',notes:r.notes||'',createdBy:r.created_by||''};}
+function lessonRow(l){return {id:l.id,title:l.title,date:D(l.date),category:l.category||null,source:l.source||null,description:l.description||null,impact:l.impact||null,related:l.related||null,created_by:l.createdBy||userName(),updated_by:userName()};}
+function rowToLesson(r){return {id:r.id,title:r.title,date:r.date||'',category:r.category||'',source:r.source||'',description:r.description||'',impact:r.impact||'',related:r.related||'',createdBy:r.created_by||''};}
+function tlRow(ev){return {id:ev.id||uid(),opportunity_id:ev.oppId,date:D(ev.date)||today(),type:ev.type||'Note',text:ev.text||'',created_by:userName()};}
+function brainRow(k){const lbl=(BRAIN_SECTIONS.find(s=>s[0]===k)||[k,k])[1];return {section_key:k,title:lbl,content:state.brain[k]||'',updated_by:userName()};}
+
+/* ---- offline pending queue ---- */
+function loadPending(){try{return JSON.parse(localStorage.getItem(PENDING)||'[]');}catch(e){return[];}}
+function savePending(q){try{localStorage.setItem(PENDING,JSON.stringify(q));}catch(e){}}
+async function sync(table,op,payload){
+  if(!CLOUD)return;
+  try{
+    let res;
+    if(op==='upsert')res=await sb.from(table).upsert(payload, table==='brain_sections'?{onConflict:'section_key'}:undefined);
+    else if(op==='delete')res=await sb.from(table).delete().eq('id',payload);
+    if(res&&res.error)throw res.error;
+    if(!online){online=true;updateStatus();}
+  }catch(e){online=false;const q=loadPending();q.push({table,op,payload});savePending(q);updateStatus();}
+}
+async function trySyncPending(){
+  if(!CLOUD)return;const q=loadPending();if(!q.length)return;
+  const remain=[];
+  for(const it of q){try{let r;if(it.op==='upsert')r=await sb.from(it.table).upsert(it.payload,it.table==='brain_sections'?{onConflict:'section_key'}:undefined);else r=await sb.from(it.table).delete().eq('id',it.payload);if(r&&r.error)throw r.error;}catch(e){remain.push(it);}}
+  savePending(remain);online=remain.length===0;updateStatus();
+  if(online){await fetchAll();render();toast('Synced pending changes');}
+}
+
+/* ---- persist helpers (update cache + cloud) ---- */
+function persistOpp(o){cacheSave();sync('opportunities','upsert',oppRow(o));}
+function persistOppDelete(id){cacheSave();sync('opportunities','delete',id);}
+function persistPerson(p){cacheSave();sync('people','upsert',personRow(p));}
+function persistPersonDelete(id){cacheSave();sync('people','delete',id);}
+function persistLesson(l){cacheSave();sync('lessons','upsert',lessonRow(l));}
+function persistLessonDelete(id){cacheSave();sync('lessons','delete',id);}
+function persistTimeline(ev){cacheSave();sync('timeline_events','upsert',tlRow(ev));}
+let brainTimers={};
+function persistBrain(k){cacheSave();clearTimeout(brainTimers[k]);brainTimers[k]=setTimeout(()=>sync('brain_sections','upsert',brainRow(k)),600);}
+function addActivity(oppId,type,text){const o=byId(oppId);if(!o)return;const ev={date:today(),type:type,text:text};o.timeline=o.timeline||[];o.timeline.push(ev);o.lastInteraction=today();persistTimeline(Object.assign({oppId:oppId},ev));persistOpp(o);}
+
+/* ---- cloud fetch / sync ---- */
+async function fetchAll(){
+  try{
+    const [o,p,l,b,t]=await Promise.all([
+      sb.from('opportunities').select('*'),sb.from('people').select('*'),sb.from('lessons').select('*'),
+      sb.from('brain_sections').select('*'),sb.from('timeline_events').select('*')]);
+    for(const r of [o,p,l,b,t])if(r.error)throw r.error;
+    state.opps=(o.data||[]).map(rowToOpp);
+    state.people=(p.data||[]).map(rowToPerson);
+    state.lessons=(l.data||[]).map(rowToLesson);
+    const nb=defaultBrain();
+    if((b.data||[]).length){b.data.forEach(r=>{nb[r.section_key]=r.content;});}
+    state.brain=nb;
+    if(!(b.data||[]).length){for(const [k,label] of BRAIN_SECTIONS){await sb.from('brain_sections').upsert({section_key:k,title:label,content:nb[k]},{onConflict:'section_key'});}}
+    const byOpp={};(t.data||[]).forEach(r=>{(byOpp[r.opportunity_id]=byOpp[r.opportunity_id]||[]).push({date:r.date,type:r.type,text:r.text});});
+    state.opps.forEach(op=>{op.timeline=(byOpp[op.id]||[]).sort((a,b)=>(a.date||'').localeCompare(b.date||''));});
+    online=true;cacheSave();updateStatus();return true;
+  }catch(e){
+    online=false;updateStatus();
+    try{const c=JSON.parse(localStorage.getItem(CACHE));if(c){state=c;state.brain=migrateBrain(state.brain);state.opps.forEach(op=>op.timeline=op.timeline||[]);}}catch(_){}
+    return false;
+  }
+}
+let reloadT;
+function scheduleReload(){clearTimeout(reloadT);reloadT=setTimeout(async()=>{await fetchAll();render();},250);}
+function subscribeRealtime(){['opportunities','people','lessons','brain_sections','timeline_events'].forEach(tb=>{
+  sb.channel('rt_'+tb).on('postgres_changes',{event:'*',schema:'public',table:tb},scheduleReload).subscribe();});}
+let presenceCh=null;
+function setupPresence(){try{
+  presenceCh=sb.channel('presence_kweli',{config:{presence:{key:userName()}}});
+  presenceCh.on('presence',{event:'sync'},()=>{onlineUsers=Object.keys(presenceCh.presenceState()||{});updateStatus();if(route.view==='settings')render();})
+    .subscribe(async s=>{if(s==='SUBSCRIBED')await presenceCh.track({name:userName(),at:Date.now()});});
+}catch(e){}}
+
+function updateStatus(){const el=document.getElementById('statusPill');if(!el)return;
+  if(!CLOUD){el.innerHTML='';return;}
+  const c=online?'var(--green)':'var(--red)';
+  el.innerHTML='<span class="udot" style="background:'+c+'"></span>'+(online?'Live':'Offline')+(onlineUsers.length>1?' · '+onlineUsers.length+' online':'');
+}
+
+/* ---- shared dataset upload (used by migration + import) ---- */
+async function uploadDataset(d){
+  const idMap={};
+  for(const o of (d.opps||[])){const nid=uid();idMap[o.id]=nid;const {error}=await sb.from('opportunities').upsert(oppRow(Object.assign({},o,{id:nid,createdBy:o.createdBy||userName()})));if(error)throw error;}
+  for(const p of (d.people||[])){const {error}=await sb.from('people').upsert(personRow(Object.assign({},p,{id:uid(),companyId:idMap[p.companyId]||null})));if(error)throw error;}
+  for(const l of (d.lessons||[])){const {error}=await sb.from('lessons').upsert(lessonRow(Object.assign({},l,{id:uid()})));if(error)throw error;}
+  if(d.brain)for(const [k,label] of BRAIN_SECTIONS){if(d.brain[k]!=null){const {error}=await sb.from('brain_sections').upsert({section_key:k,title:label,content:d.brain[k],updated_by:userName()},{onConflict:'section_key'});if(error)throw error;}}
+  for(const o of (d.opps||[])){for(const ev of (o.timeline||[])){const {error}=await sb.from('timeline_events').upsert({id:uid(),opportunity_id:idMap[o.id],date:ev.date||today(),type:ev.type||'Note',text:ev.text||'',created_by:userName()});if(error)throw error;}}
+}
+async function clearCloud(){for(const t of ['timeline_events','people','lessons','opportunities']){await sb.from(t).delete().neq('id','00000000-0000-0000-0000-000000000000');}}
+async function migrateLocal(){
+  if(!CLOUD){toast('Connect Supabase first');return;}
+  let local;try{local=JSON.parse(localStorage.getItem(STORE));}catch(e){}
+  if(!local||!(local.opps||[]).length){toast('No local data to migrate');return;}
+  toast('Migrating…');
+  try{await uploadDataset(local);await fetchAll();render();toast('Migrated '+local.opps.length+' companies. Local backup kept.');}
+  catch(e){toast('Migration failed: '+(e.message||e));}
+}
+function maybeOfferMigration(){try{const raw=localStorage.getItem(STORE);if(!raw)return;const local=JSON.parse(raw);
+  if((local.opps||[]).length&&state.opps.length===0){setTimeout(()=>{if(confirm('Local Kweli Brain data found ('+local.opps.length+' companies). Migrate it to the shared cloud now?'))migrateLocal();},500);}}catch(e){}}
+function manualRefresh(){if(CLOUD){fetchAll().then(()=>{render();toast('Refreshed');});}else{render();toast('Refreshed');}}
+
+/* ---- auth ---- */
+function showLogin(msg){const a=document.getElementById('authOverlay');a.style.display='flex';
+  a.innerHTML='<div style="background:var(--panel);border:1px solid var(--line-s);border-radius:16px;padding:34px;width:100%;max-width:380px">'+
+   '<div class="brand" style="padding:0 0 20px"><div class="brand-mark">K</div><div><div class="brand-name">Kweli Brain</div><div class="brand-sub">Institutional Intelligence</div></div></div>'+
+   '<div class="field"><label class="fl">Email</label><input class="input" id="au_email" type="email" autocomplete="username"></div>'+
+   '<div class="field"><label class="fl">Password</label><input class="input" id="au_pw" type="password" autocomplete="current-password" onkeydown="if(event.key===\'Enter\')doLogin()"></div>'+
+   (msg?'<div style="color:var(--red);font-size:12.5px;margin:-6px 0 12px">'+esc(msg)+'</div>':'')+
+   '<button class="btn gold" style="width:100%;justify-content:center" onclick="doLogin()">Sign in</button>'+
+   '<div class="faint" style="font-size:11.5px;margin-top:14px;line-height:1.5">Accounts are created by an admin in Supabase. Ask Juna for access.</div></div>';
+  setTimeout(()=>{const e=document.getElementById('au_email');if(e)e.focus();},40);}
+function hideLogin(){const a=document.getElementById('authOverlay');a.style.display='none';a.innerHTML='';}
+async function doLogin(){const email=(document.getElementById('au_email').value||'').trim();const pw=document.getElementById('au_pw').value||'';
+  if(!email||!pw){showLogin('Enter email and password');return;}
+  const {error}=await sb.auth.signInWithPassword({email,password:pw});
+  if(error){showLogin(error.message);return;}}
+async function signOut(){try{await sb.auth.signOut();}catch(e){}currentUser=null;CLOUD=false;updateStatus();showLogin();}
+async function onSignedIn(session){currentUser=session.user;CLOUD=true;hideLogin();await fetchAll();subscribeRealtime();setupPresence();updateStatus();render();maybeOfferMigration();}
+
+/* ---- init ---- */
+async function init(){
+  if(!SUPA_READY){CLOUD=false;state=legacyLoad();render();updateStatus();return;}
+  const _url=SUPABASE_URL.replace(/\/rest\/v1\/?$/i,'').replace(/\/+$/,'');
+  sb=window.supabase.createClient(_url,SUPABASE_PUBLISHABLE_KEY);
+  window.addEventListener('online',()=>{online=true;updateStatus();trySyncPending();});
+  window.addEventListener('offline',()=>{online=false;updateStatus();});
+  try{const {data}=await sb.auth.getSession();
+    if(data&&data.session){await onSignedIn(data.session);}else{showLogin();}
+    sb.auth.onAuthStateChange((_e,s)=>{if(s&&!currentUser){onSignedIn(s);}else if(!s){currentUser=null;CLOUD=false;updateStatus();showLogin();}});
+  }catch(e){CLOUD=false;state=legacyLoad();render();updateStatus();}
+}
 
 /* routing */
 let route={view:'dashboard',id:null,companyView:'cards',
@@ -606,26 +763,45 @@ function renderWs(){document.querySelectorAll('.ws-actions .btn').forEach(b=>b.c
   document.getElementById('wsOut').textContent=buildPrompt(route.ws.task,byId(route.ws.company),route.ws.text);}
 function copyWs(){copy(buildPrompt(route.ws.task,byId(route.ws.company),route.ws.text))}
 function saveNotesToCompany(){const o=byId(route.ws.company);if(!o||!route.ws.text.trim())return;
-  o.timeline=o.timeline||[];o.timeline.push({date:today(),type:'Note',text:route.ws.text.trim().slice(0,400)});o.lastInteraction=today();save();toast('Saved to '+o.company+' timeline');}
+  const ev={date:today(),type:'Note',text:route.ws.text.trim().slice(0,400)};o.timeline=o.timeline||[];o.timeline.push(ev);o.lastInteraction=today();persistTimeline(Object.assign({oppId:o.id},ev));persistOpp(o);toast('Saved to '+o.company+' timeline');}
 
 /* Knowledge Base */
 function vKnowledge(){
   return '<div class="page-head"><div><div class="eyebrow">Institutional knowledge</div><div class="page-title">Knowledge Base</div>'+
     '<div class="page-sub">The source every AI Workspace prompt is built from. Edits save automatically.</div></div><button class="btn" onclick="resetBrain()">Reset to default</button></div>'+
     '<div class="grid">'+BRAIN_SECTIONS.map(([k,label])=>{const big=['product','insurance','labs','export','banking','investors','objections'].includes(k);
-      return '<div class="card"><label class="fl">'+label+'</label><textarea class="input" rows="'+(big?6:3)+'" oninput="state.brain[\''+k+'\']=this.value;save()">'+esc(state.brain[k]||'')+'</textarea></div>';}).join('')+'</div>';
+      return '<div class="card"><label class="fl">'+label+'</label><textarea class="input" rows="'+(big?6:3)+'" oninput="state.brain[\''+k+'\']=this.value;persistBrain(\''+k+'\')">'+esc(state.brain[k]||'')+'</textarea></div>';}).join('')+'</div>';
 }
 
 /* Settings */
-function vSettings(){return '<div class="page-head"><div><div class="eyebrow">Data</div><div class="page-title">Settings / Backup</div><div class="page-sub">All data lives in this browser only. Export regularly.</div></div></div>'+
+function vSettings(){
+  const pend=loadPending().length;
+  let conn;
+  if(!SUPA_READY)conn='<span class="chip"><span class="dot" style="background:var(--faint)"></span>Local mode — cloud not configured</span>';
+  else if(CLOUD)conn='<span class="chip"><span class="dot" style="background:'+(online?'var(--green)':'var(--red)')+'"></span>'+(online?'Connected · live sync':'Offline — '+pend+' change(s) queued')+'</span>';
+  else conn='<span class="chip"><span class="dot" style="background:var(--amber)"></span>Signed out</span>';
+  const onlineList=onlineUsers.length?onlineUsers.map(esc).join(', '):'—';
+  return '<div class="page-head"><div><div class="eyebrow">Data</div><div class="page-title">Settings / Backup</div><div class="page-sub">'+(CLOUD?'Shared live data via Supabase.':'All data lives in this browser only. Export regularly.')+'</div></div></div>'+
   '<div class="grid g2">'+
-  '<div class="card"><div class="sec-h"><h2>Backup</h2></div><p class="muted" style="margin-top:0">Download everything — companies, people, lessons, knowledge — as one JSON file, or restore from one.</p>'+
-    '<div style="display:flex;gap:11px;flex-wrap:wrap"><button class="btn gold" onclick="exportData()">Export backup (.json)</button><button class="btn" onclick="document.getElementById(\'imp\').click()">Import backup</button><input type="file" id="imp" accept="application/json" style="display:none" onchange="importData(this)"></div></div>'+
-  '<div class="card"><div class="sec-h"><h2>Demo data</h2></div><p class="muted" style="margin-top:0">Reload the sample pipeline, or wipe opportunities and start clean.</p>'+
+  '<div class="card"><div class="sec-h"><h2>Connection</h2></div>'+
+    '<div class="kv"><span class="k">Status</span><span class="v">'+conn+'</span></div>'+
+    (CLOUD?'<div class="kv"><span class="k">Signed in as</span><span class="v">'+esc(currentUser&&currentUser.email||userName())+'</span></div>'+
+      '<div class="kv"><span class="k">Online now</span><span class="v">'+onlineList+'</span></div>':'')+
+    '<div style="display:flex;gap:11px;flex-wrap:wrap;margin-top:14px">'+
+      '<button class="btn" onclick="manualRefresh()">Refresh</button>'+
+      (CLOUD&&pend?'<button class="btn" onclick="trySyncPending()">Sync '+pend+' pending</button>':'')+
+      (CLOUD?'<button class="btn" onclick="signOut()">Sign out</button>':'')+
+    '</div></div>'+
+  '<div class="card"><div class="sec-h"><h2>Team data</h2></div><p class="muted" style="margin-top:0">'+(CLOUD?'Upload this browser\u2019s local Kweli Brain into the shared cloud (local backup is kept).':'Back up or restore everything as one JSON file.')+'</p>'+
+    '<div style="display:flex;gap:11px;flex-wrap:wrap">'+
+      (SUPA_READY&&CLOUD?'<button class="btn gold" onclick="migrateLocal()">Migrate local data</button>':'')+
+      '<button class="btn" onclick="exportData()">Export JSON</button>'+
+      '<button class="btn" onclick="document.getElementById(\'imp\').click()">Import JSON</button>'+
+      '<input type="file" id="imp" accept="application/json" style="display:none" onchange="importData(this)"></div></div>'+
+  '<div class="card"><div class="sec-h"><h2>Demo &amp; danger zone</h2></div><p class="muted" style="margin-top:0">'+(CLOUD?'These affect the SHARED data everyone sees.':'Reload the sample pipeline, or wipe and start clean.')+'</p>'+
     '<div style="display:flex;gap:11px;flex-wrap:wrap"><button class="btn" onclick="resetDemo()">Reset demo data</button><button class="btn danger" onclick="clearAll()">Delete all data</button></div></div>'+
   '<div class="card"><div class="sec-h"><h2>Storage</h2></div>'+
-    '<div class="kv"><span class="k">Companies</span><span class="v">'+state.opps.length+'</span></div><div class="kv"><span class="k">People</span><span class="v">'+state.people.length+'</span></div><div class="kv"><span class="k">Lessons</span><span class="v">'+state.lessons.length+'</span></div><div class="kv"><span class="k">Approx. size</span><span class="v">'+(JSON.stringify(state).length/1024).toFixed(1)+' KB</span></div></div>'+
-  '<div class="card"><div class="sec-h"><h2>Deploy</h2></div><p class="muted" style="margin-top:0;font-size:13px">This is one <span class="mono">index.html</span>. Push to a GitHub repo and connect Netlify, or drag the file onto Netlify Drop. No build command.</p></div>'+
+    '<div class="kv"><span class="k">Companies</span><span class="v">'+state.opps.length+'</span></div><div class="kv"><span class="k">People</span><span class="v">'+state.people.length+'</span></div><div class="kv"><span class="k">Lessons</span><span class="v">'+state.lessons.length+'</span></div><div class="kv"><span class="k">Mode</span><span class="v">'+(CLOUD?'Cloud (shared)':'Local (this browser)')+'</span></div></div>'+
   '</div>';
 }
 
@@ -688,9 +864,9 @@ function quickAdd(cat){
 function saveQuick(){const c=document.getElementById('qa_company').value.trim();if(!c){toast('Company name required');return;}
   const o={id:uid(),company:c,category:document.getElementById('qa_cat').value,website:document.getElementById('qa_web').value.trim(),
     contactRole:'',linkedin:'',email:'',stage:'Identified',priority:50,status:'Active',angle:'',pilot:'',notes:'',meetingNotes:'',objections:'',
-    nextAction:'Research and map document flow',lastInteraction:'',followUp:'',timeline:[{date:today(),type:'Note',text:'Added to pipeline'}]};
+    nextAction:'Research and map document flow',lastInteraction:'',followUp:'',createdBy:userName(),timeline:[]};
   if(o.category==='Investors')o.investmentStatus='Researching';
-  state.opps.push(o);save();closeModal();route.id=o.id;go('detail',o.id);toast('Added '+c);}
+  state.opps.push(o);addActivity(o.id,'Created',userName()+' created '+c);closeModal();route.id=o.id;go('detail',o.id);toast('Added '+c);}
 
 function openForm(id){const o=id?byId(id):{};
   const F=(l,k,t,ph)=>'<div class="field"><label class="fl">'+l+'</label><input class="input" id="f_'+k+'" type="'+(t||'text')+'" value="'+esc(o[k]||'')+'" placeholder="'+(ph||'')+'"></div>';
@@ -715,13 +891,13 @@ function saveForm(id){const company=val('company');if(!company){toast('Company n
     stage:val('stage'),priority:Math.max(0,Math.min(100,+val('priority')||0)),angle:val('angle'),pilot:val('pilot'),
     lastInteraction:val('lastInteraction'),followUp:val('followUp'),nextAction:val('nextAction'),notes:val('notes'),
     meetingNotes:val('meetingNotes'),objections:val('objections'),status:val('status'),investmentStatus:inv==='—'?'':inv};
-  if(id){const o=byId(id);if(o.stage!==d.stage){o.timeline=o.timeline||[];o.timeline.push({date:today(),type:'Stage',text:'Stage → '+d.stage});}Object.assign(o,d);save();closeModal();render();toast('Updated');}
-  else{d.id=uid();d.timeline=[{date:today(),type:'Note',text:'Added to pipeline ('+d.stage+')'}];state.opps.push(d);save();closeModal();go('detail',d.id);toast('Added');}
+  if(id){const o=byId(id);const old=o.stage;Object.assign(o,d);persistOpp(o);if(old!==d.stage){addActivity(id,'Stage',userName()+' changed stage from '+old+' to '+d.stage);}closeModal();render();toast('Updated');}
+  else{d.id=uid();d.createdBy=userName();d.timeline=[];state.opps.push(d);addActivity(d.id,'Created',userName()+' created '+d.company);closeModal();go('detail',d.id);toast('Added');}
 }
 function delOpp(id){const o=byId(id);if(!o)return;if(!confirm('Delete '+o.company+'? This cannot be undone.'))return;
-  state.opps=state.opps.filter(x=>x.id!==id);state.people.forEach(p=>{if(p.companyId===id)p.companyId='';});save();go('companies');toast('Deleted');}
+  state.opps=state.opps.filter(x=>x.id!==id);state.people.forEach(p=>{if(p.companyId===id)p.companyId='';});persistOppDelete(id);go('companies');toast('Deleted');}
 function logAct(id){const t=document.getElementById('logText').value.trim();if(!t)return;const o=byId(id);
-  o.timeline=o.timeline||[];o.timeline.push({date:today(),type:document.getElementById('logType').value,text:t});o.lastInteraction=today();save();render();}
+  const ev={date:today(),type:document.getElementById('logType').value,text:t};o.timeline=o.timeline||[];o.timeline.push(ev);o.lastInteraction=today();persistTimeline(Object.assign({oppId:id},ev));persistOpp(o);render();}
 
 /* People form */
 function personForm(id,companyId){const p=id?state.people.find(x=>x.id===id):{companyId:companyId||''};
@@ -744,9 +920,9 @@ function savePerson(id){const name=pval('name');if(!name){toast('Name required')
   const cid=pval('companyId');const comp=cid?(byId(cid)||{}).company||'':pval('company');
   const d={name,companyId:cid,company:comp,role:pval('role'),warmth:pval('warmth'),email:pval('email'),linkedin:pval('linkedin'),
     relationship:pval('relationship'),lastInteraction:pval('lastInteraction'),nextAction:pval('nextAction'),notes:pval('notes')};
-  if(id){Object.assign(state.people.find(x=>x.id===id),d);}else{d.id=uid('p');state.people.push(d);}
-  save();closeModal();render();toast(id?'Updated':'Person added');}
-function delPerson(id){if(!confirm('Delete this person?'))return;state.people=state.people.filter(p=>p.id!==id);save();closeModal();render();toast('Deleted');}
+  if(id){const ex=state.people.find(x=>x.id===id);Object.assign(ex,d);persistPerson(ex);}else{d.id=uid('p');d.createdBy=userName();state.people.push(d);persistPerson(d);}
+  closeModal();render();toast(id?'Updated':'Person added');}
+function delPerson(id){if(!confirm('Delete this person?'))return;state.people=state.people.filter(p=>p.id!==id);persistPersonDelete(id);closeModal();render();toast('Deleted');}
 
 /* Lessons form */
 function lessonForm(id){const l=id?state.lessons.find(x=>x.id===id):{date:today()};
@@ -761,18 +937,24 @@ function lessonForm(id){const l=id?state.lessons.find(x=>x.id===id):{date:today(
 function lval(k){const el=document.getElementById('lf_'+k);return el?el.value.trim():''}
 function saveLesson(id){const title=lval('title');if(!title){toast('Title required');return;}
   const d={title,date:lval('date')||today(),category:lval('category'),source:lval('source'),description:lval('description'),impact:lval('impact'),related:lval('related')};
-  if(id){Object.assign(state.lessons.find(x=>x.id===id),d);}else{d.id=uid('l');state.lessons.push(d);}save();closeModal();render();toast(id?'Updated':'Lesson saved');}
-function delLesson(id){if(!confirm('Delete this lesson?'))return;state.lessons=state.lessons.filter(l=>l.id!==id);save();closeModal();render();toast('Deleted');}
+  if(id){const ex=state.lessons.find(x=>x.id===id);Object.assign(ex,d);persistLesson(ex);}else{d.id=uid('l');d.createdBy=userName();state.lessons.push(d);persistLesson(d);}closeModal();render();toast(id?'Updated':'Lesson saved');}
+function delLesson(id){if(!confirm('Delete this lesson?'))return;state.lessons=state.lessons.filter(l=>l.id!==id);persistLessonDelete(id);closeModal();render();toast('Deleted');}
 
 function closeModal(){document.getElementById('modal-root').innerHTML=''}
 
 /* data actions */
-function resetBrain(){if(confirm('Reset the Knowledge Base to defaults? Your edits will be lost.')){state.brain=defaultBrain();save();render();toast('Knowledge Base reset');}}
+function resetBrain(){if(confirm('Reset the Knowledge Base to defaults? Your edits will be lost.')){state.brain=defaultBrain();cacheSave();if(CLOUD){BRAIN_SECTIONS.forEach(([k,label])=>sync('brain_sections','upsert',{section_key:k,title:label,content:state.brain[k]}));}render();toast('Knowledge Base reset');}}
 function exportData(){const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='kweli-brain-'+today()+'.json';a.click();URL.revokeObjectURL(a.href);toast('Backup downloaded');}
-function importData(input){const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.opps&&!d.brain)throw new Error('not a valid backup');if(!confirm('Replace all current data with this backup?'))return;
-  state={opps:d.opps||[],people:d.people||[],lessons:d.lessons||[],brain:migrateBrain(d.brain),version:2};state.opps.forEach(o=>o.timeline=o.timeline||[]);save();go('dashboard');toast('Backup restored');}catch(e){toast('Import failed: '+e.message)}};r.readAsText(f);input.value='';}
-function resetDemo(){if(confirm('Reload demo data? This replaces everything currently stored.')){state=seed();save();go('dashboard');toast('Demo data loaded');}}
-function clearAll(){if(confirm('Delete ALL companies, people and lessons? The Knowledge Base is kept. Cannot be undone.')){state.opps=[];state.people=[];state.lessons=[];save();go('dashboard');toast('Cleared');}}
+function importData(input){const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.opps&&!d.brain)throw new Error('not a valid backup');if(!confirm(CLOUD?'Upload this backup into the shared cloud? Existing records are kept; this adds the backup\'s records.':'Replace all current data with this backup?'))return;
+  if(CLOUD){toast('Importing…');uploadDataset(d).then(()=>fetchAll()).then(()=>{render();toast('Backup imported');}).catch(e=>toast('Import failed: '+(e.message||e)));}
+  else{state={opps:d.opps||[],people:d.people||[],lessons:d.lessons||[],brain:migrateBrain(d.brain),version:2};state.opps.forEach(o=>o.timeline=o.timeline||[]);cacheSave();go('dashboard');toast('Backup restored');}
+  }catch(e){toast('Import failed: '+e.message);}};r.readAsText(f);input.value='';}
+function resetDemo(){if(!confirm(CLOUD?'Replace ALL shared cloud data with demo data?':'Reload demo data? This replaces everything currently stored.'))return;
+  if(CLOUD){(async()=>{toast('Resetting…');try{await clearCloud();await uploadDataset(seed());await fetchAll();render();toast('Demo data loaded');}catch(e){toast('Failed: '+(e.message||e));}})();}
+  else{state=seed();cacheSave();go('dashboard');toast('Demo data loaded');}}
+function clearAll(){if(!confirm(CLOUD?'Delete ALL shared companies, people and lessons? Cannot be undone.':'Delete ALL companies, people and lessons? The Knowledge Base is kept. Cannot be undone.'))return;
+  if(CLOUD){(async()=>{try{await clearCloud();await fetchAll();render();toast('Cleared');}catch(e){toast('Failed: '+(e.message||e));}})();}
+  else{state.opps=[];state.people=[];state.lessons=[];cacheSave();go('dashboard');toast('Cleared');}}
 
 /* clipboard + toast */
 function copy(t){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(()=>toast('Copied to clipboard'),()=>fb(t));}else fb(t);}
@@ -780,7 +962,7 @@ function fb(t){const ta=document.createElement('textarea');ta.value=t;document.b
 let tt;function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),1900);}
 
 function afterRender(){}
-render();
+init();
 </script>
 </body>
 </html>
