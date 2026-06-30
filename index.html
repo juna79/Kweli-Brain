@@ -940,8 +940,8 @@ function openForm(id){const o=id?byId(id):{};
     F('Company name','company')+
     '<div class="field-row">'+SEL('Category','category',CATEGORIES)+SEL('Stage','stage',STAGES)+'</div>'+
     '<div class="field-row">'+F('Website','website','text','https://')+F('Priority (0–100)','priority','number')+'</div>'+
-    '<div class="field-row">'+F('Contact role','contactRole')+F('Email','email','text','verified public email only')+'</div>'+
-    F('LinkedIn','linkedin','text','https://linkedin.com/in/')+
+    '<div class="field-row">'+F('Contact name','contactName')+F('Contact role','contactRole')+'</div>'+
+    '<div class="field-row">'+F('Email','email','text','verified public email only')+F('LinkedIn','linkedin','text','https://linkedin.com/in/')+'</div>'+
     TA('Kweli angle','angle',3,'Where Kweli genuinely helps this org')+TA('Proposed pilot','pilot',2,'Tight, measurable, one document type')+
     '<div class="field-row">'+F('Last interaction','lastInteraction','date')+F('Follow-up date','followUp','date')+'</div>'+
     F('Next action','nextAction')+TA('Notes','notes',3)+TA('Meeting notes','meetingNotes',3)+TA('Objections','objections',2)+
@@ -951,12 +951,13 @@ function openForm(id){const o=id?byId(id):{};
 function val(k){const el=document.getElementById('f_'+k);return el?el.value.trim():''}
 function saveForm(id){const company=val('company');if(!company){toast('Company name required');return;}
   const inv=val('investmentStatus');
-  const d={company,category:val('category'),website:val('website'),contactRole:val('contactRole'),linkedin:val('linkedin'),email:val('email'),
+  const d={company,category:val('category'),website:val('website'),contactName:val('contactName'),contactRole:val('contactRole'),linkedin:val('linkedin'),email:val('email'),
     stage:val('stage'),priority:Math.max(0,Math.min(100,+val('priority')||0)),angle:val('angle'),pilot:val('pilot'),
     lastInteraction:val('lastInteraction'),followUp:val('followUp'),nextAction:val('nextAction'),notes:val('notes'),
     meetingNotes:val('meetingNotes'),objections:val('objections'),status:val('status'),investmentStatus:inv==='—'?'':inv};
-  if(id){const o=byId(id);const old=o.stage;Object.assign(o,d);persistOpp(o);if(old!==d.stage){addActivity(id,'Stage',userName()+' changed stage from '+old+' to '+d.stage);}closeModal();render();toast('Updated');}
-  else{d.id=uid();d.createdBy=userName();d.timeline=[];state.opps.push(d);addActivity(d.id,'Created',userName()+' created '+d.company);closeModal();go('detail',d.id);toast('Added');}
+  function linkContact(cid){if(!d.contactName)return;findOrCreatePerson(d.contactName,{companyId:cid,company:d.company,role:d.contactRole,email:d.email,linkedin:d.linkedin,relationship:'Company contact',warmth:'Warm'});}
+  if(id){const o=byId(id);const old=o.stage;Object.assign(o,d);persistOpp(o);if(old!==d.stage){addActivity(id,'Stage',userName()+' changed stage from '+old+' to '+d.stage);}linkContact(id);closeModal();render();toast('Updated');}
+  else{d.id=uid();d.createdBy=userName();d.timeline=[];state.opps.push(d);addActivity(d.id,'Created',userName()+' created '+d.company);linkContact(d.id);closeModal();go('detail',d.id);toast('Added');}
 }
 function delOpp(id){const o=byId(id);if(!o)return;if(!confirm('Delete '+o.company+'? This cannot be undone.'))return;
   state.opps=state.opps.filter(x=>x.id!==id);state.people.forEach(p=>{if(p.companyId===id)p.companyId='';});persistOppDelete(id);go('companies');toast('Deleted');}
