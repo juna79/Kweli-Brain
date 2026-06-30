@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kweli Mission Control</title>
+<style>
+  :root{
+    --ink:#08161E; --bg:#0B1F2A; --panel:#0F2733; --panel2:#11303E; --raise:#143544;
+    --line:#1E3D4D;
+    --txt:#E8EEF1; --muted:#8AA4B0; --faint:#5F7C89;
+    --brass:#C9A24B; --brass-d:#A6822F; --green:#3FB984; --amber:#E0A33E; --red:#E06A4E;
+    --radius:12px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; font-size:14px; line-height:1.5;
+  }
+  a{color:var(--brass);text-decoration:none}
+  ::selection{background:rgba(201,162,75,.3)}
+
+  /* ---------- layout ---------- */
+  .app{display:flex;min-height:100vh}
+  .sidebar{
+    width:228px;flex:none;background:var(--ink);border-right:1px solid var(--line);
+    padding:20px 14px;position:fixed;top:0;bottom:0;left:0;overflow-y:auto;z-index:40;
+    transition:transform .22s ease;
+  }
+  .main{flex:1;margin-left:228px;min-width:0}
+  .brand{display:flex;align-items:center;gap:11px;padding:4px 6px 18px}
+  .brand-mark{
+    width:34px;height:34px;border-radius:8px;flex:none;display:grid;place-items:center;
+    background:linear-gradient(140deg,var(--brass),#7c6224);color:#08161E;font-weight:800;
+    font-family:ui-monospace,monospace;font-size:18px;
+  }
+  .brand-name{font-weight:680;letter-spacing:-.01em;font-size:15px;line-height:1.1}
+  .brand-sub{font-size:10px;color:var(--faint);font-family:ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
+  .nav{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+  .nav-item{
+    display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:8px;
+    color:var(--muted);cursor:pointer;font-size:13.5px;font-weight:500;border:1px solid transparent;
+  }
+  .nav-item:hover{color:var(--txt);background:var(--panel)}
+  .nav-item.active{color:var(--txt);background:var(--panel2);border-color:var(--line)}
+  .nav-item.active .ico{color:var(--brass)}
+  .nav-item .ico{width:17px;height:17px;flex:none;color:var(--faint)}
+  .nav-badge{margin-left:auto;font-size:10px;font-family:ui-monospace,monospace;
+    background:var(--red);color:#fff;border-radius:9px;padding:1px 6px;font-weight:700}
+  .nav-sect{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);
+    font-family:ui-monospace,monospace;padding:16px 11px 6px}
+
+  .topbar{display:none;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);
+    position:sticky;top:0;background:var(--bg);z-index:30}
+  .hamb{background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--txt);
+    width:38px;height:38px;cursor:pointer;font-size:18px;display:grid;place-items:center}
+  .scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:35}
+
+  .content{padding:30px 34px 70px;max-width:1180px;margin:0 auto}
+  .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap}
+  .page-title{font-size:23px;font-weight:680;letter-spacing:-.015em}
+  .page-sub{font-size:13px;color:var(--muted);margin-top:3px}
+  .eyebrow{font-family:ui-monospace,monospace;font-size:10.5px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--brass)}
+
+  /* ---------- cards / grid ---------- */
+  .grid{display:grid;gap:14px}
+  .g-3{grid-template-columns:repeat(3,1fr)}
+  .g-2{grid-template-columns:repeat(2,1fr)}
+  .g-auto{grid-template-columns:repeat(auto-fill,minmax(290px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+  .card.tight{padding:14px 16px}
+  .card-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .card-h h3{margin:0;font-size:13px;font-weight:620;letter-spacing:.01em}
+  .card-h .eyebrow{margin:0}
+
+  .stat{display:flex;flex-direction:column;gap:6px}
+  .stat-n{font-size:30px;font-weight:720;letter-spacing:-.02em;line-height:1}
+  .stat-l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-family:ui-monospace,monospace}
+  .stat.warn .stat-n{color:var(--red)}
+  .stat.due .stat-n{color:var(--amber)}
+  .stat.ok .stat-n{color:var(--green)}
+
+  /* ---------- opportunity cards ---------- */
+  .opp-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:16px;cursor:pointer;transition:border-color .15s ease,transform .05s ease;position:relative;display:flex;flex-direction:column;gap:10px}
+  .opp-card:hover{border-color:var(--brass)}
+  .opp-card.overdue{border-color:rgba(224,106,78,.55);box-shadow:0 0 0 1px rgba(224,106,78,.18)}
+  .opp-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+  .opp-name{font-size:15.5px;font-weight:650;letter-spacing:-.01em}
+  .opp-cat{font-size:11px;color:var(--muted);font-family:ui-monospace,monospace;letter-spacing:.04em;margin-top:2px}
+  .score{flex:none;width:42px;height:42px;border-radius:9px;display:grid;place-items:center;
+    font-weight:750;font-size:15px;font-family:ui-monospace,monospace;border:1px solid var(--line)}
+  .opp-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);flex-wrap:wrap}
+  .opp-next{font-size:13px;color:var(--txt);background:var(--ink);border:1px solid var(--line);
+    border-radius:7px;padding:7px 9px;line-height:1.4}
+  .opp-next .lbl{color:var(--faint);font-family:ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;display:block;margin-bottom:2px}
+
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;padding:3px 9px;border-radius:20px;
+    border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-weight:500}
+  .chip .dot{width:7px;height:7px;border-radius:50%;background:var(--muted)}
+  .due-tag{font-size:11px;font-family:ui-monospace,monospace;padding:2px 8px;border-radius:6px}
+  .due-tag.overdue{background:rgba(224,106,78,.14);color:var(--red);border:1px solid rgba(224,106,78,.4)}
+  .due-tag.today{background:rgba(224,163,62,.14);color:var(--amber);border:1px solid rgba(224,163,62,.4)}
+  .due-tag.soon{background:var(--panel2);color:var(--muted);border:1px solid var(--line)}
+
+  /* ---------- buttons / inputs ---------- */
+  .btn{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;
+    padding:9px 15px;font-size:13px;font-weight:550;cursor:pointer;font-family:inherit;
+    transition:all .15s ease;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+  .btn:hover{border-color:var(--brass);color:var(--txt)}
+  .btn.gold{background:var(--brass);color:#08161E;border-color:var(--brass);font-weight:680}
+  .btn.gold:hover{filter:brightness(1.08)}
+  .btn.sm{padding:6px 11px;font-size:12px}
+  .btn.ghost{background:transparent}
+  .btn.danger:hover{border-color:var(--red);color:var(--red)}
+  .btn .ico{width:15px;height:15px}
+
+  .input,.select,textarea.input{
+    width:100%;background:var(--ink);border:1px solid var(--line);border-radius:8px;color:var(--txt);
+    padding:10px 12px;font-size:13.5px;font-family:inherit;outline:none;transition:border-color .15s,box-shadow .15s}
+  .input:focus,.select:focus,textarea.input:focus{border-color:var(--brass);box-shadow:0 0 0 2px rgba(201,162,75,.16)}
+  textarea.input{resize:vertical;line-height:1.55}
+  .select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%238AA4B0' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+    background-repeat:no-repeat;background-position:right 12px center;padding-right:30px}
+  label.fl{display:block;font-size:11px;color:var(--muted);font-family:ui-monospace,monospace;
+    letter-spacing:.1em;text-transform:uppercase;margin:0 0 6px}
+  .field{margin-bottom:14px}
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+  .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
+  .toolbar .input,.toolbar .select{width:auto}
+  .search{flex:1;min-width:180px}
+
+  /* ---------- table ---------- */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{text-align:left;font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--faint);padding:10px 12px;border-bottom:1px solid var(--line);font-weight:600}
+  tbody td{padding:11px 12px;border-bottom:1px solid var(--line)}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:var(--panel2)}
+
+  /* ---------- detail ---------- */
+  .detail-grid{display:grid;grid-template-columns:1.6fr 1fr;gap:16px;align-items:start}
+  .kv{display:flex;flex-direction:column;gap:3px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .kv:last-child{border-bottom:none}
+  .kv .k{font-size:10px;font-family:ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .kv .v{font-size:14px;color:var(--txt);word-break:break-word}
+  .block{margin-top:18px}
+  .block h4{font-size:11px;font-family:ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--brass);margin:0 0 9px}
+  .prose{white-space:pre-wrap;font-family:Georgia,"Times New Roman",serif;font-size:14.5px;line-height:1.6;color:#DCE6EB}
+  .timeline{list-style:none;margin:0;padding:0}
+  .timeline li{position:relative;padding:0 0 14px 20px;border-left:1px solid var(--line);margin-left:4px}
+  .timeline li:last-child{border-left-color:transparent;padding-bottom:0}
+  .timeline li::before{content:"";position:absolute;left:-4px;top:4px;width:7px;height:7px;border-radius:50%;background:var(--brass)}
+  .timeline .t-date{font-size:10.5px;font-family:ui-monospace,monospace;color:var(--faint);letter-spacing:.06em}
+  .timeline .t-text{font-size:13.5px;color:var(--txt);margin-top:2px}
+
+  .prompt-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .prompt-btns .btn{justify-content:flex-start;font-size:12.5px}
+
+  /* ---------- brain ---------- */
+  .brain-grid{display:grid;grid-template-columns:1fr;gap:14px}
+  .brain-sec textarea{min-height:auto}
+  .brain-sec.big textarea{min-height:120px}
+
+  /* ---------- prompt output ---------- */
+  .prompt-out{background:var(--ink);border:1px solid var(--line);border-radius:10px;padding:16px;
+    white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:12.5px;line-height:1.6;color:#CBDAE0;
+    max-height:440px;overflow:auto}
+
+  /* ---------- empty ---------- */
+  .empty{text-align:center;padding:54px 24px;border:1px dashed var(--line);border-radius:var(--radius);background:var(--panel)}
+  .empty .e-mark{width:48px;height:48px;border-radius:12px;margin:0 auto 14px;display:grid;place-items:center;
+    background:var(--panel2);border:1px solid var(--line);color:var(--brass)}
+  .empty h3{margin:0 0 6px;font-size:16px}
+  .empty p{margin:0 0 18px;color:var(--muted);font-size:13.5px}
+  .empty .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+
+  /* ---------- modal ---------- */
+  .modal-scrim{position:fixed;inset:0;background:rgba(4,12,16,.66);z-index:60;display:flex;
+    align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;width:100%;max-width:640px;
+    padding:24px;box-shadow:0 24px 60px -20px rgba(0,0,0,.7)}
+  .modal-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+  .modal-h h2{margin:0;font-size:18px}
+  .x{background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1;padding:4px}
+  .x:hover{color:var(--txt)}
+  .modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:6px}
+
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--raise);
+    border:1px solid var(--brass);color:var(--txt);padding:11px 18px;border-radius:10px;font-size:13px;
+    z-index:80;box-shadow:0 12px 30px -12px rgba(0,0,0,.6);opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.show{opacity:1}
+
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{background:transparent;border:none;color:var(--muted);padding:7px 13px;font-size:12.5px;cursor:pointer;font-family:inherit}
+  .seg button.active{background:var(--panel2);color:var(--brass)}
+
+  .muted{color:var(--muted)}
+  .faint{color:var(--faint)}
+  .mono{font-family:ui-monospace,monospace}
+  .right{margin-left:auto}
+  .nowrap{white-space:nowrap}
+
+  @media(max-width:860px){
+    .sidebar{transform:translateX(-100%)}
+    .sidebar.open{transform:translateX(0)}
+    .main{margin-left:0}
+    .topbar{display:flex}
+    .scrim.show{display:block}
+    .content{padding:20px 16px 60px}
+    .g-3,.g-2{grid-template-columns:1fr}
+    .detail-grid{grid-template-columns:1fr}
+    .field-row{grid-template-columns:1fr}
+    .prompt-btns{grid-template-columns:1fr}
+  }
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">K</div>
+      <div>
+        <div class="brand-name">Kweli</div>
+        <div class="brand-sub">Mission Control</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+  </aside>
+
+  <div class="scrim" id="scrim" onclick="toggleSidebar(false)"></div>
+
+  <div class="main">
+    <div class="topbar">
+      <button class="hamb" onclick="toggleSidebar(true)">&#9776;</button>
+      <div class="brand-name">Kweli Mission Control</div>
+    </div>
+    <div class="content" id="content"></div>
+  </div>
+</div>
+
+<div id="modal-root"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================ *
+ *  KWELI MISSION CONTROL — single-file founder operating system
+ *  Vanilla JS · localStorage · no backend · no build step
+ * ============================================================ */
+
+const STORE = 'kweli_mc_v1';
+
+/* ---------- constants ---------- */
+const CATEGORIES = ["Labs","Insurance","Exporters","Banks/Lenders","Governance/Legal","Agriculture/FMCG","Professional Services","Investors","Other"];
+const STAGES = ["Identified","Researched","Contacted","Replied","Meeting booked","Meeting done","Proposal sent","Pilot discussion","Pilot agreed","Closed","Paused"];
+const STATUSES = ["Active","Won","Lost","On hold"];
+const STAGE_COLOR = {
+  "Identified":"#6E8794","Researched":"#7CA0B0","Contacted":"#C9A24B","Replied":"#D9B968",
+  "Meeting booked":"#4FA3D1","Meeting done":"#5FB0C9","Proposal sent":"#C9A24B",
+  "Pilot discussion":"#6FBE9E","Pilot agreed":"#3FB984","Closed":"#3FB984","Paused":"#5F7C89"
+};
+const CLOSED_STAGES = ["Closed","Paused"];
+
+const PROMPT_TYPES = [
+  {id:'research',  label:'Research this company'},
+  {id:'fit',       label:'Score Kweli fit'},
+  {id:'champion',  label:'Find best champion'},
+  {id:'email',     label:'Draft outreach email'},
+  {id:'linkedin',  label:'Draft LinkedIn message'},
+  {id:'brief',     label:'Prepare meeting brief'},
+  {id:'reply',     label:'Handle prospect reply',   extra:"Paste the prospect's reply"},
+  {id:'followup',  label:'Write follow-up email',   extra:'Notes on previous touches (optional)'},
+  {id:'summarise', label:'Summarise meeting notes', extra:'Paste the messy meeting notes'},
+  {id:'brainupd',  label:'Update Kweli Brain from notes', extra:'Paste notes / learnings'},
+];
+
+const TASKS = {
+  research:"TASK: Research this company. Map where high-value regulated documents move into and out of it, who issues each, who relies on it, and the financial/legal/compliance risk if one were forged, altered, or never issued. Separate confirmed facts from anything [inferred]. End with the 1-2 documents most worth Kweli-verifying.",
+  fit:"TASK: Score Kweli fit. Begin with a single line: VERDICT: Strong | Plausible | Weak | No fit -- one-line why. Then: WHERE KWELI FITS (tie to specific documents and the risk they carry); WHERE KWELI DOES NOT FIT HERE (hold the precision rule, be honest); RECOMMENDED PILOT (one document category, one business unit, the measurable proof point, and tier: design partner $10-15K or commercial pilot $20-35K). If No fit, say plainly: do not pursue, and why.",
+  champion:"TASK: Identify the best champion. Give 2-4 roles by title/function; for each, why they would care (tie to a document/risk) and what they will be sceptical of. Name a real individual ONLY with a verifiable public source you can cite; otherwise give the role and exactly how Juna can find the right person. Never invent a name or email.",
+  email:"TASK: Draft ONE outreach email from Juna (Founder & CEO, Kweli). Under 150 words, founder-led and human, no hype. One specific hook tied to a document/risk for this org; one soft ask (a short call or a design-partner conversation). Include a SUBJECT line. Then 2-3 rationale bullets and what to verify before sending.",
+  linkedin:"TASK: Draft a LinkedIn first message from Juna. Under 80 words, warm and specific, no pitch-dump, one reason to talk. No invented mutual connections or facts.",
+  brief:"TASK: Prepare a meeting brief. 5-6 discovery questions that surface where high-value documents move and what a bad document costs them; 3 likely objections each with a one-line response (hold the precision rule); the recommended pilot in one line; 2-3 ROI metrics the pilot could move.",
+  reply:"TASK: The prospect's reply is in EXTRA CONTEXT. Read what they are really saying, then draft Juna's response under 150 words that moves toward a call or pilot without pushing, holding the precision rule. Note any objection worth logging.",
+  followup:"TASK: Write a follow-up email from Juna using a DIFFERENT angle from previous touches (see notes / EXTRA CONTEXT). Under 150 words, one fresh hook (audit readiness, a peer signal, a specific document risk), one soft ask. No guilt, no 'just checking in'.",
+  summarise:"TASK: From the meeting notes in EXTRA CONTEXT produce: a 3-line summary; action items (owner + date where stated); new insights; objections raised; recommended next steps; a draft follow-up email under 150 words; and any suggested updates to the Kweli Brain. Do not invent anything not in the notes.",
+  brainupd:"TASK: From the notes in EXTRA CONTEXT, propose specific updates to the Kweli Brain. Quote the section name and give the exact replacement or addition text. Only propose changes grounded in the notes. Flag anything the founder must confirm.",
+};
+
+const PLAYBOOK_MAP = {
+  "Labs":"playbookLabs","Insurance":"playbookInsurance","Exporters":"playbookExport",
+  "Agriculture/FMCG":"playbookExport","Banks/Lenders":"playbookBanking"
+};
+
+/* ---------- default Kweli Brain ---------- */
+const BRAIN_SECTIONS = [
+  ["whatIs","What Kweli is",false],
+  ["whatIsNot","What Kweli is NOT",false],
+  ["precision","Precision rule — issuance vs correctness",false],
+  ["playbookInsurance","Insurance playbook",true],
+  ["playbookLabs","Labs playbook",true],
+  ["playbookExport","Export playbook",true],
+  ["playbookBanking","Banking playbook",true],
+  ["objections","Objection handling",true],
+  ["pricing","Pricing",false],
+  ["pilot","Pilot framework",false],
+  ["team","Team",false],
+  ["pipeline","Existing pipeline",false],
+];
+
+function defaultBrain(){
+  return {
+    whatIs:"Kweli is verification infrastructure. An organisation registers a cryptographic fingerprint (hash) of a document on the Base blockchain. The document itself is never uploaded or stored - only the fingerprint and verification metadata are anchored. Later anyone uploads the document; Kweli hashes it and compares. Three results: VERIFIED (authentic, unaltered issued document), VERIFICATION FAILED (altered or not the issued version), DOCUMENT NOT FOUND (no record of issuance). The original document never leaves the customer; Kweli stores no document contents.",
+    whatIsNot:"Not a document-management system. Not fraud-detection software. Not workflow software. Not 'a blockchain product' - the chain is plumbing, never the pitch. It does not store, read, or process document contents.",
+    precision:"Kweli proves authenticity of issuance - that a document is the genuine, unaltered one a named issuer registered. It does NOT prove the contents are clinically, factually, or financially correct. A genuinely-issued report with honest-looking but false numbers still verifies. Never claim Kweli detects content fraud, inflated-but-real invoices, or staged events with genuine paperwork. Holding this line is what keeps the pitch credible.",
+    playbookInsurance:"Insurers are VERIFIERS, not issuers - they get value only once issuers (hospitals, garages, assessors) register documents. Hold the precision rule hard: Kweli does NOT catch inflated-but-real invoices or staged claims; it removes the forged / altered / fabricated category (fake hospital invoices, altered assessment reports, fabricated abstracts). Best play = Model A anchor-mandate: the insurer mandates that its provider panel register documents, so claims arrive pre-verified. This is a slow, multi-stakeholder enterprise sale - pursue only with a warm anchor. Pilot: one document type (e.g. garage assessment reports) across a small provider panel.",
+    playbookLabs:"Labs issue test reports / certificates of analysis relied on by exporters, buyers, and regulators. Risk: forged or altered COAs cause rejected shipments, food-safety liability, and lost market access. Kweli angle: the lab registers each report's fingerprint at issuance; any downstream party verifies instantly; the lab becomes a trusted gatekeeper that can mandate verification across its client network (Model A). Pilot: one report type, one season, measure unprompted downstream verifications. Champions: MD/CEO, Quality/Lab Manager, Commercial lead. This is the leading beachhead wedge.",
+    playbookExport:"Exporters move phytosanitary certificates, COAs, certificates of origin, and fumigation certs across borders; importers, customs, and buyers rely on them. Risk: forged certs cause shipment rejection, fraud, and reputational damage. Kweli angle: the certifier or exporter registers each certificate at issuance; importers and customs verify on receipt. Anchor-mandate: a certification body or a large buyer mandates verification across its supplier network. Pilot: one certificate type on one export corridor.",
+    playbookBanking:"Lenders rely on bank statements, audited financials, valuation reports, KYC documents, and trade-finance paperwork. Risk: forged statements or valuations drive credit losses. Kweli angle: the issuers (auditors, valuers, warehouse operators) register documents; the lender verifies at underwriting, removing fabricated and altered documents from the file. Asset financiers (e.g. logbooks, invoices, insurance certificates) are a natural fit. Pilot: one document type inside loan origination.",
+    objections:"'Isn't this blockchain hype?' -> The chain is plumbing; what you buy is a yes/no answer on whether a document is the authentic issued one. 'We already have fraud detection.' -> Different problem - that scores content patterns; Kweli answers a prior question: is this even the real document? Complementary. 'Does this prove the data is correct?' -> No, and we never claim it - it removes the forged/altered/fabricated category so your people focus on content. 'Where is our document stored?' -> Nowhere; we hash it and anchor only a fingerprint. 'Why not just call the issuer?' -> That manual check is exactly what Kweli replaces - instant, self-serve, at scale.",
+    pricing:"Hybrid annual subscription. Value metric = verification volume x document categories x business units (GRC subscription-on-complexity style). Pre-seed motion: paid design partners $10-15K; commercial pilots $20-35K. Balanced-scenario blended ACV ~$70K. Strongest long-term engine = Model A anchor-mandate, where a concentrated verifier or gatekeeper mandates issuer participation.",
+    pilot:"A pilot must produce a measurable proof point: documents registered, downstream verifications performed, ideally one bad document caught or prevented. Tight scope, time-boxed, single document category, single business unit. Design partner ($10-15K) for co-building; commercial pilot ($20-35K) for a buyer with budget.",
+    team:"Juna - Founder & CEO. Mason Strohl - CTO. Paris Foot - Business Development. Based in Nairobi, under EAX Global.",
+    pipeline:"Engaged, no binding agreements: Cropnuts, Kentaste, Watu Credit, Turaco, Spencer West, Save the Elephants.",
+  };
+}
+
+/* ---------- date helpers ---------- */
+function iso(d){return d.toISOString().slice(0,10)}
+function today(){return iso(new Date())}
+function addDays(n){const d=new Date();d.setDate(d.getDate()+n);return iso(d)}
+function fmtDate(s){if(!s)return"";const d=new Date(s+"T00:00:00");return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}
+function daysUntil(s){if(!s)return null;const a=new Date(s+"T00:00:00"),b=new Date(today()+"T00:00:00");return Math.round((a-b)/86400000)}
+
+/* ---------- demo data ---------- */
+function demoData(){
+  const mk=(o)=>Object.assign({id:uid(),timeline:[],status:"Active",notes:"",meetingNotes:"",objections:"",website:"",linkedin:"",email:""},o);
+  return [
+    mk({company:"Cropnuts",category:"Labs",contactName:"",contactRole:"Managing Director",stage:"Researched",priority:88,
+      angle:"Lab registers each certificate of analysis at issuance; exporters and buyers verify instantly. Cropnuts becomes the gatekeeper that can mandate verification across its testing clients (Model A).",
+      pilot:"One COA type for a single export crop, one season; measure unprompted downstream verifications.",
+      lastInteraction:addDays(-9),followUp:addDays(-2),nextAction:"Send tailored COA-verification angle + propose 20-min call",
+      website:"https://www.cropnuts.com",
+      timeline:[{date:addDays(-9),text:"Identified as leading beachhead lab. Strong gatekeeper potential."},{date:addDays(-2),text:"Drafted research notes; follow-up due."}]}),
+    mk({company:"Kentaste",category:"Agriculture/FMCG",contactRole:"Head of Quality / Export",stage:"Identified",priority:74,
+      angle:"Coconut-product exporter relying on COAs, organic and phytosanitary certificates; forged certs risk shipment rejection. Kweli anchors each cert at issuance for buyer/customs verification.",
+      pilot:"Phytosanitary or organic certificate on one export corridor; verify on importer receipt.",
+      lastInteraction:addDays(-14),followUp:addDays(3),nextAction:"Map which certificates carry most rejection risk before outreach",
+      timeline:[{date:addDays(-14),text:"Added to pipeline. Needs document-flow mapping."}]}),
+    mk({company:"Turaco",category:"Insurance",contactRole:"Head of Claims / Operations",stage:"Contacted",priority:69,
+      angle:"Insurtech verifier - precision rule applies. Kweli removes forged/altered claim documents (fake invoices, altered assessments). Best as Model A: mandate provider panel to register documents.",
+      pilot:"One claim-document type across a small provider panel; pre-verified claims intake.",
+      lastInteraction:addDays(-5),followUp:today(),nextAction:"Follow up on intro email - propose discovery call",
+      timeline:[{date:addDays(-5),text:"Sent first outreach. Awaiting reply - follow-up today."}]}),
+    mk({company:"Watu Credit",category:"Banks/Lenders",contactRole:"Head of Credit / Risk",stage:"Replied",priority:71,
+      angle:"Asset financier relying on logbooks, invoices, and insurance certificates. Kweli verifies these at origination, removing fabricated/altered documents from the credit file.",
+      pilot:"Insurance certificate or logbook verification inside loan origination, one branch.",
+      lastInteraction:addDays(-3),followUp:addDays(5),nextAction:"Answer their question on data privacy; reiterate no contents stored",
+      objections:"Asked where documents are stored - clarify: nowhere, only a fingerprint is anchored.",
+      timeline:[{date:addDays(-8),text:"Outreach sent."},{date:addDays(-3),text:"Replied with interest + privacy question."}]}),
+    mk({company:"Spencer West",category:"Governance/Legal",contactRole:"Partner",stage:"Identified",priority:52,
+      angle:"Law firm handling documents whose authenticity matters in transactions and disputes. Possible verifier-side referrer rather than direct issuer; explore use cases carefully.",
+      pilot:"Undetermined - run a fit-scoring pass before committing time.",
+      lastInteraction:addDays(-20),followUp:addDays(10),nextAction:"Run Kweli-fit scoring; may be low fit",
+      timeline:[{date:addDays(-20),text:"Added speculatively. Fit unclear - score before pursuing."}]}),
+    mk({company:"Save the Elephants",category:"Other",contactRole:"Programmes / Partnerships Lead",stage:"Identified",priority:58,
+      angle:"Conservation NGO producing impact and conservation records relied on by funders and carbon/ESG buyers. Kweli anchors records at issuance for funder verification (digital public infrastructure for environmental trust).",
+      pilot:"One conservation/impact report type verified for a specific funder.",
+      lastInteraction:addDays(-16),followUp:addDays(14),nextAction:"Identify which records funders most need to trust",
+      timeline:[{date:addDays(-16),text:"Added under environmental-trust framing."}]}),
+  ];
+}
+
+/* ---------- state ---------- */
+function uid(){return 'o'+Math.random().toString(36).slice(2,9)}
+let state = load();
+
+function load(){
+  try{
+    const raw = localStorage.getItem(STORE);
+    if(raw){const s=JSON.parse(raw); s.brain=Object.assign(defaultBrain(),s.brain||{}); return s;}
+  }catch(e){}
+  const fresh = {opps:demoData(), brain:defaultBrain(), seededDemo:true};
+  localStorage.setItem(STORE, JSON.stringify(fresh));
+  return fresh;
+}
+function save(){localStorage.setItem(STORE, JSON.stringify(state)); refreshBadge();}
+
+/* ---------- routing ---------- */
+let route = {view:'dashboard', id:null, oppView:'cards', promptType:'research', promptCompany:'', promptExtra:'', meetingCompany:'', meetingNotes:'', oppFilter:{q:'',cat:'',stage:'',sort:'priority'}};
+
+const NAV = [
+  {id:'dashboard', label:'Dashboard', icon:'grid'},
+  {id:'opportunities', label:'Opportunities', icon:'list'},
+  {id:'followups', label:'Follow-ups', icon:'clock'},
+  {id:'industries', label:'Industries', icon:'layers'},
+  {sect:'Intelligence'},
+  {id:'brain', label:'Kweli Brain', icon:'book'},
+  {id:'prompts', label:'Prompt Generator', icon:'spark'},
+  {id:'meeting', label:'Meeting Notes', icon:'doc'},
+  {sect:'System'},
+  {id:'settings', label:'Settings / Backup', icon:'gear'},
+];
+
+function ICON(name){
+  const p={
+    grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+    list:'<rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/>',
+    clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    layers:'<path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/>',
+    book:'<path d="M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4z"/><path d="M4 4v14"/>',
+    spark:'<path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><path d="M6 6l3 3M15 15l3 3M18 6l-3 3M9 15l-3 3"/>',
+    doc:'<path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/>',
+    gear:'<circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.4 1a7 7 0 0 0-1.7-1L14.5 2h-5l-.3 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.5L3 11a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 1.7 1L9.5 22h5l.3-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/>',
+  }[name]||'';
+  return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';
+}
+
+function renderNav(){
+  const overdue = overdueOpps().length;
+  document.getElementById('nav').innerHTML = NAV.map(n=>{
+    if(n.sect) return '<div class="nav-sect">'+n.sect+'</div>';
+    const badge = (n.id==='followups' && overdue) ? '<span class="nav-badge">'+overdue+'</span>' : '';
+    return '<div class="nav-item'+(route.view===n.id?' active':'')+'" onclick="go(\''+n.id+'\')">'+ICON(n.icon)+'<span>'+n.label+'</span>'+badge+'</div>';
+  }).join('');
+}
+function refreshBadge(){renderNav()}
+
+function go(view, id){route.view=view; if(id!==undefined)route.id=id; toggleSidebar(false); window.scrollTo(0,0); render();}
+function toggleSidebar(open){
+  const sb=document.getElementById('sidebar'), sc=document.getElementById('scrim');
+  if(open===undefined) open=!sb.classList.contains('open');
+  sb.classList.toggle('open',open); sc.classList.toggle('show',open);
+}
+
+/* ---------- helpers ---------- */
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function byId(id){return state.opps.find(o=>o.id===id)}
+function isActive(o){return !CLOSED_STAGES.includes(o.stage) && o.status==='Active'}
+function overdueOpps(){return state.opps.filter(o=>isActive(o)&&o.followUp&&daysUntil(o.followUp)<0)}
+function todayOpps(){return state.opps.filter(o=>isActive(o)&&o.followUp&&daysUntil(o.followUp)===0)}
+function scoreColor(n){n=+n||0; if(n>=80)return 'var(--brass)'; if(n>=60)return 'var(--green)'; if(n>=40)return 'var(--muted)'; return 'var(--faint)'}
+function stageChip(s){return '<span class="chip"><span class="dot" style="background:'+(STAGE_COLOR[s]||'var(--muted)')+'"></span>'+esc(s)+'</span>'}
+function dueTag(o){
+  if(!o.followUp||!isActive(o)) return '';
+  const d=daysUntil(o.followUp);
+  if(d<0) return '<span class="due-tag overdue">overdue '+Math.abs(d)+'d</span>';
+  if(d===0) return '<span class="due-tag today">due today</span>';
+  if(d<=7) return '<span class="due-tag soon">in '+d+'d</span>';
+  return '<span class="due-tag soon">'+fmtDate(o.followUp)+'</span>';
+}
+
+/* ============================================================ *
+ *  VIEWS
+ * ============================================================ */
+function render(){
+  renderNav();
+  const c=document.getElementById('content');
+  const v={dashboard:vDashboard,opportunities:vOpps,detail:vDetail,followups:vFollowups,
+    industries:vIndustries,brain:vBrain,prompts:vPrompts,meeting:vMeeting,settings:vSettings}[route.view]||vDashboard;
+  c.innerHTML=v();
+  afterRender();
+}
+
+/* ---------- Dashboard ---------- */
+function vDashboard(){
+  const opps=state.opps, active=opps.filter(isActive);
+  const overdue=overdueOpps(), due=todayOpps();
+  const top=[...active].sort((a,b)=>(+b.priority||0)-(+a.priority||0)).slice(0,5);
+  const byStage={}; STAGES.forEach(s=>byStage[s]=0); opps.forEach(o=>byStage[o.stage]=(byStage[o.stage]||0)+1);
+  const byCat={}; opps.forEach(o=>byCat[o.category]=(byCat[o.category]||0)+1);
+  const activity=[...opps].flatMap(o=>(o.timeline||[]).map(t=>({...t,company:o.company,id:o.id})))
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,6);
+  const suggested=active.filter(o=>o.nextAction).sort((a,b)=>{
+    const da=daysUntil(a.followUp), db=daysUntil(b.followUp);
+    return (da==null?999:da)-(db==null?999:db);
+  }).slice(0,5);
+
+  if(!opps.length) return emptyState();
+
+  return `
+  <div class="page-head">
+    <div><div class="eyebrow">Operating overview</div><div class="page-title">Dashboard</div>
+    <div class="page-sub">${active.length} active &middot; ${opps.length} total opportunities</div></div>
+    <button class="btn gold" onclick="openForm()">+ New opportunity</button>
+  </div>
+
+  <div class="grid g-3" style="margin-bottom:14px">
+    <div class="card stat ${overdue.length?'warn':''}"><span class="stat-l">Overdue follow-ups</span><span class="stat-n">${overdue.length}</span></div>
+    <div class="card stat ${due.length?'due':''}"><span class="stat-l">Due today</span><span class="stat-n">${due.length}</span></div>
+    <div class="card stat ok"><span class="stat-l">In pilot motion</span><span class="stat-n">${opps.filter(o=>['Pilot discussion','Pilot agreed'].includes(o.stage)).length}</span></div>
+  </div>
+
+  <div class="detail-grid">
+    <div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-h"><h3>Needs attention</h3><span class="faint mono" style="font-size:11px">${overdue.length+due.length} item(s)</span></div>
+        ${[...overdue,...due].length? [...overdue,...due].map(miniRow).join('') :
+          '<div class="muted" style="padding:8px 0">Nothing overdue or due today. Good.</div>'}
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>Suggested next actions</h3></div>
+        ${suggested.length? suggested.map(o=>`
+          <div class="opp-next" style="margin-bottom:8px;cursor:pointer" onclick="go('detail','${o.id}')">
+            <span class="lbl">${esc(o.company)} &middot; ${esc(o.stage)}</span>${esc(o.nextAction)}
+          </div>`).join('') : '<div class="muted">No next actions set.</div>'}
+      </div>
+    </div>
+
+    <div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-h"><h3>Highest priority</h3></div>
+        ${top.map(o=>`<div class="kv" style="cursor:pointer;flex-direction:row;align-items:center;gap:10px" onclick="go('detail','${o.id}')">
+          <span class="score" style="width:34px;height:34px;font-size:13px;color:${scoreColor(o.priority)}">${+o.priority||0}</span>
+          <span style="flex:1"><span class="v">${esc(o.company)}</span><br><span class="k">${esc(o.category)}</span></span>
+          ${dueTag(o)}
+        </div>`).join('')}
+      </div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-h"><h3>By stage</h3></div>
+        ${STAGES.filter(s=>byStage[s]).map(s=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:13px">
+          <span class="dot" style="width:8px;height:8px;border-radius:50%;background:${STAGE_COLOR[s]}"></span>
+          <span style="flex:1">${esc(s)}</span><span class="mono faint">${byStage[s]}</span></div>`).join('')}
+      </div>
+      <div class="card">
+        <div class="card-h"><h3>By category</h3></div>
+        ${Object.keys(byCat).sort((a,b)=>byCat[b]-byCat[a]).map(cat=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:13px;cursor:pointer" onclick="route.oppFilter.cat='${esc(cat)}';go('opportunities')">
+          <span style="flex:1">${esc(cat)}</span><span class="mono faint">${byCat[cat]}</span></div>`).join('')}
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="card-h"><h3>Recent activity</h3></div>
+    ${activity.length? '<ul class="timeline">'+activity.map(a=>`<li>
+      <span class="t-date">${fmtDate(a.date)} &middot; ${esc(a.company)}</span>
+      <span class="t-text">${esc(a.text)}</span></li>`).join('')+'</ul>' : '<div class="muted">No activity logged yet.</div>'}
+  </div>`;
+}
+function miniRow(o){
+  return `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer" onclick="go('detail','${o.id}')">
+    <span class="score" style="width:32px;height:32px;font-size:12px;color:${scoreColor(o.priority)}">${+o.priority||0}</span>
+    <span style="flex:1"><strong>${esc(o.company)}</strong><br><span class="k mono" style="font-size:10px;color:var(--faint)">${esc(o.nextAction||'No next action')}</span></span>
+    ${dueTag(o)}</div>`;
+}
+
+/* ---------- Opportunities ---------- */
+function vOpps(){
+  const f=route.oppFilter;
+  let list=state.opps.filter(o=>{
+    if(f.q){const q=f.q.toLowerCase(); if(!(o.company+' '+o.category+' '+(o.angle||'')+' '+(o.contactName||'')).toLowerCase().includes(q))return false;}
+    if(f.cat && o.category!==f.cat)return false;
+    if(f.stage && o.stage!==f.stage)return false;
+    return true;
+  });
+  if(f.sort==='priority')list.sort((a,b)=>(+b.priority||0)-(+a.priority||0));
+  if(f.sort==='followup')list.sort((a,b)=>(a.followUp||'9999').localeCompare(b.followUp||'9999'));
+  if(f.sort==='company')list.sort((a,b)=>a.company.localeCompare(b.company));
+
+  const controls=`
+  <div class="toolbar">
+    <input class="input search" id="oppSearch" placeholder="Search company, contact, angle..." value="${esc(f.q)}" oninput="route.oppFilter.q=this.value;renderOppList()">
+    <select class="select" id="oppCat" onchange="route.oppFilter.cat=this.value;renderOppList()">
+      <option value="">All categories</option>${CATEGORIES.map(c=>`<option ${f.cat===c?'selected':''}>${c}</option>`).join('')}</select>
+    <select class="select" id="oppStage" onchange="route.oppFilter.stage=this.value;renderOppList()">
+      <option value="">All stages</option>${STAGES.map(s=>`<option ${f.stage===s?'selected':''}>${s}</option>`).join('')}</select>
+    <select class="select" onchange="route.oppFilter.sort=this.value;renderOppList()">
+      <option value="priority" ${f.sort==='priority'?'selected':''}>Sort: priority</option>
+      <option value="followup" ${f.sort==='followup'?'selected':''}>Sort: follow-up date</option>
+      <option value="company" ${f.sort==='company'?'selected':''}>Sort: A-Z</option></select>
+    <div class="seg right">
+      <button class="${route.oppView==='cards'?'active':''}" onclick="route.oppView='cards';renderOppList()">Cards</button>
+      <button class="${route.oppView==='table'?'active':''}" onclick="route.oppView='table';renderOppList()">Table</button>
+    </div>
+  </div>`;
+
+  return `
+  <div class="page-head">
+    <div><div class="eyebrow">Pipeline</div><div class="page-title">Opportunities</div></div>
+    <button class="btn gold" onclick="openForm()">+ New opportunity</button>
+  </div>
+  ${controls}
+  <div id="oppList">${renderOppListHtml(list)}</div>`;
+}
+function renderOppList(){
+  const f=route.oppFilter;
+  let list=state.opps.filter(o=>{
+    if(f.q){const q=f.q.toLowerCase(); if(!(o.company+' '+o.category+' '+(o.angle||'')+' '+(o.contactName||'')).toLowerCase().includes(q))return false;}
+    if(f.cat && o.category!==f.cat)return false;
+    if(f.stage && o.stage!==f.stage)return false;
+    return true;
+  });
+  if(f.sort==='priority')list.sort((a,b)=>(+b.priority||0)-(+a.priority||0));
+  if(f.sort==='followup')list.sort((a,b)=>(a.followUp||'9999').localeCompare(b.followUp||'9999'));
+  if(f.sort==='company')list.sort((a,b)=>a.company.localeCompare(b.company));
+  document.getElementById('oppList').innerHTML=renderOppListHtml(list);
+}
+function renderOppListHtml(list){
+  if(!list.length) return '<div class="empty"><div class="e-mark">'+ICON('list')+'</div><h3>No matches</h3><p>No opportunities match these filters.</p></div>';
+  if(route.oppView==='table'){
+    return `<div class="card" style="padding:4px"><table><thead><tr>
+      <th>Company</th><th>Category</th><th>Stage</th><th>Score</th><th>Next action</th><th>Follow-up</th></tr></thead><tbody>
+      ${list.map(o=>`<tr onclick="go('detail','${o.id}')">
+        <td><strong>${esc(o.company)}</strong></td><td class="muted">${esc(o.category)}</td>
+        <td>${stageChip(o.stage)}</td><td><span class="mono" style="color:${scoreColor(o.priority)}">${+o.priority||0}</span></td>
+        <td class="muted" style="max-width:240px">${esc(o.nextAction||'')}</td>
+        <td>${dueTag(o)||'<span class="faint">-</span>'}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+  return '<div class="grid g-auto">'+list.map(oppCard).join('')+'</div>';
+}
+function oppCard(o){
+  return `<div class="opp-card ${isActive(o)&&o.followUp&&daysUntil(o.followUp)<0?'overdue':''}" onclick="go('detail','${o.id}')">
+    <div class="opp-top">
+      <div><div class="opp-name">${esc(o.company)}</div><div class="opp-cat">${esc(o.category)}</div></div>
+      <div class="score" style="color:${scoreColor(o.priority)}">${+o.priority||0}</div>
+    </div>
+    <div class="opp-row">${stageChip(o.stage)} ${dueTag(o)}</div>
+    ${o.nextAction?`<div class="opp-next"><span class="lbl">Next action</span>${esc(o.nextAction)}</div>`:''}
+  </div>`;
+}
+
+/* ---------- Detail ---------- */
+function vDetail(){
+  const o=byId(route.id);
+  if(!o) return vOpps();
+  const kv=(k,v,raw)=>`<div class="kv"><span class="k">${k}</span><span class="v">${raw?v:(v?esc(v):'<span class="faint">-</span>')}</span></div>`;
+  const link=(u,t)=>u?`<a href="${esc(u)}" target="_blank" rel="noopener">${esc(t||u)}</a>`:'<span class="faint">-</span>';
+
+  return `
+  <div class="page-head">
+    <div><div class="eyebrow" style="cursor:pointer" onclick="go('opportunities')">&larr; Opportunities</div>
+    <div class="page-title">${esc(o.company)}</div>
+    <div class="page-sub">${esc(o.category)} &middot; ${esc(o.stage)} &middot; priority ${+o.priority||0} ${dueTag(o)}</div></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn" onclick="openForm('${o.id}')">Edit</button>
+      <button class="btn danger" onclick="delOpp('${o.id}')">Delete</button>
+    </div>
+  </div>
+
+  <div class="detail-grid">
+    <div>
+      <div class="card">
+        ${kv('Kweli angle', o.angle? '<span class="prose">'+esc(o.angle)+'</span>':'', true)}
+        ${kv('Proposed pilot', o.pilot? '<span class="prose">'+esc(o.pilot)+'</span>':'', true)}
+        ${o.notes?`<div class="block"><h4>Notes</h4><div class="prose">${esc(o.notes)}</div></div>`:''}
+        ${o.meetingNotes?`<div class="block"><h4>Meeting notes</h4><div class="prose">${esc(o.meetingNotes)}</div></div>`:''}
+        ${o.objections?`<div class="block"><h4>Objections</h4><div class="prose">${esc(o.objections)}</div></div>`:''}
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="card-h"><h3>Activity log</h3></div>
+        <div style="display:flex;gap:8px;margin-bottom:14px">
+          <input class="input" id="logText" placeholder="Log an interaction (e.g. 'Called - asked for one-pager')" onkeydown="if(event.key==='Enter')logActivity('${o.id}')">
+          <button class="btn sm" onclick="logActivity('${o.id}')">Log</button>
+        </div>
+        ${(o.timeline&&o.timeline.length)? '<ul class="timeline">'+[...o.timeline].reverse().map(t=>`<li><span class="t-date">${fmtDate(t.date)}</span><span class="t-text">${esc(t.text)}</span></li>`).join('')+'</ul>' : '<div class="muted">No activity yet.</div>'}
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="card-h"><h3>Record</h3></div>
+        ${kv('Website', link(o.website), true)}
+        ${kv('Contact', o.contactName||'')}
+        ${kv('Role', o.contactRole||'')}
+        ${kv('LinkedIn', link(o.linkedin,'profile'), true)}
+        ${kv('Email', o.email? esc(o.email):'<span class="faint">verify before sending</span>', true)}
+        ${kv('Status', o.status||'')}
+        ${kv('Last interaction', fmtDate(o.lastInteraction))}
+        ${kv('Follow-up', o.followUp? fmtDate(o.followUp)+' '+dueTag(o):'', true)}
+        ${kv('Next action', o.nextAction||'')}
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="card-h"><h3>Generate Claude prompt</h3></div>
+        <div class="prompt-btns">
+          ${PROMPT_TYPES.slice(0,6).map(p=>`<button class="btn ghost sm" onclick="promptFor('${o.id}','${p.id}')">${p.label}</button>`).join('')}
+        </div>
+        <button class="btn ghost sm" style="width:100%;margin-top:8px;justify-content:center" onclick="route.promptCompany='${o.id}';go('prompts')">More prompt types &rarr;</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- Follow-ups ---------- */
+function vFollowups(){
+  const active=state.opps.filter(isActive);
+  const overdue=active.filter(o=>o.followUp&&daysUntil(o.followUp)<0).sort((a,b)=>a.followUp.localeCompare(b.followUp));
+  const due=active.filter(o=>o.followUp&&daysUntil(o.followUp)===0);
+  const week=active.filter(o=>o.followUp&&daysUntil(o.followUp)>0&&daysUntil(o.followUp)<=7).sort((a,b)=>a.followUp.localeCompare(b.followUp));
+  const later=active.filter(o=>o.followUp&&daysUntil(o.followUp)>7).sort((a,b)=>a.followUp.localeCompare(b.followUp));
+  const none=active.filter(o=>!o.followUp);
+  const sec=(title,arr,cls)=>arr.length?`<div class="card" style="margin-bottom:14px ${cls==='overdue'?';border-color:rgba(224,106,78,.4)':''}">
+    <div class="card-h"><h3>${title}</h3><span class="faint mono" style="font-size:11px">${arr.length}</span></div>
+    ${arr.map(miniRow).join('')}</div>`:'';
+  if(!active.length) return `<div class="page-head"><div><div class="eyebrow">Cadence</div><div class="page-title">Follow-ups</div></div></div>${emptyMini('No active opportunities to follow up.')}`;
+  return `
+  <div class="page-head"><div><div class="eyebrow">Cadence</div><div class="page-title">Follow-ups</div>
+  <div class="page-sub">${overdue.length} overdue &middot; ${due.length} due today</div></div></div>
+  ${sec('Overdue',overdue,'overdue')}
+  ${sec('Due today',due)}
+  ${sec('Next 7 days',week)}
+  ${sec('Later',later)}
+  ${sec('No follow-up set',none)}`;
+}
+
+/* ---------- Industries ---------- */
+function vIndustries(){
+  const byCat={}; state.opps.forEach(o=>{(byCat[o.category]=byCat[o.category]||[]).push(o)});
+  return `
+  <div class="page-head"><div><div class="eyebrow">Sector view</div><div class="page-title">Industries</div>
+  <div class="page-sub">Pipeline by category, with the playbook that drives each prompt</div></div></div>
+  <div class="grid g-2">
+    ${CATEGORIES.map(cat=>{
+      const arr=byCat[cat]||[]; const pk=PLAYBOOK_MAP[cat];
+      const pb=pk?state.brain[pk]:'';
+      return `<div class="card">
+        <div class="card-h"><h3>${esc(cat)}</h3><span class="chip" style="cursor:pointer" onclick="route.oppFilter.cat='${esc(cat)}';go('opportunities')">${arr.length} in pipeline</span></div>
+        ${arr.length?arr.slice(0,4).map(o=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer" onclick="go('detail','${o.id}')">
+          <span class="mono" style="width:26px;color:${scoreColor(o.priority)}">${+o.priority||0}</span>
+          <span style="flex:1">${esc(o.company)}</span>${stageChip(o.stage)}</div>`).join(''):'<div class="muted" style="padding:4px 0 10px">No companies yet.</div>'}
+        ${pb?`<div class="block"><h4>Playbook</h4><div class="prose" style="font-size:13px">${esc(pb)}</div></div>`:'<div class="faint mono" style="font-size:11px;margin-top:8px">No dedicated playbook - uses general Brain.</div>'}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+/* ---------- Kweli Brain ---------- */
+function vBrain(){
+  return `
+  <div class="page-head"><div><div class="eyebrow">Institutional knowledge</div><div class="page-title">Kweli Brain</div>
+  <div class="page-sub">Every prompt is built from this. Edit anything - it saves automatically.</div></div>
+  <button class="btn" onclick="resetBrain()">Reset Brain to default</button></div>
+  <div class="brain-grid">
+    ${BRAIN_SECTIONS.map(([k,label,big])=>`<div class="card brain-sec ${big?'big':''}">
+      <label class="fl">${label}</label>
+      <textarea class="input" rows="${big?6:3}" oninput="state.brain['${k}']=this.value;save()">${esc(state.brain[k]||'')}</textarea>
+    </div>`).join('')}
+  </div>`;
+}
+
+/* ---------- Prompt Generator ---------- */
+function vPrompts(){
+  const opts='<option value="">— no company (general) —</option>'+state.opps.map(o=>`<option value="${o.id}" ${route.promptCompany===o.id?'selected':''}>${esc(o.company)}</option>`).join('');
+  const pt=PROMPT_TYPES.find(p=>p.id===route.promptType)||PROMPT_TYPES[0];
+  return `
+  <div class="page-head"><div><div class="eyebrow">No API needed</div><div class="page-title">Prompt Generator</div>
+  <div class="page-sub">Builds a complete, rule-bound prompt to paste into Claude.</div></div></div>
+  <div class="detail-grid">
+    <div class="card">
+      <div class="field"><label class="fl">Company</label>
+        <select class="select" onchange="route.promptCompany=this.value;renderPromptOut()">${opts}</select></div>
+      <div class="field"><label class="fl">Prompt type</label>
+        <select class="select" onchange="route.promptType=this.value;renderPromptOut()">
+          ${PROMPT_TYPES.map(p=>`<option value="${p.id}" ${route.promptType===p.id?'selected':''}>${p.label}</option>`).join('')}</select></div>
+      <div class="field" id="extraWrap" style="${pt.extra?'':'display:none'}">
+        <label class="fl">${pt.extra||'Extra context'}</label>
+        <textarea class="input" rows="6" id="promptExtra" oninput="route.promptExtra=this.value;renderPromptOut()">${esc(route.promptExtra)}</textarea></div>
+      <div class="faint mono" style="font-size:11px;line-height:1.6">Built-in guardrails: no invented names/emails/facts &middot; issuance-vs-correctness held &middot; outreach &lt;150 words &middot; founder tone &middot; "no fit" allowed.</div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3>Prompt for Claude</h3><button class="btn gold sm" onclick="copyPrompt()">Copy prompt</button></div>
+      <div class="prompt-out" id="promptOut">${esc(buildPrompt(route.promptType, byId(route.promptCompany), route.promptExtra))}</div>
+    </div>
+  </div>`;
+}
+function renderPromptOut(){
+  const pt=PROMPT_TYPES.find(p=>p.id===route.promptType)||PROMPT_TYPES[0];
+  const ew=document.getElementById('extraWrap');
+  if(ew){ew.style.display=pt.extra?'':'none'; const lbl=ew.querySelector('.fl'); if(lbl)lbl.textContent=pt.extra||'Extra context';}
+  document.getElementById('promptOut').textContent=buildPrompt(route.promptType, byId(route.promptCompany), route.promptExtra);
+}
+function copyPrompt(){copy(buildPrompt(route.promptType, byId(route.promptCompany), route.promptExtra))}
+
+function promptFor(id,type){route.promptCompany=id;route.promptType=type;route.promptExtra='';go('prompts')}
+
+function brainText(){return BRAIN_SECTIONS.map(([k,label])=>'## '+label+'\n'+(state.brain[k]||'')).join('\n\n')}
+function companyBlock(o){
+  if(!o) return '(no company selected - this is a general request)';
+  return ['Company: '+o.company,'Category: '+o.category,'Website: '+(o.website||'unknown'),
+    'Contact: '+(o.contactName||'unknown')+(o.contactRole?' ('+o.contactRole+')':''),
+    'Email: '+(o.email||'unknown - do not guess'),'Stage: '+o.stage,'Priority: '+(o.priority||0),
+    'Kweli angle (founder hypothesis): '+(o.angle||'none yet'),
+    'Proposed pilot: '+(o.pilot||'none yet'),
+    'Known objections: '+(o.objections||'none logged')].join('\n');
+}
+function notesBlock(o){
+  if(!o) return '';
+  const parts=[];
+  if(o.notes)parts.push('General notes: '+o.notes);
+  if(o.meetingNotes)parts.push('Meeting notes: '+o.meetingNotes);
+  if((o.timeline||[]).length)parts.push('Recent activity: '+o.timeline.slice(-4).map(t=>t.date+' '+t.text).join(' | '));
+  return parts.length?parts.join('\n'):'(none recorded)';
+}
+function buildPrompt(type,o,extra){
+  const playbookKey=o?PLAYBOOK_MAP[o.category]:null;
+  const playbook=playbookKey?state.brain[playbookKey]:'';
+  const rules=`You are the Kweli BD Analyst - the sharpest business-development analyst in Africa, trained only on Kweli. Reason ONLY from the Kweli Brain and the company record below.
+
+RULES (non-negotiable):
+- Do not invent names, emails, titles, or facts. If something is unknown, write "unknown - verify" and say how to find it.
+- Hold the precision rule: Kweli proves a document is the authentic, unaltered issued one; it does NOT prove the contents are correct.
+- Keep any outreach under 150 words, founder-led, human, no hype.
+- If Kweli is not a genuine fit here, say so plainly.`;
+  const sections=[rules,'=== COMPANY RECORD ===\n'+companyBlock(o)];
+  if(o)sections.push('=== RELEVANT NOTES ===\n'+notesBlock(o));
+  if(playbook)sections.push('=== SECTOR PLAYBOOK ('+o.category+') ===\n'+playbook);
+  if(extra&&extra.trim())sections.push('=== EXTRA CONTEXT ===\n'+extra.trim());
+  sections.push('=== KWELI BRAIN ===\n'+brainText());
+  sections.push(TASKS[type]||TASKS.research);
+  return sections.join('\n\n');
+}
+
+/* ---------- Meeting Notes ---------- */
+function vMeeting(){
+  const opts='<option value="">— no company —</option>'+state.opps.map(o=>`<option value="${o.id}" ${route.meetingCompany===o.id?'selected':''}>${esc(o.company)}</option>`).join('');
+  return `
+  <div class="page-head"><div><div class="eyebrow">Post-meeting</div><div class="page-title">Meeting Notes &rarr; Prompt</div>
+  <div class="page-sub">Paste raw notes; get a prompt that turns them into summary, actions, objections, follow-up, and Brain updates.</div></div></div>
+  <div class="detail-grid">
+    <div class="card">
+      <div class="field"><label class="fl">Company (optional)</label>
+        <select class="select" onchange="route.meetingCompany=this.value;renderMeetingOut()">${opts}</select></div>
+      <div class="field"><label class="fl">Paste messy meeting notes</label>
+        <textarea class="input" rows="14" id="meetingNotes" placeholder="Whatever you scribbled during or after the call..." oninput="route.meetingNotes=this.value;renderMeetingOut()">${esc(route.meetingNotes)}</textarea></div>
+      ${route.meetingCompany?`<button class="btn sm" onclick="saveMeetingToCompany()">Save notes to company record</button>`:''}
+    </div>
+    <div class="card">
+      <div class="card-h"><h3>Prompt for Claude</h3><button class="btn gold sm" onclick="copyMeeting()">Copy prompt</button></div>
+      <div class="prompt-out" id="meetingOut">${esc(buildPrompt('summarise', byId(route.meetingCompany), route.meetingNotes))}</div>
+    </div>
+  </div>`;
+}
+function renderMeetingOut(){document.getElementById('meetingOut').textContent=buildPrompt('summarise', byId(route.meetingCompany), route.meetingNotes)}
+function copyMeeting(){copy(buildPrompt('summarise', byId(route.meetingCompany), route.meetingNotes))}
+function saveMeetingToCompany(){
+  const o=byId(route.meetingCompany); if(!o)return;
+  o.meetingNotes=(o.meetingNotes?o.meetingNotes+'\n\n':'')+route.meetingNotes;
+  o.timeline=o.timeline||[]; o.timeline.push({date:today(),text:'Meeting notes added'});
+  o.lastInteraction=today(); save(); toast('Saved to '+o.company);
+}
+
+/* ---------- Settings ---------- */
+function vSettings(){
+  return `
+  <div class="page-head"><div><div class="eyebrow">Data</div><div class="page-title">Settings / Backup</div>
+  <div class="page-sub">All data lives in this browser only. Export regularly.</div></div></div>
+  <div class="grid g-2">
+    <div class="card"><div class="card-h"><h3>Backup</h3></div>
+      <p class="muted" style="margin-top:0">Download everything (opportunities + Brain) as a JSON file, or restore from one.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn gold" onclick="exportData()">Export backup (.json)</button>
+        <button class="btn" onclick="document.getElementById('importFile').click()">Import backup</button>
+        <input type="file" id="importFile" accept="application/json" style="display:none" onchange="importData(this)">
+      </div>
+    </div>
+    <div class="card"><div class="card-h"><h3>Demo data</h3></div>
+      <p class="muted" style="margin-top:0">Reload the six sample companies, or wipe everything and start clean.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn" onclick="resetDemo()">Reset demo data</button>
+        <button class="btn danger" onclick="clearAll()">Delete all data</button>
+      </div>
+    </div>
+    <div class="card"><div class="card-h"><h3>Storage</h3></div>
+      <div class="kv"><span class="k">Opportunities</span><span class="v">${state.opps.length}</span></div>
+      <div class="kv"><span class="k">Approx. size</span><span class="v">${(JSON.stringify(state).length/1024).toFixed(1)} KB</span></div>
+      <div class="kv"><span class="k">Storage location</span><span class="v">This browser (localStorage)</span></div>
+    </div>
+    <div class="card"><div class="card-h"><h3>Deploy</h3></div>
+      <p class="muted" style="margin-top:0;font-size:13px">This is one <span class="mono">index.html</span>. Push it to a GitHub repo and connect it to Netlify, or drag the file onto Netlify Drop. No build command needed.</p>
+    </div>
+  </div>`;
+}
+
+/* ---------- empty states ---------- */
+function emptyState(){
+  return `<div class="page-head"><div><div class="eyebrow">Operating overview</div><div class="page-title">Dashboard</div></div></div>
+  <div class="empty"><div class="e-mark">${ICON('grid')}</div>
+  <h3>No opportunities yet</h3>
+  <p>Add your first target, or load the six sample companies to see how it works.</p>
+  <div class="row"><button class="btn gold" onclick="openForm()">+ New opportunity</button>
+  <button class="btn" onclick="resetDemo()">Load demo data</button></div></div>`;
+}
+function emptyMini(msg){return `<div class="empty"><div class="e-mark">${ICON('clock')}</div><h3>All clear</h3><p>${esc(msg)}</p></div>`}
+
+/* ============================================================ *
+ *  FORM MODAL
+ * ============================================================ */
+function openForm(id){
+  const o=id?byId(id):{};
+  const F=(label,key,type='text',ph='')=>`<div class="field"><label class="fl">${label}</label>
+    <input class="input" id="f_${key}" type="${type}" value="${esc(o[key]||'')}" placeholder="${ph}"></div>`;
+  const TA=(label,key,rows=3,ph='')=>`<div class="field"><label class="fl">${label}</label>
+    <textarea class="input" id="f_${key}" rows="${rows}" placeholder="${ph}">${esc(o[key]||'')}</textarea></div>`;
+  const SEL=(label,key,arr)=>`<div class="field"><label class="fl">${label}</label>
+    <select class="select" id="f_${key}">${arr.map(v=>`<option ${o[key]===v?'selected':''}>${v}</option>`).join('')}</select></div>`;
+
+  document.getElementById('modal-root').innerHTML=`
+  <div class="modal-scrim" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-h"><h2>${id?'Edit opportunity':'New opportunity'}</h2><button class="x" onclick="closeModal()">&times;</button></div>
+      ${F('Company name','company','text','Acme Labs Ltd')}
+      <div class="field-row">${SEL('Category','category',CATEGORIES)}${SEL('Stage','stage',STAGES)}</div>
+      <div class="field-row">${F('Website','website','text','https://')}${F('Priority score (0-100)','priority','number','0-100')}</div>
+      <div class="field-row">${F('Main contact name','contactName')}${F('Contact role','contactRole')}</div>
+      <div class="field-row">${F('LinkedIn','linkedin','text','https://linkedin.com/in/')}${F('Email','email','text','verified public email only')}</div>
+      ${TA('Kweli angle','angle',3,'Where Kweli genuinely helps this org')}
+      ${TA('Proposed pilot','pilot',2,'Tight, measurable, one document type')}
+      <div class="field-row">${F('Last interaction','lastInteraction','date')}${F('Follow-up date','followUp','date')}</div>
+      ${F('Next action','nextAction','text','The single next thing to do')}
+      ${TA('Notes','notes',3)}
+      ${TA('Meeting notes','meetingNotes',3)}
+      ${TA('Objections','objections',2)}
+      ${SEL('Status','status',STATUSES)}
+      <div class="modal-foot">
+        <button class="btn ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn gold" onclick="saveForm('${id||''}')">${id?'Save changes':'Add opportunity'}</button>
+      </div>
+    </div>
+  </div>`;
+}
+function closeModal(){document.getElementById('modal-root').innerHTML=''}
+function val(k){const el=document.getElementById('f_'+k);return el?el.value.trim():''}
+function saveForm(id){
+  const company=val('company'); if(!company){toast('Company name is required');return;}
+  const data={company,category:val('category'),website:val('website'),contactName:val('contactName'),
+    contactRole:val('contactRole'),linkedin:val('linkedin'),email:val('email'),stage:val('stage'),
+    priority:Math.max(0,Math.min(100,+val('priority')||0)),angle:val('angle'),pilot:val('pilot'),
+    lastInteraction:val('lastInteraction'),followUp:val('followUp'),nextAction:val('nextAction'),
+    notes:val('notes'),meetingNotes:val('meetingNotes'),objections:val('objections'),status:val('status')};
+  if(id){const o=byId(id);
+    if(o.stage!==data.stage){o.timeline=o.timeline||[];o.timeline.push({date:today(),text:'Stage -> '+data.stage});}
+    Object.assign(o,data);
+  }else{
+    data.id=uid();data.timeline=[{date:today(),text:'Added to pipeline ('+data.stage+')'}];
+    state.opps.push(data);
+  }
+  save();closeModal();
+  if(!id){route.id=state.opps[state.opps.length-1].id;go('detail',route.id);}else render();
+  toast(id?'Updated':'Opportunity added');
+}
+function delOpp(id){
+  const o=byId(id);if(!o)return;
+  if(!confirm('Delete '+o.company+'? This cannot be undone.'))return;
+  state.opps=state.opps.filter(x=>x.id!==id);save();go('opportunities');toast('Deleted');
+}
+function logActivity(id){
+  const el=document.getElementById('logText');const t=el.value.trim();if(!t)return;
+  const o=byId(id);o.timeline=o.timeline||[];o.timeline.push({date:today(),text:t});
+  o.lastInteraction=today();save();render();
+}
+
+/* ============================================================ *
+ *  BRAIN / DATA actions
+ * ============================================================ */
+function resetBrain(){if(confirm('Reset the Kweli Brain to defaults? Your edits will be lost.')){state.brain=defaultBrain();save();render();toast('Brain reset');}}
+function exportData(){
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='kweli-mission-control-'+today()+'.json';a.click();URL.revokeObjectURL(a.href);
+  toast('Backup downloaded');
+}
+function importData(input){
+  const file=input.files[0];if(!file)return;
+  const r=new FileReader();
+  r.onload=()=>{try{
+    const data=JSON.parse(r.result);
+    if(!data.opps)throw new Error('not a valid backup');
+    if(!confirm('Replace all current data with this backup?'))return;
+    state={opps:data.opps,brain:Object.assign(defaultBrain(),data.brain||{})};
+    save();go('dashboard');toast('Backup restored');
+  }catch(e){toast('Import failed: '+e.message)}};
+  r.readAsText(file);input.value='';
+}
+function resetDemo(){if(confirm('Reload demo data? This replaces everything currently stored.')){state={opps:demoData(),brain:defaultBrain()};save();go('dashboard');toast('Demo data loaded');}}
+function clearAll(){if(confirm('Delete ALL opportunities? The Brain is kept. This cannot be undone.')){state.opps=[];save();go('dashboard');toast('All opportunities deleted');}}
+
+/* ---------- clipboard + toast ---------- */
+function copy(text){
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>toast('Copied to clipboard'),()=>fallbackCopy(text));}
+  else fallbackCopy(text);
+}
+function fallbackCopy(text){const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');toast('Copied to clipboard')}catch(e){toast('Copy failed - select manually')}document.body.removeChild(ta);}
+let toastTimer;
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),1900);}
+
+/* ---------- init ---------- */
+function afterRender(){
+  if(route.view==='opportunities'){const s=document.getElementById('oppSearch');/* keep focus handled by partial render */}
+}
+render();
+</script>
+</body>
+</html>
