@@ -410,7 +410,7 @@ async function sync(table,op,payload){
     else if(op==='delete')res=await sb.from(table).delete().eq('id',payload);
     if(res&&res.error)throw res.error;
     if(!online){online=true;updateStatus();}
-  }catch(e){online=false;const q=loadPending();q.push({table,op,payload});savePending(q);updateStatus();}
+  }catch(e){console.error('Supabase sync failed for',table,op,'-',e&&(e.message||e));online=false;const q=loadPending();q.push({table,op,payload});savePending(q);updateStatus();}
 }
 async function trySyncPending(){
   if(!CLOUD)return;const q=loadPending();if(!q.length)return;
@@ -778,7 +778,7 @@ function vDetail(){const o=byId(route.id);if(!o)return vCompanies();
   const kv=(k,v,raw)=>'<div class="kv"><span class="k">'+k+'</span><span class="v">'+(raw?v:(v?esc(v):'<span class="faint">—</span>'))+'</span></div>';
   const link=(u,t)=>u?'<a href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(t||u)+'</a>':'<span class="faint">—</span>';
   const tl=[...(o.timeline||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  const ppl=peopleOf(o.id);const les=getCompanyLessons(o);const u=urgency(o);
+  const ppl=getCompanyPeople(o);const les=getCompanyLessons(o);const u=urgency(o);
   return '<div class="page-head"><div><div class="eyebrow" style="cursor:pointer" onclick="go(\''+(isInv(o)?'investors':'companies')+'\')">← '+(isInv(o)?'Investors':'Companies')+'</div>'+
     '<div class="page-title">'+esc(o.company)+'</div><div class="page-sub">'+esc(o.category)+' · '+esc(o.stage)+' · priority '+(+o.priority||0)+' · <span style="color:'+u.color+'">'+u.label+'</span></div></div>'+
     '<div style="display:flex;gap:9px"><button class="btn" onclick="openForm(\''+o.id+'\')">Edit</button><button class="btn" onclick="route.ws.company=\''+o.id+'\';go(\'workspace\')">AI Workspace</button><button class="btn danger" onclick="delOpp(\''+o.id+'\')">Delete</button></div></div>'+
@@ -921,16 +921,26 @@ function quickAdd(cat){
   '<div class="field"><label class="fl">Company *</label><input class="input" id="qa_company" placeholder="Company name" autofocus></div>'+
   '<div class="field-row"><div class="field"><label class="fl">Category</label><select class="select" id="qa_cat">'+CATEGORIES.map(c=>'<option '+(cat===c?'selected':'')+'>'+c+'</option>').join('')+'</select></div>'+
   '<div class="field"><label class="fl">Website</label><input class="input" id="qa_web" placeholder="https://"></div></div>'+
+  '<div class="field-row"><div class="field"><label class="fl">Contact name</label><input class="input" id="qa_contactName" placeholder="e.g. Kyle Denning"></div>'+
+  '<div class="field"><label class="fl">Contact role</label><input class="input" id="qa_role" placeholder="e.g. CEO"></div></div>'+
+  '<div class="field"><label class="fl">Lesson learned</label><textarea class="input" id="qa_lesson" rows="2" placeholder="Optional — syncs to Lessons Learned"></textarea></div>'+
   '<p class="faint" style="font-size:12px;margin:0 0 4px">Everything else can be filled in later on the company page.</p>'+
   '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="saveQuick()">Add</button></div></div></div>';
   setTimeout(()=>{const el=document.getElementById('qa_company');if(el)el.focus();},30);
 }
-function saveQuick(){const c=document.getElementById('qa_company').value.trim();if(!c){toast('Company name required');return;}
-  const o={id:uid(),company:c,category:document.getElementById('qa_cat').value,website:document.getElementById('qa_web').value.trim(),
-    contactRole:'',linkedin:'',email:'',stage:'Identified',priority:50,status:'Active',angle:'',pilot:'',notes:'',meetingNotes:'',objections:'',
+function saveQuick(){const qv=id=>{const e=document.getElementById(id);return e?e.value.trim():'';};
+  const c=qv('qa_company');if(!c){toast('Company name required');return;}
+  const contactName=qv('qa_contactName'),contactRole=qv('qa_role'),lessonText=qv('qa_lesson');
+  const o={id:uid(),company:c,category:document.getElementById('qa_cat').value,website:qv('qa_web'),
+    contactName:contactName,contactRole:contactRole,linkedin:'',email:'',stage:'Identified',priority:50,status:'Active',angle:'',pilot:'',notes:'',meetingNotes:'',objections:'',
     nextAction:'Research and map document flow',lastInteraction:'',followUp:'',createdBy:userName(),timeline:[]};
   if(o.category==='Investors')o.investmentStatus='Researching';
-  state.opps.push(o);addActivity(o.id,'Created',userName()+' created '+c);closeModal();route.id=o.id;go('detail',o.id);toast('Added '+c);}
+  state.opps.push(o);addActivity(o.id,'Created',userName()+' created '+c);
+  console.log('SAVE (quick) company:',c,'| contact:',contactName,'| role:',contactRole,'| lesson:',lessonText);
+  if(contactName){console.log('Calling findOrCreatePerson');findOrCreatePerson(contactName,{companyId:o.id,company:c,role:contactRole,email:'',linkedin:'',relationship:'Company contact',warmth:'Warm'});}
+  if(lessonText){console.log('Calling findOrCreateLesson');findOrCreateLesson({title:lessonText,description:lessonText,category:o.category,date:today()},c);}
+  console.log('People:',state.people.length,'Lessons:',state.lessons.length);
+  closeModal();route.id=o.id;go('detail',o.id);toast('Added '+c);}
 
 function openForm(id){const o=id?byId(id):{};
   const F=(l,k,t,ph)=>'<div class="field"><label class="fl">'+l+'</label><input class="input" id="f_'+k+'" type="'+(t||'text')+'" value="'+esc(o[k]||'')+'" placeholder="'+(ph||'')+'"></div>';
@@ -945,6 +955,7 @@ function openForm(id){const o=id?byId(id):{};
     TA('Kweli angle','angle',3,'Where Kweli genuinely helps this org')+TA('Proposed pilot','pilot',2,'Tight, measurable, one document type')+
     '<div class="field-row">'+F('Last interaction','lastInteraction','date')+F('Follow-up date','followUp','date')+'</div>'+
     F('Next action','nextAction')+TA('Notes','notes',3)+TA('Meeting notes','meetingNotes',3)+TA('Objections','objections',2)+
+    TA('Lesson learned','lesson',2,'Optional — syncs to Lessons Learned')+
     '<div class="field-row">'+SEL('Status','status',STATUSES)+SEL('Investment status (investors)','investmentStatus',['—'].concat(INVEST_STATUS))+'</div>'+
     '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="saveForm(\''+(id||'')+'\')">'+(id?'Save changes':'Add')+'</button></div></div></div>';
 }
@@ -955,9 +966,12 @@ function saveForm(id){const company=val('company');if(!company){toast('Company n
     stage:val('stage'),priority:Math.max(0,Math.min(100,+val('priority')||0)),angle:val('angle'),pilot:val('pilot'),
     lastInteraction:val('lastInteraction'),followUp:val('followUp'),nextAction:val('nextAction'),notes:val('notes'),
     meetingNotes:val('meetingNotes'),objections:val('objections'),status:val('status'),investmentStatus:inv==='—'?'':inv};
-  function linkContact(cid){if(!d.contactName)return;findOrCreatePerson(d.contactName,{companyId:cid,company:d.company,role:d.contactRole,email:d.email,linkedin:d.linkedin,relationship:'Company contact',warmth:'Warm'});}
-  if(id){const o=byId(id);const old=o.stage;Object.assign(o,d);persistOpp(o);if(old!==d.stage){addActivity(id,'Stage',userName()+' changed stage from '+old+' to '+d.stage);}linkContact(id);closeModal();render();toast('Updated');}
-  else{d.id=uid();d.createdBy=userName();d.timeline=[];state.opps.push(d);addActivity(d.id,'Created',userName()+' created '+d.company);linkContact(d.id);closeModal();go('detail',d.id);toast('Added');}
+  function linkContact(cid){if(!d.contactName)return;console.log('Calling findOrCreatePerson');findOrCreatePerson(d.contactName,{companyId:cid,company:d.company,role:d.contactRole,email:d.email,linkedin:d.linkedin,relationship:'Company contact',warmth:'Warm'});}
+  const lessonText=val('lesson');
+  function linkLesson(){if(!lessonText)return;console.log('Calling findOrCreateLesson');findOrCreateLesson({title:lessonText,description:lessonText,category:d.category,date:today()},d.company);}
+  console.log('SAVE (form) company:',company,'| contact:',d.contactName,'| role:',d.contactRole,'| lesson:',lessonText);
+  if(id){const o=byId(id);const old=o.stage;Object.assign(o,d);persistOpp(o);if(old!==d.stage){addActivity(id,'Stage',userName()+' changed stage from '+old+' to '+d.stage);}linkContact(id);linkLesson();console.log('People:',state.people.length,'Lessons:',state.lessons.length);closeModal();render();toast('Updated');}
+  else{d.id=uid();d.createdBy=userName();d.timeline=[];state.opps.push(d);addActivity(d.id,'Created',userName()+' created '+d.company);linkContact(d.id);linkLesson();console.log('People:',state.people.length,'Lessons:',state.lessons.length);closeModal();go('detail',d.id);toast('Added');}
 }
 function delOpp(id){const o=byId(id);if(!o)return;if(!confirm('Delete '+o.company+'? This cannot be undone.'))return;
   state.opps=state.opps.filter(x=>x.id!==id);state.people.forEach(p=>{if(p.companyId===id)p.companyId='';});persistOppDelete(id);go('companies');toast('Deleted');}
