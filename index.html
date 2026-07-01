@@ -1090,16 +1090,19 @@ function personForm(id,companyId){const p=id?state.people.find(x=>x.id===id):{co
     F('Name','name')+
     '<div class="field"><label class="fl">Primary Organisation</label><input class="input" id="pf_company" list="pf_companyList" value="'+esc(p.company||'')+'" placeholder="Type any organisation, or pick an existing company"></div>'+
     compList+
-    kweliRel+
-    F('How we know them','relationship','text','e.g. Introduced by Gad, met at Sankalp, childhood friend')+
-    '<div class="field"><label class="fl">Introduced by</label><input class="input" id="pf_introducedBy" list="pf_introducedByList" value="'+esc(p.introducedBy||'')+'" placeholder="Name, LinkedIn, Conference, Referral..."></div>'+
-    introList+
-    '<div class="field"><label class="fl">Expertise</label><input class="input" id="pf_expertise" value="'+esc((p.expertise||[]).join(', '))+'" placeholder="e.g. Insurance, Enterprise Sales, Carbon Markets (comma-separated)"></div>'+
-    '<div class="field-row">'+F('Role','role')+warmth+'</div>'+
-    '<div class="field-row">'+F('Email','email','text','verified only')+F('LinkedIn','linkedin')+'</div>'+
-    '<div class="field-row">'+F('Last interaction','lastInteraction','date')+F('Next action','nextAction')+'</div>'+
-    TA('Why they matter','whyMatters','e.g. Deep insurance expertise, can introduce major insurers')+
+    '<div class="field-row">'+F('Role','role')+kweliRel+'</div>'+
+    '<div class="field-row">'+warmth+F('Next action','nextAction')+'</div>'+
     TA('Notes','notes')+
+    '<details style="margin:16px 0 4px;border-top:1px solid var(--line);padding-top:14px"><summary style="cursor:pointer;font-size:10px;color:var(--muted);font-family:ui-monospace,monospace;letter-spacing:.11em;text-transform:uppercase">Advanced intelligence</summary>'+
+      '<div style="margin-top:14px">'+
+      F('How we know them','relationship','text','e.g. Introduced by Gad, met at Sankalp, childhood friend')+
+      '<div class="field"><label class="fl">Introduced by</label><input class="input" id="pf_introducedBy" list="pf_introducedByList" value="'+esc(p.introducedBy||'')+'" placeholder="Name, LinkedIn, Conference, Referral..."></div>'+
+      introList+
+      '<div class="field"><label class="fl">Expertise</label><input class="input" id="pf_expertise" value="'+esc((p.expertise||[]).join(', '))+'" placeholder="e.g. Insurance, Enterprise Sales, Carbon Markets (comma-separated)"></div>'+
+      '<div class="field-row">'+F('Email','email','text','verified only')+F('LinkedIn','linkedin')+'</div>'+
+      F('Last interaction','lastInteraction','date')+
+      TA('Why they matter','whyMatters','e.g. Deep insurance expertise, can introduce major insurers')+
+      '</div></details>'+
     '<div class="modal-foot">'+(id?'<button class="btn danger" style="margin-right:auto" onclick="delPerson(\''+id+'\')">Delete</button>':'')+'<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="savePerson(\''+(id||'')+'\')">'+(id?'Save':'Add')+'</button></div></div></div>';
 }
 function pval(k){const el=document.getElementById('pf_'+k);return el?el.value.trim():''}
