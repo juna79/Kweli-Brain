@@ -421,8 +421,39 @@ function userName(){if(!currentUser)return 'You';const m=currentUser.user_metada
 function D(v){return v?v:null;}
 function oppRow(o){return {id:o.id,company:o.company,category:o.category||null,website:o.website||null,linkedin:o.linkedin||null,email:o.email||null,contact_name:o.contactName||null,contact_role:o.contactRole||null,stage:o.stage||null,priority:+o.priority||0,status:o.status||null,investment_status:o.investmentStatus||null,angle:o.angle||null,pilot:o.pilot||null,notes:o.notes||null,meeting_notes:o.meetingNotes||null,objections:o.objections||null,next_action:o.nextAction||null,last_interaction:D(o.lastInteraction),follow_up:D(o.followUp),created_by:o.createdBy||userName(),updated_by:userName()};}
 function rowToOpp(r){return {id:r.id,company:r.company,category:r.category||'Other',website:r.website||'',linkedin:r.linkedin||'',email:r.email||'',contactName:r.contact_name||'',contactRole:r.contact_role||'',stage:r.stage||'Identified',priority:r.priority||0,status:r.status||'Active',investmentStatus:r.investment_status||'',angle:r.angle||'',pilot:r.pilot||'',notes:r.notes||'',meetingNotes:r.meeting_notes||'',objections:r.objections||'',nextAction:r.next_action||'',lastInteraction:r.last_interaction||'',followUp:r.follow_up||'',createdBy:r.created_by||'',timeline:[]};}
-function personRow(p){return {id:p.id,name:p.name,company_id:p.companyId||null,company:p.company||null,role:p.role||null,email:p.email||null,linkedin:p.linkedin||null,relationship:p.relationship||null,relationship_to_kweli:p.relationshipToKweli||null,introduced_by:p.introducedBy||null,expertise:(p.expertise&&p.expertise.length)?p.expertise.join(', '):null,why_matters:p.whyMatters||null,warmth:p.warmth||null,last_interaction:D(p.lastInteraction),next_action:p.nextAction||null,notes:p.notes||null,created_by:p.createdBy||userName(),updated_by:userName()};}
-function rowToPerson(r){return {id:r.id,name:r.name,companyId:r.company_id||'',company:r.company||'',role:r.role||'',email:r.email||'',linkedin:r.linkedin||'',relationship:r.relationship||'',relationshipToKweli:r.relationship_to_kweli||'',introducedBy:r.introduced_by||'',expertise:r.expertise?String(r.expertise).split(',').map(s=>s.trim()).filter(Boolean):[],whyMatters:r.why_matters||'',warmth:r.warmth||'',lastInteraction:r.last_interaction||'',nextAction:r.next_action||'',notes:r.notes||'',createdBy:r.created_by||''};}
+/* The people table in Supabase does not yet have columns for relationshipToKweli,
+   introducedBy, expertise, or whyMatters (UI-only fields added recently). Sending
+   them as top-level columns causes Supabase to reject the write ("column does not
+   exist"), which previously — incorrectly — took the whole app offline.
+   Fix: never send those as columns. Instead pack them as a hidden JSON block appended
+   to the existing, always-present `notes` column, and unpack them back out on read.
+   The person's actual visible Notes text is kept clean — the hidden block is stripped
+   before it's shown anywhere in the UI. Once real columns exist in Supabase, this
+   pack/unpack step can simply be removed and the fields sent directly. */
+const KWELI_META_TAG='\n<!--kweli-meta:';
+function packPersonNotes(p){
+  const meta={};
+  if(p.relationshipToKweli)meta.rk=p.relationshipToKweli;
+  if(p.introducedBy)meta.ib=p.introducedBy;
+  if(p.expertise&&p.expertise.length)meta.ex=p.expertise;
+  if(p.whyMatters)meta.wm=p.whyMatters;
+  const base=p.notes||'';
+  if(!Object.keys(meta).length)return base||null;
+  return base+KWELI_META_TAG+JSON.stringify(meta)+'-->';
+}
+function unpackPersonNotes(raw){
+  const s=raw||'';
+  const i=s.indexOf(KWELI_META_TAG);
+  if(i===-1)return {notes:s,meta:{}};
+  const notes=s.slice(0,i);
+  let jsonPart=s.slice(i+KWELI_META_TAG.length);
+  if(jsonPart.endsWith('-->'))jsonPart=jsonPart.slice(0,-3);
+  let meta={};
+  try{meta=JSON.parse(jsonPart);}catch(e){meta={};}
+  return {notes,meta};
+}
+function personRow(p){return {id:p.id,name:p.name,company_id:p.companyId||null,company:p.company||null,role:p.role||null,email:p.email||null,linkedin:p.linkedin||null,relationship:p.relationship||null,warmth:p.warmth||null,last_interaction:D(p.lastInteraction),next_action:p.nextAction||null,notes:packPersonNotes(p),created_by:p.createdBy||userName(),updated_by:userName()};}
+function rowToPerson(r){const un=unpackPersonNotes(r.notes);return {id:r.id,name:r.name,companyId:r.company_id||'',company:r.company||'',role:r.role||'',email:r.email||'',linkedin:r.linkedin||'',relationship:r.relationship||'',relationshipToKweli:un.meta.rk||'',introducedBy:un.meta.ib||'',expertise:un.meta.ex||[],whyMatters:un.meta.wm||'',warmth:r.warmth||'',lastInteraction:r.last_interaction||'',nextAction:r.next_action||'',notes:un.notes||'',createdBy:r.created_by||''};}
 function lessonRow(l){return {id:l.id,title:l.title,date:D(l.date),category:l.category||null,source:l.source||null,description:l.description||null,impact:l.impact||null,related:l.related||null,created_by:l.createdBy||userName(),updated_by:userName()};}
 function rowToLesson(r){return {id:r.id,title:r.title,date:r.date||'',category:r.category||'',source:r.source||'',description:r.description||'',impact:r.impact||'',related:r.related||'',createdBy:r.created_by||''};}
 function tlRow(ev){return {id:ev.id||uid(),opportunity_id:ev.oppId,date:D(ev.date)||today(),type:ev.type||'Note',text:ev.text||'',created_by:userName()};}
@@ -431,22 +462,60 @@ function brainRow(k){const lbl=(BRAIN_SECTIONS.find(s=>s[0]===k)||[k,k])[1];retu
 /* ---- offline pending queue ---- */
 function loadPending(){try{return JSON.parse(localStorage.getItem(PENDING)||'[]');}catch(e){return[];}}
 function savePending(q){try{localStorage.setItem(PENDING,JSON.stringify(q));}catch(e){}}
+/* A genuine network failure means the request never reached Supabase / never got a
+   response at all (fetch throws — e.g. TypeError: Failed to fetch, DNS failure, no
+   connection). A Supabase/PostgREST error (bad column, RLS, validation) means the
+   request DID reach the server and got a real response — that is not "offline".
+   The supabase-js client only throws for the former; it returns {error:...} for the
+   latter — so the try/catch below vs. the res.error check below are how we tell them apart. */
 async function sync(table,op,payload){
   if(!CLOUD)return;
+  let res;
   try{
-    let res;
     if(op==='upsert')res=await sb.from(table).upsert(payload, table==='brain_sections'?{onConflict:'section_key'}:undefined);
     else if(op==='delete')res=await sb.from(table).delete().eq('id',payload);
-    if(res&&res.error)throw res.error;
-    if(!online){online=true;updateStatus();}
-  }catch(e){console.error('Supabase sync failed for',table,op,'-',e&&(e.message||e));online=false;const q=loadPending();q.push({table,op,payload});savePending(q);updateStatus();}
+  }catch(e){
+    // The request itself never completed — this is a real connectivity problem.
+    console.error('Supabase sync error',{table,op,payload,error:e,networkFailure:true});
+    online=false;
+    const q=loadPending();q.push({table,op,payload});savePending(q);
+    updateStatus();
+    toast('Offline — could not reach the server to save '+table+' ('+op+'). Will retry.');
+    return;
+  }
+  if(res&&res.error){
+    // We got a real response from Supabase — connectivity is fine, the write itself
+    // was rejected (missing column, RLS policy, bad value, duplicate key, etc).
+    // Never mark offline for this — surface the real error instead.
+    console.error('Supabase sync error',{table,op,payload,error:res.error});
+    if(!online){online=true;}
+    updateStatus();
+    toast('Save failed: '+table+' '+op+' error. Check console.');
+    return;
+  }
+  if(!online){online=true;updateStatus();}
 }
 async function trySyncPending(){
   if(!CLOUD)return;const q=loadPending();if(!q.length)return;
-  const remain=[];
-  for(const it of q){try{let r;if(it.op==='upsert')r=await sb.from(it.table).upsert(it.payload,it.table==='brain_sections'?{onConflict:'section_key'}:undefined);else r=await sb.from(it.table).delete().eq('id',it.payload);if(r&&r.error)throw r.error;}catch(e){remain.push(it);}}
-  savePending(remain);online=remain.length===0;updateStatus();
-  if(online){await fetchAll();render();toast('Synced pending changes');}
+  const remain=[];let hadNetworkFailure=false;
+  for(const it of q){
+    try{
+      let r;
+      if(it.op==='upsert')r=await sb.from(it.table).upsert(it.payload,it.table==='brain_sections'?{onConflict:'section_key'}:undefined);
+      else r=await sb.from(it.table).delete().eq('id',it.payload);
+      if(r&&r.error){
+        // Reached the server, write rejected — drop it from the retry queue (it will
+        // never succeed unattended) and surface the real error instead of looping forever.
+        console.error('Supabase sync error',{table:it.table,op:it.op,payload:it.payload,error:r.error});
+        toast('Save failed: '+it.table+' '+it.op+' error. Check console.');
+      }
+    }catch(e){
+      console.error('Supabase sync error',{table:it.table,op:it.op,payload:it.payload,error:e,networkFailure:true});
+      remain.push(it);hadNetworkFailure=true;
+    }
+  }
+  savePending(remain);online=!hadNetworkFailure;updateStatus();
+  if(online&&remain.length===0){await fetchAll();render();toast('Synced pending changes');}
 }
 
 /* ---- persist helpers (update cache + cloud) ---- */
@@ -462,30 +531,65 @@ function persistBrain(k){cacheSave();clearTimeout(brainTimers[k]);brainTimers[k]
 function addActivity(oppId,type,text){const o=byId(oppId);if(!o)return;const ev={date:today(),type:type,text:text};o.timeline=o.timeline||[];o.timeline.push(ev);o.lastInteraction=today();persistTimeline(Object.assign({oppId:oppId},ev));persistOpp(o);}
 
 /* ---- cloud fetch / sync ---- */
+/* Fetch a single table, never letting a per-table failure reject the outer Promise.all.
+   Distinguishes: (a) genuine network failure — the request never reached Supabase
+   (fetch throws) — from (b) a real response that came back with an error (RLS,
+   missing column, permission, validation, etc). Only (a) is a connectivity problem. */
+function fetchTableSafe(t){
+  return sb.from(t).select('*').then(res=>{
+    if(res.error){
+      console.error('fetchAll table error',{table:t,error:res.error});
+      toast('Read failed: '+t+'. Check console.');
+      return {table:t,ok:false,networkFailure:false,data:null};
+    }
+    return {table:t,ok:true,networkFailure:false,data:res.data||[]};
+  }).catch(e=>{
+    console.error('fetchAll table error',{table:t,error:e,networkFailure:true});
+    return {table:t,ok:false,networkFailure:true,data:null};
+  });
+}
 async function fetchAll(){
-  try{
-    const [o,p,l,b,t]=await Promise.all([
-      sb.from('opportunities').select('*'),sb.from('people').select('*'),sb.from('lessons').select('*'),
-      sb.from('brain_sections').select('*'),sb.from('timeline_events').select('*')]);
-    for(const r of [o,p,l,b,t])if(r.error)throw r.error;
-    state.opps=(o.data||[]).map(rowToOpp);
-    state.people=(p.data||[]).map(rowToPerson);
-    state.lessons=(l.data||[]).map(rowToLesson);
-    const nb=defaultBrain();
-    if((b.data||[]).length){b.data.forEach(r=>{nb[r.section_key]=r.content;});}
-    state.brain=nb;
-    if(!(b.data||[]).length){for(const [k,label] of BRAIN_SECTIONS){await sb.from('brain_sections').upsert({section_key:k,title:label,content:nb[k]},{onConflict:'section_key'});}}
-    const byOpp={};(t.data||[]).forEach(r=>{(byOpp[r.opportunity_id]=byOpp[r.opportunity_id]||[]).push({date:r.date,type:r.type,text:r.text});});
-    state.opps.forEach(op=>{op.timeline=(byOpp[op.id]||[]).sort((a,b)=>(a.date||'').localeCompare(b.date||''));});
-    online=true;cacheSave();updateStatus();return true;
-  }catch(e){
+  const tables=['opportunities','people','lessons','brain_sections','timeline_events'];
+  const results=await Promise.all(tables.map(fetchTableSafe));
+  const raw={};results.forEach(r=>{raw[r.table]=r;});
+  const anyNetworkFailure=results.some(r=>r.networkFailure);
+  if(anyNetworkFailure){
+    // A genuine connectivity problem — fall back to the last known-good cached
+    // snapshot, exactly as before, and mark the app Offline.
     online=false;updateStatus();
     try{const c=JSON.parse(localStorage.getItem(CACHE));if(c){state=c;state.brain=migrateBrain(state.brain);state.opps.forEach(op=>op.timeline=op.timeline||[]);}}catch(_){}
     return false;
   }
+  // We reached the server for every table — connectivity is fine. Any individual
+  // table that came back with a read error (RLS/schema/permission) just keeps its
+  // existing in-memory data rather than being wiped; every other table still updates.
+  if(raw.opportunities.ok)state.opps=raw.opportunities.data.map(rowToOpp);
+  if(raw.people.ok)state.people=raw.people.data.map(rowToPerson);
+  if(raw.lessons.ok)state.lessons=raw.lessons.data.map(rowToLesson);
+  if(raw.brain_sections.ok){
+    const nb=defaultBrain();
+    if(raw.brain_sections.data.length){raw.brain_sections.data.forEach(r=>{nb[r.section_key]=r.content;});}
+    state.brain=nb;
+    if(!raw.brain_sections.data.length){
+      for(const [k,label] of BRAIN_SECTIONS){
+        try{
+          const r=await sb.from('brain_sections').upsert({section_key:k,title:label,content:nb[k]},{onConflict:'section_key'});
+          if(r&&r.error)console.error('fetchAll table error',{table:'brain_sections',error:r.error});
+        }catch(e){console.error('fetchAll table error',{table:'brain_sections',error:e});}
+      }
+    }
+  }
+  if(raw.timeline_events.ok){
+    const byOpp={};raw.timeline_events.data.forEach(r=>{(byOpp[r.opportunity_id]=byOpp[r.opportunity_id]||[]).push({date:r.date,type:r.type,text:r.text});});
+    state.opps.forEach(op=>{op.timeline=(byOpp[op.id]||[]).sort((a,b)=>(a.date||'').localeCompare(b.date||''));});
+  }else{
+    state.opps.forEach(op=>{op.timeline=op.timeline||[];});
+  }
+  online=true;cacheSave();updateStatus();
+  return true;
 }
 let reloadT;
-function scheduleReload(){clearTimeout(reloadT);reloadT=setTimeout(async()=>{await fetchAll();render();},250);}
+function scheduleReload(){clearTimeout(reloadT);reloadT=setTimeout(async()=>{try{await fetchAll();}catch(e){console.error('fetchAll table error',{table:'(scheduleReload)',error:e});}render();},250);}
 function subscribeRealtime(){['opportunities','people','lessons','brain_sections','timeline_events'].forEach(tb=>{
   sb.channel('rt_'+tb).on('postgres_changes',{event:'*',schema:'public',table:tb},scheduleReload).subscribe();});}
 let presenceCh=null;
