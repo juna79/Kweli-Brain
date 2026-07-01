@@ -421,8 +421,8 @@ function userName(){if(!currentUser)return 'You';const m=currentUser.user_metada
 function D(v){return v?v:null;}
 function oppRow(o){return {id:o.id,company:o.company,category:o.category||null,website:o.website||null,linkedin:o.linkedin||null,email:o.email||null,contact_name:o.contactName||null,contact_role:o.contactRole||null,stage:o.stage||null,priority:+o.priority||0,status:o.status||null,investment_status:o.investmentStatus||null,angle:o.angle||null,pilot:o.pilot||null,notes:o.notes||null,meeting_notes:o.meetingNotes||null,objections:o.objections||null,next_action:o.nextAction||null,last_interaction:D(o.lastInteraction),follow_up:D(o.followUp),created_by:o.createdBy||userName(),updated_by:userName()};}
 function rowToOpp(r){return {id:r.id,company:r.company,category:r.category||'Other',website:r.website||'',linkedin:r.linkedin||'',email:r.email||'',contactName:r.contact_name||'',contactRole:r.contact_role||'',stage:r.stage||'Identified',priority:r.priority||0,status:r.status||'Active',investmentStatus:r.investment_status||'',angle:r.angle||'',pilot:r.pilot||'',notes:r.notes||'',meetingNotes:r.meeting_notes||'',objections:r.objections||'',nextAction:r.next_action||'',lastInteraction:r.last_interaction||'',followUp:r.follow_up||'',createdBy:r.created_by||'',timeline:[]};}
-function personRow(p){return {id:p.id,name:p.name,company_id:p.companyId||null,company:p.company||null,role:p.role||null,email:p.email||null,linkedin:p.linkedin||null,relationship:p.relationship||null,relationship_to_kweli:p.relationshipToKweli||null,warmth:p.warmth||null,last_interaction:D(p.lastInteraction),next_action:p.nextAction||null,notes:p.notes||null,created_by:p.createdBy||userName(),updated_by:userName()};}
-function rowToPerson(r){return {id:r.id,name:r.name,companyId:r.company_id||'',company:r.company||'',role:r.role||'',email:r.email||'',linkedin:r.linkedin||'',relationship:r.relationship||'',relationshipToKweli:r.relationship_to_kweli||'',warmth:r.warmth||'',lastInteraction:r.last_interaction||'',nextAction:r.next_action||'',notes:r.notes||'',createdBy:r.created_by||''};}
+function personRow(p){return {id:p.id,name:p.name,company_id:p.companyId||null,company:p.company||null,role:p.role||null,email:p.email||null,linkedin:p.linkedin||null,relationship:p.relationship||null,relationship_to_kweli:p.relationshipToKweli||null,introduced_by:p.introducedBy||null,expertise:(p.expertise&&p.expertise.length)?p.expertise.join(', '):null,why_matters:p.whyMatters||null,warmth:p.warmth||null,last_interaction:D(p.lastInteraction),next_action:p.nextAction||null,notes:p.notes||null,created_by:p.createdBy||userName(),updated_by:userName()};}
+function rowToPerson(r){return {id:r.id,name:r.name,companyId:r.company_id||'',company:r.company||'',role:r.role||'',email:r.email||'',linkedin:r.linkedin||'',relationship:r.relationship||'',relationshipToKweli:r.relationship_to_kweli||'',introducedBy:r.introduced_by||'',expertise:r.expertise?String(r.expertise).split(',').map(s=>s.trim()).filter(Boolean):[],whyMatters:r.why_matters||'',warmth:r.warmth||'',lastInteraction:r.last_interaction||'',nextAction:r.next_action||'',notes:r.notes||'',createdBy:r.created_by||''};}
 function lessonRow(l){return {id:l.id,title:l.title,date:D(l.date),category:l.category||null,source:l.source||null,description:l.description||null,impact:l.impact||null,related:l.related||null,created_by:l.createdBy||userName(),updated_by:userName()};}
 function rowToLesson(r){return {id:r.id,title:r.title,date:r.date||'',category:r.category||'',source:r.source||'',description:r.description||'',impact:r.impact||'',related:r.related||'',createdBy:r.created_by||''};}
 function tlRow(ev){return {id:ev.id||uid(),opportunity_id:ev.oppId,date:D(ev.date)||today(),type:ev.type||'Note',text:ev.text||'',created_by:userName()};}
@@ -787,6 +787,7 @@ function vPeople(){
       return '<div class="ent-card" onclick="personForm(\''+p.id+'\')"><div class="ent-top"><div><div class="ent-name">'+esc(p.name)+'</div><div class="ent-sub">'+esc(p.role||'')+(p.company?' · '+esc(p.company):'')+'</div>'+(p.relationshipToKweli?'<div class="ent-line" style="margin-top:5px"><span class="chip">'+esc(p.relationshipToKweli)+'</span></div>':'')+'</div>'+
       '<span class="chip"><span class="dot" style="background:'+(p.warmth==='Warm'?'var(--green)':p.warmth==='Cold'?'var(--faint)':'var(--amber)')+'"></span>'+esc(p.warmth||'—')+'</span></div>'+
       (o?'<div class="ent-line"><a onclick="event.stopPropagation();go(\'detail\',\''+o.id+'\')">'+esc(o.company)+' →</a></div>':'')+
+      ((p.expertise&&p.expertise.length)?'<div class="ent-line" style="margin-top:5px;flex-wrap:wrap">'+p.expertise.map(t=>'<span class="chip">'+esc(t)+'</span>').join('')+'</div>':'')+
       (p.nextAction?'<div class="ent-next"><span class="lbl">Next action</span>'+esc(p.nextAction)+'</div>':'')+'</div>';}).join('')+'</div>';
 }
 
@@ -1079,19 +1080,26 @@ function logAct(id){const t=document.getElementById('logText').value.trim();if(!
 /* People form */
 function personForm(id,companyId){const p=id?state.people.find(x=>x.id===id):{companyId:companyId||'',company:companyId?((byId(companyId)||{}).company||''):''};
   const F=(l,k,t,ph)=>'<div class="field"><label class="fl">'+l+'</label><input class="input" id="pf_'+k+'" type="'+(t||'text')+'" value="'+esc(p[k]||'')+'" placeholder="'+(ph||'')+'"></div>';
-  const TA=(l,k)=>'<div class="field"><label class="fl">'+l+'</label><textarea class="input" id="pf_'+k+'" rows="3">'+esc(p[k]||'')+'</textarea></div>';
+  const TA=(l,k,ph)=>'<div class="field"><label class="fl">'+l+'</label><textarea class="input" id="pf_'+k+'" rows="3" placeholder="'+(ph||'')+'">'+esc(p[k]||'')+'</textarea></div>';
   const warmth='<div class="field"><label class="fl">Warmth</label><select class="select" id="pf_warmth">'+WARMTH.map(w=>'<option '+(p.warmth===w?'selected':'')+'>'+w+'</option>').join('')+'</select></div>';
   const compList='<datalist id="pf_companyList">'+state.opps.map(o=>'<option value="'+esc(o.company)+'">').join('')+'</datalist>';
   const kweliRel='<div class="field"><label class="fl">Relationship to Kweli</label><select class="select" id="pf_kweliRelationship"><option value="">— none —</option>'+REL_TO_KWELI.map(r=>'<option '+(p.relationshipToKweli===r?'selected':'')+'>'+r+'</option>').join('')+'</select></div>';
+  const introHints=Array.from(new Set(state.people.map(x=>x.name).filter(n=>n&&n!==p.name).concat(['LinkedIn','Cold outreach','Conference','Referral'])));
+  const introList='<datalist id="pf_introducedByList">'+introHints.map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist>';
   document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+(id?'Edit':'New')+' person</h2><button class="x" onclick="closeModal()">×</button></div>'+
     F('Name','name')+
     '<div class="field"><label class="fl">Primary Organisation</label><input class="input" id="pf_company" list="pf_companyList" value="'+esc(p.company||'')+'" placeholder="Type any organisation, or pick an existing company"></div>'+
     compList+
     kweliRel+
+    F('How we know them','relationship','text','e.g. Introduced by Gad, met at Sankalp, childhood friend')+
+    '<div class="field"><label class="fl">Introduced by</label><input class="input" id="pf_introducedBy" list="pf_introducedByList" value="'+esc(p.introducedBy||'')+'" placeholder="Name, LinkedIn, Conference, Referral..."></div>'+
+    introList+
+    '<div class="field"><label class="fl">Expertise</label><input class="input" id="pf_expertise" value="'+esc((p.expertise||[]).join(', '))+'" placeholder="e.g. Insurance, Enterprise Sales, Carbon Markets (comma-separated)"></div>'+
     '<div class="field-row">'+F('Role','role')+warmth+'</div>'+
     '<div class="field-row">'+F('Email','email','text','verified only')+F('LinkedIn','linkedin')+'</div>'+
-    '<div class="field-row">'+F('Relationship','relationship','text','e.g. warm intro, target champion')+F('Last interaction','lastInteraction','date')+'</div>'+
-    F('Next action','nextAction')+TA('Notes','notes')+
+    '<div class="field-row">'+F('Last interaction','lastInteraction','date')+F('Next action','nextAction')+'</div>'+
+    TA('Why they matter','whyMatters','e.g. Deep insurance expertise, can introduce major insurers')+
+    TA('Notes','notes')+
     '<div class="modal-foot">'+(id?'<button class="btn danger" style="margin-right:auto" onclick="delPerson(\''+id+'\')">Delete</button>':'')+'<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="savePerson(\''+(id||'')+'\')">'+(id?'Save':'Add')+'</button></div></div></div>';
 }
 function pval(k){const el=document.getElementById('pf_'+k);return el?el.value.trim():''}
@@ -1099,8 +1107,9 @@ function savePerson(id){const name=pval('name');if(!name){toast('Name required')
   const comp=pval('company');
   const matched=comp?state.opps.find(o=>normalizeName(o.company)===normalizeName(comp)):null;
   const cid=matched?matched.id:'';
+  const expertise=pval('expertise').split(',').map(s=>s.trim()).filter(Boolean);
   const d={name,companyId:cid,company:comp,role:pval('role'),warmth:pval('warmth'),email:pval('email'),linkedin:pval('linkedin'),
-    relationship:pval('relationship'),relationshipToKweli:pval('kweliRelationship'),lastInteraction:pval('lastInteraction'),nextAction:pval('nextAction'),notes:pval('notes')};
+    relationship:pval('relationship'),relationshipToKweli:pval('kweliRelationship'),introducedBy:pval('introducedBy'),expertise,whyMatters:pval('whyMatters'),lastInteraction:pval('lastInteraction'),nextAction:pval('nextAction'),notes:pval('notes')};
   if(id){const ex=state.people.find(x=>x.id===id);Object.assign(ex,d);ex.dateUpdated=today();persistPerson(ex);}
   else{findOrCreatePerson(name,d);}
   closeModal();render();toast(id?'Updated':'Person added');}
