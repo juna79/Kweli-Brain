@@ -1077,16 +1077,16 @@ function logAct(id){const t=document.getElementById('logText').value.trim();if(!
   const ev={date:today(),type:document.getElementById('logType').value,text:t};o.timeline=o.timeline||[];o.timeline.push(ev);o.lastInteraction=today();persistTimeline(Object.assign({oppId:id},ev));persistOpp(o);render();}
 
 /* People form */
-function personForm(id,companyId){const p=id?state.people.find(x=>x.id===id):{companyId:companyId||''};
+function personForm(id,companyId){const p=id?state.people.find(x=>x.id===id):{companyId:companyId||'',company:companyId?((byId(companyId)||{}).company||''):''};
   const F=(l,k,t,ph)=>'<div class="field"><label class="fl">'+l+'</label><input class="input" id="pf_'+k+'" type="'+(t||'text')+'" value="'+esc(p[k]||'')+'" placeholder="'+(ph||'')+'"></div>';
   const TA=(l,k)=>'<div class="field"><label class="fl">'+l+'</label><textarea class="input" id="pf_'+k+'" rows="3">'+esc(p[k]||'')+'</textarea></div>';
-  const compOpts='<option value="">— none —</option>'+state.opps.map(o=>'<option value="'+o.id+'"'+(p.companyId===o.id?' selected':'')+'>'+esc(o.company)+'</option>').join('');
   const warmth='<div class="field"><label class="fl">Warmth</label><select class="select" id="pf_warmth">'+WARMTH.map(w=>'<option '+(p.warmth===w?'selected':'')+'>'+w+'</option>').join('')+'</select></div>';
+  const compList='<datalist id="pf_companyList">'+state.opps.map(o=>'<option value="'+esc(o.company)+'">').join('')+'</datalist>';
   const kweliRel='<div class="field"><label class="fl">Relationship to Kweli</label><select class="select" id="pf_kweliRelationship"><option value="">— none —</option>'+REL_TO_KWELI.map(r=>'<option '+(p.relationshipToKweli===r?'selected':'')+'>'+r+'</option>').join('')+'</select></div>';
   document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+(id?'Edit':'New')+' person</h2><button class="x" onclick="closeModal()">×</button></div>'+
     F('Name','name')+
-    '<div class="field"><label class="fl">Primary Organisation</label><select class="select" id="pf_companyId" onchange="document.getElementById(\'pf_company\').value=this.selectedOptions[0].text.replace(\'— none —\',\'\')">'+compOpts+'</select></div>'+
-    '<input type="hidden" id="pf_company" value="'+esc(p.company||'')+'">'+
+    '<div class="field"><label class="fl">Primary Organisation</label><input class="input" id="pf_company" list="pf_companyList" value="'+esc(p.company||'')+'" placeholder="Type any organisation, or pick an existing company"></div>'+
+    compList+
     kweliRel+
     '<div class="field-row">'+F('Role','role')+warmth+'</div>'+
     '<div class="field-row">'+F('Email','email','text','verified only')+F('LinkedIn','linkedin')+'</div>'+
@@ -1096,7 +1096,9 @@ function personForm(id,companyId){const p=id?state.people.find(x=>x.id===id):{co
 }
 function pval(k){const el=document.getElementById('pf_'+k);return el?el.value.trim():''}
 function savePerson(id){const name=pval('name');if(!name){toast('Name required');return;}
-  const cid=pval('companyId');const comp=cid?(byId(cid)||{}).company||'':pval('company');
+  const comp=pval('company');
+  const matched=comp?state.opps.find(o=>normalizeName(o.company)===normalizeName(comp)):null;
+  const cid=matched?matched.id:'';
   const d={name,companyId:cid,company:comp,role:pval('role'),warmth:pval('warmth'),email:pval('email'),linkedin:pval('linkedin'),
     relationship:pval('relationship'),relationshipToKweli:pval('kweliRelationship'),lastInteraction:pval('lastInteraction'),nextAction:pval('nextAction'),notes:pval('notes')};
   if(id){const ex=state.people.find(x=>x.id===id);Object.assign(ex,d);ex.dateUpdated=today();persistPerson(ex);}
