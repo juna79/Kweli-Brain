@@ -510,11 +510,11 @@ async function doLogin(){const email=(document.getElementById('au_email').value|
   const {error}=await sb.auth.signInWithPassword({email,password:pw});
   if(error){showLogin(error.message);return;}}
 async function signOut(){try{await sb.auth.signOut();}catch(e){}currentUser=null;CLOUD=false;updateStatus();showLogin();}
-async function onSignedIn(session){currentUser=session.user;CLOUD=true;hideLogin();await fetchAll();subscribeRealtime();setupPresence();updateStatus();render();maybeOfferMigration();}
+async function onSignedIn(session){currentUser=session.user;CLOUD=true;hideLogin();await fetchAll();dedupePeople();subscribeRealtime();setupPresence();updateStatus();render();maybeOfferMigration();}
 
 /* ---- init ---- */
 async function init(){
-  if(!SUPA_READY){CLOUD=false;state=legacyLoad();render();updateStatus();return;}
+  if(!SUPA_READY){CLOUD=false;state=legacyLoad();dedupePeople();render();updateStatus();return;}
   const _url=SUPABASE_URL.replace(/\/rest\/v1\/?$/i,'').replace(/\/+$/,'');
   sb=window.supabase.createClient(_url,SUPABASE_PUBLISHABLE_KEY);
   window.addEventListener('online',()=>{online=true;updateStatus();trySyncPending();});
@@ -522,7 +522,7 @@ async function init(){
   try{const {data}=await sb.auth.getSession();
     if(data&&data.session){await onSignedIn(data.session);}else{showLogin();}
     sb.auth.onAuthStateChange((_e,s)=>{if(s&&!currentUser){onSignedIn(s);}else if(!s){currentUser=null;CLOUD=false;updateStatus();showLogin();}});
-  }catch(e){CLOUD=false;state=legacyLoad();render();updateStatus();}
+  }catch(e){CLOUD=false;state=legacyLoad();dedupePeople();render();updateStatus();}
 }
 
 /* routing */
@@ -598,16 +598,40 @@ function addSource(list,name){if(!name)return list||'';const cur=String(list||''
   if(!cur.some(s=>normalizeName(s)===normalizeName(name)))cur.push(name);return cur.join(', ');}
 
 function findOrCreatePerson(name,fields){
-  const matches=state.people.filter(p=>samePerson(p.name,name));
-  let ex=null;
-  if(matches.length===1)ex=matches[0];
-  else if(matches.length>1)ex=matches.find(p=>normalizeName(p.name)===normalizeName(name))||null;
+  const key=normalizeName(name);
+  const ex=key?state.people.find(p=>normalizeName(p.name)===key):null;
   if(ex){
-    if(normalizeName(name).split(' ').length>normalizeName(ex.name).split(' ').length)ex.name=name;
     mergeNonEmpty(ex,fields);ex.dateUpdated=today();persistPerson(ex);return ex;
   }
   const np=Object.assign({id:uid('p'),createdBy:userName(),dateCreated:today(),dateUpdated:today()},fields,{name});
   state.people.push(np);persistPerson(np);return np;
+}
+/* One-time cleanup: collapse any people already duplicated (e.g. by the old
+   ambiguous-match bug) into a single record per normalized name. Safe to
+   call repeatedly — it's a no-op once there are no duplicates left. */
+function dedupePeople(){
+  const groups={};
+  state.people.forEach(p=>{const k=normalizeName(p.name);if(!k)return;(groups[k]=groups[k]||[]).push(p);});
+  const removeIds=[];
+  Object.keys(groups).forEach(k=>{
+    const list=groups[k];if(list.length<2)return;
+    list.sort((a,b)=>String(a.dateCreated||'').localeCompare(String(b.dateCreated||'')));
+    const primary=list[0];
+    for(let i=1;i<list.length;i++){
+      const dup=list[i];
+      Object.keys(dup).forEach(f=>{if(['id','dateCreated','createdBy','name'].indexOf(f)>=0)return;
+        const cur=primary[f];const val=dup[f];
+        if((cur===undefined||cur===null||String(cur).trim()==='')&&val!==undefined&&val!==null&&String(val).trim()!=='')primary[f]=val;});
+      removeIds.push(dup.id);
+    }
+    primary.dateUpdated=today();
+    persistPerson(primary);
+  });
+  if(removeIds.length){
+    state.people=state.people.filter(p=>removeIds.indexOf(p.id)<0);
+    removeIds.forEach(id=>persistPersonDelete(id));
+  }
+  return removeIds.length;
 }
 function findOrCreateLesson(fields,companyName){
   const tkey=normalizeText(fields.title),dkey=normalizeText(fields.description);
