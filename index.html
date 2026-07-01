@@ -112,6 +112,34 @@
   .ent-next{font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 11px;line-height:1.45}
   .ent-next .lbl{display:block;font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);font-family:ui-monospace,monospace;margin-bottom:3px}
 
+  /* lesson cards */
+  .lesson-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:stretch}
+  @media(max-width:1020px){.lesson-grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:620px){.lesson-grid{grid-template-columns:1fr}}
+  .lesson-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;cursor:pointer;
+    display:flex;flex-direction:column;gap:10px;transition:border-color .15s}
+  .lesson-card:hover{border-color:var(--gold)}
+  .lc-top{display:flex;align-items:flex-start;gap:9px}
+  .lc-ico{font-size:14px;line-height:1.4;flex:none}
+  .lc-title{font-size:14.5px;font-weight:620;line-height:1.35;letter-spacing:-.01em;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .lc-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .lc-chips .chip{padding:3px 10px;font-size:10.5px}
+  .lc-lbl{font-size:9px;font-family:ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-bottom:4px}
+  .lc-why-text{font-size:12.5px;color:#DCE7EC;line-height:1.5;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .lc-body{font-size:12.5px;color:var(--muted);line-height:1.55;white-space:pre-wrap;
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .lc-body.lc-expanded{display:block;-webkit-line-clamp:unset;overflow:visible}
+  .lc-more{align-self:flex-start;background:none;border:none;color:var(--gold);font-size:11.5px;
+    font-family:inherit;cursor:pointer;padding:0}
+  .lc-more:hover{text-decoration:underline}
+  .lc-foot{margin-top:auto;padding-top:8px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+  .lc-date{font-size:10.5px;color:var(--faint);font-family:ui-monospace,monospace}
+  .lc-related{padding-top:10px;border-top:1px dashed var(--line)}
+  .lc-rel-item{font-size:11.5px;color:var(--muted);padding:4px 0;cursor:pointer}
+  .lc-rel-item:hover{color:var(--gold)}
+
   /* buttons / inputs */
   .btn{background:var(--panel2);border:1px solid var(--line-s);color:var(--txt);border-radius:10px;padding:10px 16px;
     font-size:13px;font-weight:540;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;transition:all .15s}
@@ -528,6 +556,7 @@ async function init(){
 /* routing */
 let route={view:'dashboard',id:null,companyView:'cards',
   oppFilter:{q:'',cat:'',stage:'',sort:'priority'},
+  lessonFilter:{q:'',cat:'',src:'',sort:'newest'},
   ws:{task:'research',company:'',text:''}};
 const NAV=[
   {id:'dashboard',label:'Today',icon:'home'},
@@ -777,13 +806,57 @@ function vFollow(){
 function vLessons(){
   if(!state.lessons.length)return '<div class="page-head"><div><div class="eyebrow">Institutional memory</div><div class="page-title">Lessons Learned</div></div><button class="btn gold" onclick="lessonForm()">+ Add lesson</button></div>'+
     '<div class="empty"><div class="em">'+ICON('bulb')+'</div><h3>No lessons yet</h3><p>Capture what each conversation taught you — this is the memory the company compounds on.</p><div class="row"><button class="btn gold" onclick="lessonForm()">+ Add lesson</button></div></div>';
-  const list=[...state.lessons].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  return '<div class="page-head"><div><div class="eyebrow">Institutional memory</div><div class="page-title">Lessons Learned</div><div class="page-sub">'+list.length+' lessons</div></div><button class="btn gold" onclick="lessonForm()">+ Add lesson</button></div>'+
-    list.map(l=>'<div class="card" style="margin-bottom:14px;cursor:pointer" onclick="lessonForm(\''+l.id+'\')">'+
-      '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline"><div style="font-size:16px;font-weight:600">'+esc(l.title)+'</div><span class="t-meta">'+fmtDate(l.date)+'</span></div>'+
-      '<div class="ent-line" style="margin-top:8px">'+(l.category?'<span class="chip">'+esc(l.category)+'</span>':'')+(l.source?'<span class="faint mono" style="font-size:11px">via '+esc(l.source)+'</span>':'')+(l.related?'<span class="faint mono" style="font-size:11px">· '+esc(l.related)+'</span>':'')+'</div>'+
-      (l.description?'<div class="prose" style="margin-top:12px;font-size:14px">'+esc(l.description)+'</div>':'')+
-      (l.impact?'<div class="block"><h4>Impact</h4><div class="prose" style="font-size:13.5px">'+esc(l.impact)+'</div></div>':'')+'</div>').join('');
+  const f=route.lessonFilter;
+  const cats=[...new Set(state.lessons.map(l=>l.category).filter(Boolean))].sort();
+  const srcs=[...new Set(state.lessons.map(l=>l.source).filter(Boolean))].sort();
+  return '<div class="page-head"><div><div class="eyebrow">Institutional memory</div><div class="page-title">Lessons Learned</div><div class="page-sub">'+state.lessons.length+' lessons</div></div><button class="btn gold" onclick="lessonForm()">+ Add lesson</button></div>'+
+    '<div class="toolbar">'+
+      '<input class="input search-in" placeholder="Search lessons…" value="'+esc(f.q)+'" oninput="route.lessonFilter.q=this.value;renderLessons()">'+
+      (cats.length?'<select class="select" onchange="route.lessonFilter.cat=this.value;renderLessons()"><option value="">All categories</option>'+cats.map(c=>'<option '+(f.cat===c?'selected':'')+'>'+esc(c)+'</option>').join('')+'</select>':'')+
+      (srcs.length?'<select class="select" onchange="route.lessonFilter.src=this.value;renderLessons()"><option value="">All sources</option>'+srcs.map(s=>'<option '+(f.src===s?'selected':'')+'>'+esc(s)+'</option>').join('')+'</select>':'')+
+      '<select class="select" onchange="route.lessonFilter.sort=this.value;renderLessons()">'+
+        '<option value="newest"'+(f.sort==='newest'?' selected':'')+'>Sort: Newest</option>'+
+        '<option value="oldest"'+(f.sort==='oldest'?' selected':'')+'>Sort: Oldest</option>'+
+        '<option value="referenced"'+(f.sort==='referenced'?' selected':'')+'>Sort: Most referenced</option>'+
+        '<option value="az"'+(f.sort==='az'?' selected':'')+'>Sort: Alphabetical</option>'+
+      '</select>'+
+    '</div><div id="lessonsBox">'+lessonsHtml()+'</div>';
+}
+function lessonRefCount(l){return String(l.related||'').split(',').map(s=>s.trim()).filter(Boolean).length;}
+function lessonsHtml(){
+  const f=route.lessonFilter;
+  let list=[...state.lessons];
+  if(f.q){const q=f.q.toLowerCase();
+    list=list.filter(l=>(l.title+' '+(l.description||'')+' '+(l.impact||'')+' '+(l.category||'')+' '+(l.source||'')+' '+(l.related||'')).toLowerCase().includes(q));}
+  if(f.cat)list=list.filter(l=>l.category===f.cat);
+  if(f.src)list=list.filter(l=>l.source===f.src);
+  if(f.sort==='oldest')list.sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  else if(f.sort==='referenced')list.sort((a,b)=>lessonRefCount(b)-lessonRefCount(a)||(b.date||'').localeCompare(a.date||''));
+  else if(f.sort==='az')list.sort((a,b)=>(a.title||'').localeCompare(b.title||''));
+  else list.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  if(!list.length)return '<div class="empty"><div class="em">'+ICON('bulb')+'</div><h3>No lessons match</h3><p>Try a different search or filter.</p></div>';
+  return '<div class="lesson-grid">'+list.map(l=>lessonCard(l)).join('')+'</div>';
+}
+function renderLessons(){const b=document.getElementById('lessonsBox');if(b)b.innerHTML=lessonsHtml();}
+function lessonCard(l){
+  const bodyText=(l.description&&normalizeText(l.description)!==normalizeText(l.title))?l.description:'';
+  const needsMore=bodyText.length>170;
+  const related=l.category?state.lessons.filter(x=>x.id!==l.id&&x.category===l.category)
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,3):[];
+  return '<div class="lesson-card" id="lc-'+l.id+'" onclick="lessonForm(\''+l.id+'\')">'+
+    '<div class="lc-top"><span class="lc-ico">\uD83D\uDCA1</span><div class="lc-title">'+esc(l.title)+'</div></div>'+
+    ((l.category||l.source)?'<div class="lc-chips">'+(l.category?'<span class="chip">'+esc(l.category)+'</span>':'')+(l.source?'<span class="chip">'+esc(l.source)+'</span>':'')+'</div>':'')+
+    (l.impact?'<div class="lc-why"><div class="lc-lbl">Why it matters</div><div class="lc-why-text">'+esc(l.impact)+'</div></div>':'')+
+    (bodyText?'<div class="lc-body" id="lcb-'+l.id+'">'+esc(bodyText)+'</div>'+(needsMore?'<button type="button" class="lc-more" id="lcm-'+l.id+'" onclick="event.stopPropagation();toggleLesson(\''+l.id+'\')">Read more</button>':''):'')+
+    (related.length?'<div class="lc-related"><div class="lc-lbl">Related lessons</div>'+related.map(r=>'<div class="lc-rel-item" onclick="event.stopPropagation();lessonForm(\''+r.id+'\')">'+esc(r.title)+'</div>').join('')+'</div>':'')+
+    '<div class="lc-foot"><span class="lc-date">'+fmtDate(l.date)+'</span></div>'+
+  '</div>';
+}
+function toggleLesson(id){
+  const body=document.getElementById('lcb-'+id),btn=document.getElementById('lcm-'+id);
+  if(!body)return;
+  const expanded=body.classList.toggle('lc-expanded');
+  if(btn)btn.textContent=expanded?'Show less':'Read more';
 }
 
 /* Objections — a shared view derived from each company's objections (enter once on the company, referenced here) */
