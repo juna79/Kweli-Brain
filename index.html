@@ -1065,12 +1065,18 @@ function vDetail(){const o=byId(route.id);if(!o)return vCompanies();
 
 /* Workspace */
 /* ============ ASK KWELI BRAIN — retrieval layer ============
-   Client-side search across every part of the app, run before any AI call.
-   Fuzzy/simple matching only (exact phrase, lowercase, partial substring,
-   token overlap) — no embeddings, no external calls, just fast local scoring
-   over state.opps / state.people / state.lessons / state.assets / state.brain
-   plus follow-ups and objections (both derived from companies, same as the
-   rest of the app already does via getCompanyFollowUps/getCompanyObjections). */
+   Two very different kinds of search live here, and mixing them was the bug:
+
+   1. ENTITY-SCOPED search — "Kyle", "Kentaste", "the Kweli Investor Deck".
+      Resolve WHO/WHAT is being asked about first, then only pull records
+      that are actually related to that person/company/asset. This is the
+      default path and should cover almost every real question.
+
+   2. GENERIC keyword search — a true last resort, only used when nothing
+      specific could be resolved (or for recognised aggregate questions like
+      "what's overdue" / "which companies are investors"). Never runs
+      alongside (1); if an entity was resolved, generic search is skipped
+      entirely so it can't drag in unrelated companies. */
 function tokenize(s){return normalizeText(s).split(' ').filter(Boolean);}
 function textScore(query,...fields){
   const qNorm=normalizeText(query);if(!qNorm)return 0;
@@ -1114,52 +1120,167 @@ function searchKnowledge(query,limit){
    kept as two names since both were asked for; searchBrain is just the alias. */
 function searchBrain(query,limit){return searchKnowledge(query,limit);}
 
-function buildAIContext(query){
-  const companies=searchCompanies(query,6),people=searchPeople(query,6),assets=searchAssets(query,6),
-    lessons=searchLessons(query,6),objections=searchObjections(query,6),followups=searchFollowups(query,6),
-    knowledge=searchKnowledge(query,4);
-  const compIds=new Set(companies.map(c=>c.id)),peopleIds=new Set(people.map(p=>p.id)),
-    assetIds=new Set(assets.map(a=>a.id)),lessonIds=new Set(lessons.map(l=>l.id)),
-    objIds=new Set(objections.map(o=>o.id)),followIds=new Set(followups.map(o=>o.id)),
-    knowKeys=new Set(knowledge.map(k=>k.key));
-  const addCompany=o=>{if(o&&!compIds.has(o.id)){companies.push(o);compIds.add(o.id);}};
-  const addPerson=p=>{if(p&&!peopleIds.has(p.id)){people.push(p);peopleIds.add(p.id);}};
-  const addAsset=a=>{if(a&&!assetIds.has(a.id)){assets.push(a);assetIds.add(a.id);}};
-  const addLesson=l=>{if(l&&!lessonIds.has(l.id)){lessons.push(l);lessonIds.add(l.id);}};
-  const addObjection=o=>{if(o&&!objIds.has(o.id)){objections.push(o);objIds.add(o.id);}};
-  const addFollowup=o=>{if(o&&!followIds.has(o.id)){followups.push(o);followIds.add(o.id);}};
-  const addKnowledgeFor=cat=>{const pk=PLAYBOOK_MAP[cat];if(pk&&!knowKeys.has(pk)){knowledge.push({key:pk,label:(BRAIN_SECTIONS.find(s=>s[0]===pk)||[pk,pk])[1],content:state.brain[pk]||''});knowKeys.add(pk);}};
-  // Infer around the strongest matches — even if a company/asset/lesson never
-  // mentioned the query text directly, pull it in once we know which company
-  // is actually being asked about (e.g. "Kyle Denning" → Kentaste → its deck).
-  const expandAroundCompany=comp=>{
-    if(!comp)return;
-    addCompany(comp);
+/* ---- Entity resolution: figure out WHO/WHAT before searching ----
+   Requires a real name-token match (first name, surname, or full company
+   name), not a stray common word — that's what stopped "follow up" from
+   matching every company whose next-action happens to mention following up. */
+function resolveEntities(query){
+  const qNorm=normalizeText(query),qTokens=tokenize(query);
+  const people=topScored(state.people,p=>{
+    const nameNorm=normalizeName(p.name),nameTokens=nameNorm.split(' ').filter(Boolean);
+    let score=0;
+    if(qNorm&&nameNorm&&qNorm.indexOf(nameNorm)>=0)score+=20; // full name mentioned
+    nameTokens.forEach(nt=>{if(nt.length>=3&&qTokens.indexOf(nt)>=0)score+=8;}); // first/last name as its own word
+    return score;
+  },5);
+  const companies=topScored(state.opps,o=>{
+    const compNorm=normalizeName(o.company);
+    let score=0;
+    if(qNorm&&compNorm&&qNorm.indexOf(compNorm)>=0)score+=20; // full company name mentioned
+    else compNorm.split(' ').filter(t=>t.length>=4).forEach(ct=>{if(qTokens.indexOf(ct)>=0)score+=8;}); // distinctive word from the name
+    return score;
+  },5);
+  const assets=topScored(state.assets||[],a=>{
+    const titleNorm=normalizeText(a.title);
+    let score=0;
+    if(qNorm&&titleNorm&&(qNorm.indexOf(titleNorm)>=0||titleNorm.indexOf(qNorm)>=0))score+=20; // whole title mentioned (either direction)
+    else{let hits=0;titleNorm.split(' ').filter(t=>t.length>=4).forEach(tt=>{if(qTokens.indexOf(tt)>=0){score+=6;hits++;}});if(hits>=2)score+=6;} // 2+ distinctive title words
+    return score;
+  },5);
+  return {people,companies,assets};
+}
+function resolveCompanyForPerson(p){
+  if(!p)return null;
+  let comp=p.companyId?byId(p.companyId):null;
+  if(!comp&&p.company){const key=normalizeName(p.company);comp=state.opps.find(o=>normalizeName(o.company)===key);}
+  return comp||null;
+}
+function resolveCompanyForAsset(a){
+  if(!a)return null;
+  const hay=normalizeText((a.title||'')+' '+(a.collection||'')+' '+(a.notes||''));
+  return state.opps.find(o=>{const cn=normalizeName(o.company);return cn.length>=3&&hay.indexOf(cn)>=0;})||null;
+}
+const CATEGORY_ALIASES={insurance:['Insurance'],insurer:['Insurance'],insurers:['Insurance'],
+  agriculture:['Agriculture/FMCG'],agri:['Agriculture/FMCG'],fmcg:['Agriculture/FMCG'],
+  lab:['Labs'],labs:['Labs'],export:['Exporters'],exporters:['Exporters'],exporter:['Exporters'],
+  banking:['Banks/Lenders'],bank:['Banks/Lenders'],banks:['Banks/Lenders'],lenders:['Banks/Lenders'],
+  governance:['Governance/Legal'],legal:['Governance/Legal'],investor:['Investors'],investors:['Investors']};
+function resolveCategory(query){
+  const q=normalizeText(query);
+  for(const key in CATEGORY_ALIASES){if(q.indexOf(key)>=0)return CATEGORY_ALIASES[key];}
+  for(const c of CATEGORIES){if(q.indexOf(normalizeText(c))>=0)return [c];}
+  return null;
+}
+function emptyContext(query){return {query,companies:[],people:[],assets:[],lessons:[],objections:[],followups:[],knowledge:[],anchor:{}};}
+
+/* Path 1 — an entity was resolved. Expand ONLY around it: the company's own
+   people/lessons/objections/follow-up, assets whose name matches the company
+   (so an unlinked "Kweli x Kentaste" deck still surfaces), and the relevant
+   sector playbook. No raw-query search runs here — that's the fix. */
+function buildScopedContext(query,entities,anchorCompanies){
+  const ctx=emptyContext(query);
+  const compIds=new Set(),peopleIds=new Set(),assetIds=new Set(),lessonIds=new Set(),objIds=new Set(),followIds=new Set(),knowKeys=new Set();
+  const addCompany=o=>{if(o&&!compIds.has(o.id)){ctx.companies.push(o);compIds.add(o.id);}};
+  const addPerson=p=>{if(p&&!peopleIds.has(p.id)){ctx.people.push(p);peopleIds.add(p.id);}};
+  const addAsset=a=>{if(a&&!assetIds.has(a.id)){ctx.assets.push(a);assetIds.add(a.id);}};
+  const addLesson=l=>{if(l&&!lessonIds.has(l.id)){ctx.lessons.push(l);lessonIds.add(l.id);}};
+  const addObjection=o=>{if(o&&!objIds.has(o.id)){ctx.objections.push(o);objIds.add(o.id);}};
+  const addFollowup=o=>{if(o&&!followIds.has(o.id)){ctx.followups.push(o);followIds.add(o.id);}};
+  const addKnowledgeFor=cat=>{const pk=PLAYBOOK_MAP[cat];if(pk&&!knowKeys.has(pk)){ctx.knowledge.push({key:pk,label:(BRAIN_SECTIONS.find(s=>s[0]===pk)||[pk,pk])[1],content:state.brain[pk]||''});knowKeys.add(pk);}};
+
+  entities.people.slice(0,3).forEach(addPerson);
+  entities.assets.slice(0,3).forEach(addAsset);
+  anchorCompanies.forEach(addCompany);
+
+  anchorCompanies.forEach(comp=>{
     getCompanyPeople(comp).forEach(addPerson);
     getCompanyLessons(comp).forEach(addLesson);
     if(getCompanyObjections(comp))addObjection(comp);
     if(comp.followUp)addFollowup(comp);
-    searchAssets(comp.company,10).forEach(addAsset);
+    searchAssets(comp.company,10).forEach(addAsset); // scoped to the company's own name, not the raw question
     addKnowledgeFor(comp.category);
-  };
-  const topPerson=people[0];
-  if(topPerson){
-    let comp=topPerson.companyId?byId(topPerson.companyId):null;
-    if(!comp&&topPerson.company){const key=normalizeName(topPerson.company);comp=state.opps.find(o=>normalizeName(o.company)===key);}
-    expandAroundCompany(comp);
+  });
+  if(!anchorCompanies.length&&entities.people.length){
+    // a person with no known company — still surface anything naming them directly
+    searchLessons(entities.people[0].name,6).forEach(addLesson);
   }
-  expandAroundCompany(companies[0]);
-  return {query,companies:companies.slice(0,8),people:people.slice(0,8),assets:assets.slice(0,8),
-    lessons:lessons.slice(0,8),objections:objections.slice(0,6),followups:followups.slice(0,6),knowledge:knowledge.slice(0,5)};
+  ctx.companies=ctx.companies.slice(0,8);ctx.people=ctx.people.slice(0,8);ctx.assets=ctx.assets.slice(0,8);
+  ctx.lessons=ctx.lessons.slice(0,8);ctx.objections=ctx.objections.slice(0,6);ctx.followups=ctx.followups.slice(0,6);ctx.knowledge=ctx.knowledge.slice(0,5);
+  ctx.anchor={person:entities.people[0]||null,company:anchorCompanies[0]||null,asset:(!anchorCompanies.length&&entities.assets[0])||null};
+  return ctx;
+}
+/* Path 2 — no specific entity resolved. Try a recognised aggregate question
+   ("what's overdue", "which companies are investors", sector questions like
+   "insurance objections") before ever falling back to a raw keyword sweep. */
+function buildAggregateContext(query){
+  const q=normalizeText(query);
+  const ctx=emptyContext(query);
+  if(/\boverdue\b/.test(q)){ctx.followups=overdue().slice(0,8);return ctx.followups.length?ctx:null;}
+  if(/\binvestor/.test(q)){ctx.companies=state.opps.filter(isInv).sort((a,b)=>(+b.priority||0)-(+a.priority||0)).slice(0,8);return ctx.companies.length?ctx:null;}
+  if(/proposal/.test(q)&&/(which|compan)/.test(q)){
+    const proposalAssets=(state.assets||[]).filter(a=>/proposal/i.test(a.assetType||'')||/proposal/i.test(a.title||''));
+    const compIds=new Set();
+    proposalAssets.forEach(a=>{const hay=normalizeText((a.title||'')+' '+(a.collection||''));state.opps.forEach(o=>{if(hay.indexOf(normalizeName(o.company))>=0)compIds.add(o.id);});});
+    ctx.companies=state.opps.filter(o=>compIds.has(o.id));ctx.assets=proposalAssets.slice(0,8);
+    return (ctx.companies.length||ctx.assets.length)?ctx:null;
+  }
+  const cats=resolveCategory(query);
+  if(cats){
+    ctx.companies=state.opps.filter(o=>cats.indexOf(o.category)>=0).slice(0,8);
+    ctx.lessons=searchLessons(query,8); // scoped: query itself IS the sector keyword, so this stays on-topic
+    ctx.objections=allObjections().filter(o=>cats.indexOf(o.category)>=0).slice(0,6);
+    ctx.followups=state.opps.filter(o=>cats.indexOf(o.category)>=0&&o.followUp).slice(0,6);
+    ctx.assets=searchAssets(query,8);
+    return (ctx.companies.length||ctx.lessons.length||ctx.objections.length||ctx.followups.length||ctx.assets.length)?ctx:null;
+  }
+  return null;
+}
+/* Path 3 — true last resort: broad keyword search, same as before, but only
+   ever reached when nothing specific and no recognised aggregate pattern
+   matched. Kept for genuinely open questions with no clean entity. */
+function buildGenericContext(query){
+  const ctx=emptyContext(query);
+  ctx.companies=searchCompanies(query,5);ctx.people=searchPeople(query,5);ctx.assets=searchAssets(query,5);
+  ctx.lessons=searchLessons(query,5);ctx.objections=searchObjections(query,4);ctx.followups=searchFollowups(query,4);
+  ctx.knowledge=searchKnowledge(query,3);
+  return ctx;
+}
+function buildAIContext(query){
+  const entities=resolveEntities(query);
+  const anchorCompanies=[];
+  if(entities.companies.length)anchorCompanies.push(entities.companies[0]);
+  else if(entities.people.length){const c=resolveCompanyForPerson(entities.people[0]);if(c)anchorCompanies.push(c);}
+  else if(entities.assets.length){const c=resolveCompanyForAsset(entities.assets[0]);if(c)anchorCompanies.push(c);}
+
+  if(anchorCompanies.length||entities.people.length||entities.assets.length)
+    return buildScopedContext(query,entities,anchorCompanies);
+
+  const agg=buildAggregateContext(query);
+  if(agg)return agg;
+
+  return buildGenericContext(query);
 }
 
 /* Structured, data-only answer — used whenever no AI model is connected.
-   Every line traces back to a specific retrieved record; nothing invented. */
+   Every line traces back to a specific retrieved record; nothing invented.
+   Opens by naming whichever specific person/company/asset was resolved,
+   instead of a generic "here's what I found" — and is honest when there's
+   no verbatim quote on file (the app never stores one). */
 function answerFromContext(query,ctx){
-  const L=[];
+  const L=[];const a=ctx.anchor||{};
   const has=ctx.companies.length||ctx.people.length||ctx.assets.length||ctx.lessons.length||ctx.objections.length||ctx.followups.length||ctx.knowledge.length;
   if(!has)return 'I couldn\'t find anything in Kweli Brain matching "'+query+'". Try a different name, company, or keyword — or add the record first if it doesn\'t exist yet.';
-  L.push('Here is what Kweli Brain found for "'+query+'":');
+  if(a.person){
+    const bits=[a.person.role,a.company?a.company.company:(a.person.company||null)].filter(Boolean);
+    L.push('I found '+a.person.name+(bits.length?' ('+bits.join(', ')+')':'')+'.');
+    L.push('I don\'t have a direct quote recorded from '+a.person.name.split(' ')[0]+', however based on the'+(a.company?' '+a.company.company:'')+' records here is what I know:');
+  }else if(a.company){
+    L.push('I found '+a.company.company+' ('+a.company.category+').');
+  }else if(a.asset){
+    L.push('I found "'+a.asset.title+'" in Assets.');
+  }else{
+    L.push('Here is what Kweli Brain found for "'+query+'":');
+  }
   if(ctx.companies.length){L.push('','COMPANIES');ctx.companies.forEach(o=>{
     L.push('- '+o.company+' ('+o.category+', stage: '+o.stage+', priority '+(+o.priority||0)+')');
     if(o.angle)L.push('  Kweli angle: '+o.angle);
@@ -1170,10 +1291,10 @@ function answerFromContext(query,ctx){
     if(p.whyMatters)L.push('  Why they matter: '+p.whyMatters);
     if(p.nextAction)L.push('  Next action: '+p.nextAction);
   });}
-  if(ctx.assets.length){L.push('','ASSETS');ctx.assets.forEach(a=>{
-    L.push('- '+a.title+' ('+(a.collection||'Uncategorised')+(a.assetType?' · '+a.assetType:'')+(a.version?' · '+a.version:'')+')');
-    if(a.description)L.push('  '+a.description);
-    L.push(a.extractedText?'  Extracted text (excerpt): '+a.extractedText.slice(0,300)+(a.extractedText.length>300?'…':'')
+  if(ctx.assets.length){L.push('','ASSETS');ctx.assets.forEach(a2=>{
+    L.push('- '+a2.title+' ('+(a2.collection||'Uncategorised')+(a2.assetType?' · '+a2.assetType:'')+(a2.version?' · '+a2.version:'')+')');
+    if(a2.description)L.push('  '+a2.description);
+    L.push(a2.extractedText?'  Extracted text (excerpt): '+a2.extractedText.slice(0,300)+(a2.extractedText.length>300?'…':'')
       :'  I found this in Assets, but full document text extraction is not enabled yet. This is based on its title, description and tags only.');
   });}
   if(ctx.lessons.length){L.push('','LESSONS LEARNED');ctx.lessons.forEach(l=>{
@@ -1220,7 +1341,32 @@ async function askKweliBrain(){
   render();
 }
 function askAgain(){route.ask.results=null;render();setTimeout(()=>{const el=document.getElementById('askInput');if(el)el.focus();},30);}
+function askSuggested(text){
+  route.ask.query=text;
+  const el=document.getElementById('askInput');
+  if(el){el.value=text;el.focus();}else{render();}
+}
 
+const SUGGESTED_PROMPTS=[
+  "What do we know about Kentaste?",
+  "What did Kyle say he wanted to follow up on?",
+  "What do we know about Turaco?",
+  "Prepare me for my next Moringa meeting.",
+  "Which assets should I send Ashif?",
+  "Summarise the Kweli Investor Deck.",
+  "What objections have insurers raised?",
+  "What follow-ups are overdue?",
+  "Which companies have proposal decks?",
+  "Which lessons came from agriculture?",
+  "Which investors should I speak to next?",
+  "Summarise everything we know about Peter Prickaerts."
+];
+function suggestedPromptsHtml(){
+  return '<div class="block" style="margin-top:16px"><h4>Suggested questions</h4>'+
+    '<div style="display:flex;flex-wrap:wrap;gap:8px">'+
+    SUGGESTED_PROMPTS.map(q=>'<span class="chip" style="cursor:pointer" onclick=\'askSuggested('+JSON.stringify(q)+')\'>'+esc(q)+'</span>').join('')+
+    '</div></div>';
+}
 function vWorkspace(){
   const st=route.ask;
   return '<div class="page-head"><div><div class="eyebrow">Search + reasoning across Kweli Brain</div><div class="page-title">Ask Kweli Brain</div>'+
@@ -1229,7 +1375,7 @@ function vWorkspace(){
       '<div class="field" style="margin-bottom:0"><label class="fl">Ask anything</label>'+
       '<input class="input" id="askInput" placeholder="Ask anything about your companies, people, decks, lessons, investors or knowledge…" value="'+esc(st.query)+'" onkeydown="if(event.key===\'Enter\')askKweliBrain()"></div>'+
       '<button class="btn gold" onclick="askKweliBrain()"'+(st.loading?' disabled':'')+'>'+(st.loading?'Searching…':'Ask')+'</button>'+
-    '</div></div>'+
+    '</div>'+suggestedPromptsHtml()+'</div>'+
     (st.loading?'<div class="empty" style="margin-top:20px"><div class="em">'+ICON('spark')+'</div><h3>Searching Kweli Brain…</h3><p>Checking companies, people, assets, lessons, objections and the knowledge base.</p></div>'
       :st.results?renderAskResults(st):emptyAskState())+
     '<details style="margin-top:22px"'+(st.showTemplates||route.ws.company?' open':'')+' ontoggle="route.ask.showTemplates=this.open">'+
@@ -1239,7 +1385,7 @@ function vWorkspace(){
 }
 function emptyAskState(){
   return '<div class="empty" style="margin-top:20px"><div class="em">'+ICON('spark')+'</div><h3>Ask anything</h3>'+
-    '<p>Try "What do we know about Turaco?", "Which decks should I send to Ashif?", or "Prepare me for a meeting with Sebastian McKinley."</p></div>';
+    '<p>Pick a suggested question above, or ask your own — Kweli Brain resolves who or what you mean first, then only pulls what\'s actually related.</p></div>';
 }
 function renderAskResults(st){
   const ctx=st.results.context,answer=st.results.answer,usedLLM=st.results.usedLLM;
