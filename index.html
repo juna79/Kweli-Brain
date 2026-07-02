@@ -498,8 +498,8 @@ function lessonRow(l){return {id:l.id,title:l.title,date:D(l.date),category:l.ca
 function rowToLesson(r){return {id:r.id,title:r.title,date:r.date||'',category:r.category||'',source:r.source||'',description:r.description||'',impact:r.impact||'',related:r.related||'',createdBy:r.created_by||''};}
 /* Assets — metadata row only. The actual file lives in Supabase Storage
    (bucket ASSETS_BUCKET); file_path here is the storage object key. */
-function assetRow(a){return {id:a.id,title:a.title,collection:a.collection||null,asset_type:a.assetType||null,description:a.description||null,version:a.version||null,tags:(a.tags&&a.tags.length)?a.tags:null,notes:a.notes||null,file_name:a.fileName||null,file_path:a.filePath||null,file_type:a.fileType||null,file_size:a.fileSize||0,thumb_path:a.thumbPath||null,created_by:a.createdBy||userName(),updated_by:userName()};}
-function rowToAsset(r){return {id:r.id,title:r.title,collection:r.collection||'',assetType:r.asset_type||'',description:r.description||'',version:r.version||'',tags:r.tags||[],notes:r.notes||'',fileName:r.file_name||'',filePath:r.file_path||'',fileType:r.file_type||'',fileSize:r.file_size||0,thumbPath:r.thumb_path||'',uploadedDate:(r.created_at||'').slice(0,10),updatedDate:(r.updated_at||'').slice(0,10),createdBy:r.created_by||''};}
+function assetRow(a){return {id:a.id,title:a.title,collection:a.collection||null,asset_type:a.assetType||null,description:a.description||null,version:a.version||null,tags:(a.tags&&a.tags.length)?a.tags:null,notes:a.notes||null,file_name:a.fileName||null,file_path:a.filePath||null,file_type:a.fileType||null,file_size:a.fileSize||0,thumb_path:a.thumbPath||null,extracted_text:a.extractedText||null,created_by:a.createdBy||userName(),updated_by:userName()};}
+function rowToAsset(r){return {id:r.id,title:r.title,collection:r.collection||'',assetType:r.asset_type||'',description:r.description||'',version:r.version||'',tags:r.tags||[],notes:r.notes||'',fileName:r.file_name||'',filePath:r.file_path||'',fileType:r.file_type||'',fileSize:r.file_size||0,thumbPath:r.thumb_path||'',extractedText:r.extracted_text||'',uploadedDate:(r.created_at||'').slice(0,10),updatedDate:(r.updated_at||'').slice(0,10),createdBy:r.created_by||''};}
 function tlRow(ev){return {id:ev.id||uid(),opportunity_id:ev.oppId,date:D(ev.date)||today(),type:ev.type||'Note',text:ev.text||'',created_by:userName()};}
 function brainRow(k){const lbl=(BRAIN_SECTIONS.find(s=>s[0]===k)||[k,k])[1];return {section_key:k,title:lbl,content:state.brain[k]||'',updated_by:userName()};}
 
@@ -711,6 +711,7 @@ let route={view:'dashboard',id:null,companyView:'cards',
   oppFilter:{q:'',cat:'',stage:'',sort:'priority'},
   lessonFilter:{q:'',cat:'',src:'',sort:'newest'},
   assetFilter:{q:'',collection:'',type:'',sort:'updated'},
+  ask:{query:'',results:null,loading:false,showTemplates:false},
   ws:{task:'research',company:'',text:''}};
 const NAV=[
   {id:'dashboard',label:'Today',icon:'home'},
@@ -1063,11 +1064,221 @@ function vDetail(){const o=byId(route.id);if(!o)return vCompanies();
 }
 
 /* Workspace */
+/* ============ ASK KWELI BRAIN — retrieval layer ============
+   Client-side search across every part of the app, run before any AI call.
+   Fuzzy/simple matching only (exact phrase, lowercase, partial substring,
+   token overlap) — no embeddings, no external calls, just fast local scoring
+   over state.opps / state.people / state.lessons / state.assets / state.brain
+   plus follow-ups and objections (both derived from companies, same as the
+   rest of the app already does via getCompanyFollowUps/getCompanyObjections). */
+function tokenize(s){return normalizeText(s).split(' ').filter(Boolean);}
+function textScore(query,...fields){
+  const qNorm=normalizeText(query);if(!qNorm)return 0;
+  const hay=normalizeText(fields.filter(Boolean).join(' '));if(!hay)return 0;
+  let score=0;
+  if(hay.indexOf(qNorm)>=0)score+=10; // exact phrase match anywhere in the record
+  const hayTokens=hay.split(' ');
+  tokenize(query).forEach(t=>{
+    if(t.length<2)return;
+    if(hay.indexOf(t)>=0)score+=2;          // partial/substring token match
+    if(hayTokens.indexOf(t)>=0)score+=1;    // exact token match, extra weight
+  });
+  return score;
+}
+function topScored(items,scoreFn,limit){
+  return items.map(item=>({item,score:scoreFn(item)})).filter(x=>x.score>0)
+    .sort((a,b)=>b.score-a.score).slice(0,limit||6).map(x=>x.item);
+}
+function searchCompanies(query,limit){
+  return topScored(state.opps,o=>textScore(query,o.company,o.category,o.contactRole,o.contactName,o.angle,o.pilot,o.notes,o.meetingNotes,o.objections,o.nextAction),limit);
+}
+function searchPeople(query,limit){
+  return topScored(state.people,p=>textScore(query,p.name,p.role,p.company,p.relationship,p.relationshipToKweli,p.introducedBy,(p.expertise||[]).join(' '),p.whyMatters,p.notes),limit);
+}
+function searchAssets(query,limit){
+  return topScored(state.assets||[],a=>textScore(query,a.title,a.collection,a.assetType,a.description,a.version,(a.tags||[]).join(' '),a.notes,a.fileName,a.extractedText),limit);
+}
+function searchLessons(query,limit){
+  return topScored(state.lessons,l=>textScore(query,l.title,l.description,l.impact,l.category,l.source,l.related),limit);
+}
+function searchObjections(query,limit){
+  return topScored(allObjections(),o=>textScore(query,o.company,o.category,o.objections),limit);
+}
+function searchFollowups(query,limit){
+  return topScored(state.opps.filter(o=>o.followUp),o=>textScore(query,o.company,o.nextAction,o.category),limit);
+}
+function searchKnowledge(query,limit){
+  return topScored(BRAIN_SECTIONS.map(([k,label])=>({key:k,label,content:state.brain[k]||''})),k=>textScore(query,k.label,k.content),limit||4);
+}
+/* "Kweli Brain" and "Knowledge Base" are the same underlying thing (state.brain) —
+   kept as two names since both were asked for; searchBrain is just the alias. */
+function searchBrain(query,limit){return searchKnowledge(query,limit);}
+
+function buildAIContext(query){
+  const companies=searchCompanies(query,6),people=searchPeople(query,6),assets=searchAssets(query,6),
+    lessons=searchLessons(query,6),objections=searchObjections(query,6),followups=searchFollowups(query,6),
+    knowledge=searchKnowledge(query,4);
+  const compIds=new Set(companies.map(c=>c.id)),peopleIds=new Set(people.map(p=>p.id)),
+    assetIds=new Set(assets.map(a=>a.id)),lessonIds=new Set(lessons.map(l=>l.id)),
+    objIds=new Set(objections.map(o=>o.id)),followIds=new Set(followups.map(o=>o.id)),
+    knowKeys=new Set(knowledge.map(k=>k.key));
+  const addCompany=o=>{if(o&&!compIds.has(o.id)){companies.push(o);compIds.add(o.id);}};
+  const addPerson=p=>{if(p&&!peopleIds.has(p.id)){people.push(p);peopleIds.add(p.id);}};
+  const addAsset=a=>{if(a&&!assetIds.has(a.id)){assets.push(a);assetIds.add(a.id);}};
+  const addLesson=l=>{if(l&&!lessonIds.has(l.id)){lessons.push(l);lessonIds.add(l.id);}};
+  const addObjection=o=>{if(o&&!objIds.has(o.id)){objections.push(o);objIds.add(o.id);}};
+  const addFollowup=o=>{if(o&&!followIds.has(o.id)){followups.push(o);followIds.add(o.id);}};
+  const addKnowledgeFor=cat=>{const pk=PLAYBOOK_MAP[cat];if(pk&&!knowKeys.has(pk)){knowledge.push({key:pk,label:(BRAIN_SECTIONS.find(s=>s[0]===pk)||[pk,pk])[1],content:state.brain[pk]||''});knowKeys.add(pk);}};
+  // Infer around the strongest matches — even if a company/asset/lesson never
+  // mentioned the query text directly, pull it in once we know which company
+  // is actually being asked about (e.g. "Kyle Denning" → Kentaste → its deck).
+  const expandAroundCompany=comp=>{
+    if(!comp)return;
+    addCompany(comp);
+    getCompanyPeople(comp).forEach(addPerson);
+    getCompanyLessons(comp).forEach(addLesson);
+    if(getCompanyObjections(comp))addObjection(comp);
+    if(comp.followUp)addFollowup(comp);
+    searchAssets(comp.company,10).forEach(addAsset);
+    addKnowledgeFor(comp.category);
+  };
+  const topPerson=people[0];
+  if(topPerson){
+    let comp=topPerson.companyId?byId(topPerson.companyId):null;
+    if(!comp&&topPerson.company){const key=normalizeName(topPerson.company);comp=state.opps.find(o=>normalizeName(o.company)===key);}
+    expandAroundCompany(comp);
+  }
+  expandAroundCompany(companies[0]);
+  return {query,companies:companies.slice(0,8),people:people.slice(0,8),assets:assets.slice(0,8),
+    lessons:lessons.slice(0,8),objections:objections.slice(0,6),followups:followups.slice(0,6),knowledge:knowledge.slice(0,5)};
+}
+
+/* Structured, data-only answer — used whenever no AI model is connected.
+   Every line traces back to a specific retrieved record; nothing invented. */
+function answerFromContext(query,ctx){
+  const L=[];
+  const has=ctx.companies.length||ctx.people.length||ctx.assets.length||ctx.lessons.length||ctx.objections.length||ctx.followups.length||ctx.knowledge.length;
+  if(!has)return 'I couldn\'t find anything in Kweli Brain matching "'+query+'". Try a different name, company, or keyword — or add the record first if it doesn\'t exist yet.';
+  L.push('Here is what Kweli Brain found for "'+query+'":');
+  if(ctx.companies.length){L.push('','COMPANIES');ctx.companies.forEach(o=>{
+    L.push('- '+o.company+' ('+o.category+', stage: '+o.stage+', priority '+(+o.priority||0)+')');
+    if(o.angle)L.push('  Kweli angle: '+o.angle);
+    if(o.nextAction)L.push('  Next action: '+o.nextAction+(o.followUp?' — due '+fmtDate(o.followUp):''));
+  });}
+  if(ctx.people.length){L.push('','PEOPLE');ctx.people.forEach(p=>{
+    L.push('- '+p.name+(p.role?', '+p.role:'')+(p.company?' at '+p.company:'')+(p.warmth?' — '+p.warmth:''));
+    if(p.whyMatters)L.push('  Why they matter: '+p.whyMatters);
+    if(p.nextAction)L.push('  Next action: '+p.nextAction);
+  });}
+  if(ctx.assets.length){L.push('','ASSETS');ctx.assets.forEach(a=>{
+    L.push('- '+a.title+' ('+(a.collection||'Uncategorised')+(a.assetType?' · '+a.assetType:'')+(a.version?' · '+a.version:'')+')');
+    if(a.description)L.push('  '+a.description);
+    L.push(a.extractedText?'  Extracted text (excerpt): '+a.extractedText.slice(0,300)+(a.extractedText.length>300?'…':'')
+      :'  I found this in Assets, but full document text extraction is not enabled yet. This is based on its title, description and tags only.');
+  });}
+  if(ctx.lessons.length){L.push('','LESSONS LEARNED');ctx.lessons.forEach(l=>{
+    L.push('- '+l.title+(l.category?' ('+l.category+')':''));
+    if(l.impact)L.push('  Impact: '+l.impact);
+  });}
+  if(ctx.objections.length){L.push('','OBJECTIONS');ctx.objections.forEach(o=>L.push('- '+o.company+': '+getCompanyObjections(o)));}
+  if(ctx.followups.length){L.push('','FOLLOW-UPS');ctx.followups.forEach(o=>L.push('- '+o.company+': '+(o.nextAction||'no action noted')+(o.followUp?' — due '+fmtDate(o.followUp):'')));}
+  if(ctx.knowledge.length){L.push('','KNOWLEDGE BASE');ctx.knowledge.forEach(k=>L.push('- '+k.label+': '+(k.content||'').slice(0,220)+((k.content||'').length>220?'…':'')));}
+  L.push('','This is a structured summary of matching records, not free-form reasoning — no AI model is connected yet. Use the Copy to Claude prompt for a written answer, or wire one up in callLLM().');
+  return L.join('\n');
+}
+function buildAskPrompt(query,ctx){
+  const rules='You are the Kweli BD Analyst. Answer the question below using ONLY the context provided. Do not invent names, emails, facts, or figures — if the context does not contain the answer, say so plainly and note what\'s missing. Hold the precision rule: Kweli proves a document is the authentic, unaltered issued one; it does NOT prove the contents are correct.';
+  const parts=[rules,'=== QUESTION ===\n'+query];
+  if(ctx.companies.length)parts.push('=== COMPANIES ===\n'+ctx.companies.map(companyBlock).join('\n\n'));
+  if(ctx.people.length)parts.push('=== PEOPLE ===\n'+ctx.people.map(p=>p.name+' — '+(p.role||'role unknown')+(p.company?' at '+p.company:'')+', warmth: '+(p.warmth||'unknown')+(p.whyMatters?'. Why they matter: '+p.whyMatters:'')+(p.notes?'. Notes: '+p.notes:'')).join('\n'));
+  if(ctx.assets.length)parts.push('=== ASSETS (metadata only — full document text not yet extracted unless shown) ===\n'+ctx.assets.map(a=>a.title+' — '+(a.collection||'Uncategorised')+' · '+(a.assetType||'')+' · '+(a.version||'')+(a.description?'. '+a.description:'')+(a.extractedText?'\nExtracted text: '+a.extractedText:'')).join('\n'));
+  if(ctx.lessons.length)parts.push('=== LESSONS LEARNED ===\n'+ctx.lessons.map(l=>l.title+(l.impact?': '+l.impact:'')).join('\n'));
+  if(ctx.objections.length)parts.push('=== OBJECTIONS ===\n'+ctx.objections.map(o=>o.company+': '+getCompanyObjections(o)).join('\n'));
+  if(ctx.followups.length)parts.push('=== FOLLOW-UPS ===\n'+ctx.followups.map(o=>o.company+': '+(o.nextAction||'')+(o.followUp?' (due '+fmtDate(o.followUp)+')':'')).join('\n'));
+  if(ctx.knowledge.length)parts.push('=== KNOWLEDGE BASE ===\n'+ctx.knowledge.map(k=>'## '+k.label+'\n'+k.content).join('\n\n'));
+  parts.push('=== INSTRUCTIONS ===\nAnswer the question using only the material above. If asked to summarise a specific asset and its text isn\'t included, say clearly that document text extraction isn\'t enabled yet and offer to summarise once the text is pasted in.');
+  return parts.join('\n\n');
+}
+/* Placeholder — no AI API is connected yet. Wire this to Claude's Messages
+   API or OpenAI's chat completions endpoint and return the model's text.
+   Until then, askKweliBrain() falls back to answerFromContext() plus a
+   ready-to-paste "Copy to Claude" prompt built from the same context. */
+async function callLLM(prompt){return null;}
+
+async function askKweliBrain(){
+  const input=document.getElementById('askInput');
+  const q=((input?input.value:route.ask.query)||'').trim();
+  if(!q){toast('Type a question first');return;}
+  route.ask.query=q;route.ask.loading=true;render();
+  const context=buildAIContext(q);
+  const prompt=buildAskPrompt(q,context);
+  let llmAnswer=null;
+  try{llmAnswer=await callLLM(prompt);}catch(e){console.error('callLLM failed',e);}
+  const answer=llmAnswer||answerFromContext(q,context);
+  route.ask.loading=false;
+  route.ask.results={context,answer,prompt,usedLLM:!!llmAnswer};
+  render();
+}
+function askAgain(){route.ask.results=null;render();setTimeout(()=>{const el=document.getElementById('askInput');if(el)el.focus();},30);}
+
 function vWorkspace(){
+  const st=route.ask;
+  return '<div class="page-head"><div><div class="eyebrow">Search + reasoning across Kweli Brain</div><div class="page-title">Ask Kweli Brain</div>'+
+    '<div class="page-sub">Ask about companies, people, decks, lessons, investors or knowledge — retrieval runs across the whole system, even when records aren\'t manually linked.</div></div></div>'+
+    '<div class="card"><div class="field-row" style="grid-template-columns:1fr auto;align-items:end;gap:11px">'+
+      '<div class="field" style="margin-bottom:0"><label class="fl">Ask anything</label>'+
+      '<input class="input" id="askInput" placeholder="Ask anything about your companies, people, decks, lessons, investors or knowledge…" value="'+esc(st.query)+'" onkeydown="if(event.key===\'Enter\')askKweliBrain()"></div>'+
+      '<button class="btn gold" onclick="askKweliBrain()"'+(st.loading?' disabled':'')+'>'+(st.loading?'Searching…':'Ask')+'</button>'+
+    '</div></div>'+
+    (st.loading?'<div class="empty" style="margin-top:20px"><div class="em">'+ICON('spark')+'</div><h3>Searching Kweli Brain…</h3><p>Checking companies, people, assets, lessons, objections and the knowledge base.</p></div>'
+      :st.results?renderAskResults(st):emptyAskState())+
+    '<details style="margin-top:22px"'+(st.showTemplates||route.ws.company?' open':'')+' ontoggle="route.ask.showTemplates=this.open">'+
+      '<summary style="cursor:pointer;font-size:10px;color:var(--muted);font-family:ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;padding:6px 0">Prompt templates (legacy)</summary>'+
+      '<div style="margin-top:16px">'+legacyWorkspaceHtml()+'</div>'+
+    '</details>';
+}
+function emptyAskState(){
+  return '<div class="empty" style="margin-top:20px"><div class="em">'+ICON('spark')+'</div><h3>Ask anything</h3>'+
+    '<p>Try "What do we know about Turaco?", "Which decks should I send to Ashif?", or "Prepare me for a meeting with Sebastian McKinley."</p></div>';
+}
+function renderAskResults(st){
+  const ctx=st.results.context,answer=st.results.answer,usedLLM=st.results.usedLLM;
+  return '<div style="margin-top:20px"><div class="page-sub" style="margin-bottom:14px">You asked: <span style="color:var(--txt)">"'+esc(ctx.query)+'"</span> · <a onclick="askAgain()">ask something else</a></div>'+
+    '<div class="detail-grid"><div><div class="card">'+
+      '<div class="sec-h"><h2>Answer</h2>'+(usedLLM?'<span class="chip right">AI-generated</span>':'<span class="chip right">Structured from data</span>')+'</div>'+
+      '<div class="prose">'+esc(answer)+'</div>'+
+      (usedLLM?'':'<div class="block"><h4>Copy to Claude</h4><p class="muted" style="font-size:12.5px;margin-top:0">No AI API is connected yet — paste this into Claude for a written answer using the same retrieved context.</p>'+
+        '<div class="out" style="max-height:280px">'+esc(st.results.prompt)+'</div>'+
+        '<button class="btn sm" style="margin-top:10px" onclick="copy(route.ask.results.prompt)">Copy prompt</button></div>')+
+    '</div></div>'+
+    '<div>'+renderAskContextPanel(ctx)+'</div></div></div>';
+}
+function renderAskContextPanel(ctx){
+  const groups=[
+    ['Companies',ctx.companies,o=>({label:o.company,sub:o.category,go:"go('detail','"+o.id+"')"})],
+    ['People',ctx.people,p=>({label:p.name,sub:p.role||p.company||'',go:"personForm('"+p.id+"')"})],
+    ['Assets',ctx.assets,a=>({label:a.title,sub:a.collection||a.assetType||'',go:"go('assetDetail','"+a.id+"')"})],
+    ['Lessons',ctx.lessons,l=>({label:l.title,sub:l.category||'',go:"lessonForm('"+l.id+"')"})],
+    ['Objections',ctx.objections,o=>({label:o.company,sub:'objection logged',go:"go('detail','"+o.id+"')"})],
+    ['Follow-ups',ctx.followups,o=>({label:o.company,sub:o.nextAction||'',go:"go('detail','"+o.id+"')"})],
+    ['Knowledge Base',ctx.knowledge,k=>({label:k.label,sub:'section',go:"go('knowledge')"})]
+  ].filter(([,arr])=>arr&&arr.length);
+  if(!groups.length)return '<div class="card"><div class="muted" style="font-size:13px">No matching records found — try different wording, or add the record first.</div></div>';
+  return '<div class="card"><div class="sec-h"><h2>Sources used</h2></div>'+
+    groups.map(([title,arr,mapper])=>'<div class="block" style="margin-top:14px"><h4>'+title+' ('+arr.length+')</h4>'+
+      arr.map(item=>{const m=mapper(item);return '<div class="kv" style="cursor:pointer" onclick="'+m.go+'"><span class="v">'+esc(m.label)+'</span><span class="k">'+esc(m.sub)+'</span></div>';}).join('')+
+    '</div>').join('')+
+  '</div>';
+}
+
+/* ============ Legacy prompt-generator (kept, not removed) ============
+   The original "pick a task, paste material, copy the prompt" workflow —
+   still useful for outreach drafting, meeting briefs, etc. Now tucked under
+   the "Prompt templates" details on the Ask Kweli Brain page instead of
+   being the whole page. Untouched otherwise. */
+function legacyWorkspaceHtml(){
   const opts='<option value="">— no company (general) —</option>'+state.opps.map(o=>'<option value="'+o.id+'"'+(route.ws.company===o.id?' selected':'')+'>'+esc(o.company)+'</option>').join('');
-  return '<div class="page-head"><div><div class="eyebrow">No API needed · paste anything</div><div class="page-title">AI Workspace</div>'+
-    '<div class="page-sub">Paste meeting notes, a website, an annual report, a reply — pick what you need, copy the prompt into Claude.</div></div></div>'+
-    '<div class="detail-grid"><div class="card">'+
+  return '<div class="detail-grid"><div class="card">'+
       '<div class="field"><label class="fl">Company context (optional)</label><select class="select" onchange="route.ws.company=this.value;renderWs()">'+opts+'</select></div>'+
       '<div class="field"><label class="fl">Paste source material</label><textarea class="input" rows="15" id="wsText" placeholder="Meeting notes, website text, LinkedIn profile, an email reply, an article…" oninput="route.ws.text=this.value;renderWs()">'+esc(route.ws.text)+'</textarea></div>'+
       (route.ws.company?'<button class="btn sm" onclick="saveNotesToCompany()">Save this text to the company timeline</button>':'')+
