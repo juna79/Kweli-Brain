@@ -140,19 +140,28 @@
   .lc-rel-item{font-size:11.5px;color:var(--muted);padding:4px 0;cursor:pointer}
   .lc-rel-item:hover{color:var(--gold)}
 
-  /* asset cards */
-  .asset-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;cursor:pointer;
-    display:flex;flex-direction:column;gap:10px;transition:border-color .15s}
-  .asset-card:hover{border-color:var(--gold)}
-  .a-top{display:flex;gap:12px;align-items:flex-start}
-  .a-ico{width:38px;height:38px;border-radius:9px;flex:none;display:grid;place-items:center;background:var(--panel2);
-    font-size:17px;border:1px solid var(--line)}
-  .a-title{font-size:14.5px;font-weight:620;line-height:1.35;letter-spacing:-.01em}
-  .a-sub{font-size:11.5px;color:var(--faint);font-family:ui-monospace,monospace;margin-top:2px}
+  /* asset cards — thumbnail-first "document library" layout */
+  .assets-grid{display:grid;gap:16px;grid-template-columns:repeat(3,1fr)}
+  @media(max-width:1020px){.assets-grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:620px){.assets-grid{grid-template-columns:1fr}}
+  .asset-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);cursor:pointer;
+    display:flex;flex-direction:column;overflow:hidden;transition:border-color .15s,transform .15s,box-shadow .15s}
+  .asset-card:hover{border-color:var(--gold);transform:translateY(-3px);box-shadow:0 16px 36px -20px rgba(0,0,0,.6)}
+  .a-thumb{position:relative;width:100%;aspect-ratio:4/3;flex:none;background:var(--panel2);overflow:hidden}
+  .a-thumb img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .35s ease}
+  .asset-card:hover .a-thumb img{transform:scale(1.035)}
+  .a-thumb-fallback{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;
+    background:linear-gradient(160deg,var(--panel2),var(--raise))}
+  .a-thumb-fallback .a-thumb-ico{font-size:32px;line-height:1}
+  .a-thumb-fallback .a-thumb-label{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-family:ui-monospace,monospace}
+  .a-body{padding:14px 16px 16px;display:flex;flex-direction:column;gap:8px;flex:1;min-height:0}
+  .a-title{font-size:14.5px;font-weight:620;line-height:1.32;letter-spacing:-.01em;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .a-sub{font-size:11.5px;color:var(--faint);font-family:ui-monospace,monospace}
   .a-desc{font-size:12.5px;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-  .a-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .a-chips{display:flex;flex-wrap:wrap;gap:6px;max-height:23px;overflow:hidden}
   .a-chips .chip{padding:3px 10px;font-size:10.5px}
-  .a-foot{margin-top:auto;padding-top:8px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;
+  .a-foot{margin-top:auto;padding-top:9px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;
     font-size:10.5px;color:var(--faint);font-family:ui-monospace,monospace}
   .a-preview{width:100%;border-radius:10px;border:1px solid var(--line);overflow:hidden;background:var(--bg)}
   .a-preview img{width:100%;display:block}
@@ -242,6 +251,7 @@
   @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -488,8 +498,8 @@ function lessonRow(l){return {id:l.id,title:l.title,date:D(l.date),category:l.ca
 function rowToLesson(r){return {id:r.id,title:r.title,date:r.date||'',category:r.category||'',source:r.source||'',description:r.description||'',impact:r.impact||'',related:r.related||'',createdBy:r.created_by||''};}
 /* Assets — metadata row only. The actual file lives in Supabase Storage
    (bucket ASSETS_BUCKET); file_path here is the storage object key. */
-function assetRow(a){return {id:a.id,title:a.title,collection:a.collection||null,asset_type:a.assetType||null,description:a.description||null,version:a.version||null,tags:(a.tags&&a.tags.length)?a.tags:null,notes:a.notes||null,file_name:a.fileName||null,file_path:a.filePath||null,file_type:a.fileType||null,file_size:a.fileSize||0,created_by:a.createdBy||userName(),updated_by:userName()};}
-function rowToAsset(r){return {id:r.id,title:r.title,collection:r.collection||'',assetType:r.asset_type||'',description:r.description||'',version:r.version||'',tags:r.tags||[],notes:r.notes||'',fileName:r.file_name||'',filePath:r.file_path||'',fileType:r.file_type||'',fileSize:r.file_size||0,uploadedDate:(r.created_at||'').slice(0,10),updatedDate:(r.updated_at||'').slice(0,10),createdBy:r.created_by||''};}
+function assetRow(a){return {id:a.id,title:a.title,collection:a.collection||null,asset_type:a.assetType||null,description:a.description||null,version:a.version||null,tags:(a.tags&&a.tags.length)?a.tags:null,notes:a.notes||null,file_name:a.fileName||null,file_path:a.filePath||null,file_type:a.fileType||null,file_size:a.fileSize||0,thumb_path:a.thumbPath||null,created_by:a.createdBy||userName(),updated_by:userName()};}
+function rowToAsset(r){return {id:r.id,title:r.title,collection:r.collection||'',assetType:r.asset_type||'',description:r.description||'',version:r.version||'',tags:r.tags||[],notes:r.notes||'',fileName:r.file_name||'',filePath:r.file_path||'',fileType:r.file_type||'',fileSize:r.file_size||0,thumbPath:r.thumb_path||'',uploadedDate:(r.created_at||'').slice(0,10),updatedDate:(r.updated_at||'').slice(0,10),createdBy:r.created_by||''};}
 function tlRow(ev){return {id:ev.id||uid(),opportunity_id:ev.oppId,date:D(ev.date)||today(),type:ev.type||'Note',text:ev.text||'',created_by:userName()};}
 function brainRow(k){const lbl=(BRAIN_SECTIONS.find(s=>s[0]===k)||[k,k])[1];return {section_key:k,title:lbl,content:state.brain[k]||'',updated_by:userName()};}
 
@@ -1112,6 +1122,55 @@ async function downloadAssetFile(id){const a=byIdAsset(id);if(!a||!a.filePath){t
   if(!url){toast('Could not generate download link');return;}
   const link=document.createElement('a');link.href=url;link.download=a.fileName||a.title;document.body.appendChild(link);link.click();link.remove();}
 
+/* ---- Thumbnails ----
+   PDF: rendered client-side (page 1) via PDF.js at upload/replace time and
+   stored as a small JPEG alongside the original file — real automated
+   thumbnails, generated once, never re-derived from the full PDF on every
+   card render (that would be slow and defeats the point).
+   PowerPoint/Word: no reliable dependency-free renderer runs in a browser
+   (that needs a real Office engine — LibreOffice/Office server-side, or a
+   heavy paid API). Rather than fake a cover, those get the polished
+   file-type "cover" treatment below instead of a tiny inline icon. */
+function isPdfFile(file){return (file.type||'').toLowerCase()==='application/pdf'||/\.pdf$/i.test(file.name||'');}
+async function generatePdfThumbnailBlob(file){
+  if(typeof pdfjsLib==='undefined'){console.error('PDF.js not loaded — skipping thumbnail');return null;}
+  try{
+    if(!pdfjsLib.GlobalWorkerOptions.workerSrc)pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const buf=await file.arrayBuffer();
+    const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    const page=await pdf.getPage(1);
+    const base=page.getViewport({scale:1});
+    const scale=Math.min(2,600/base.width);
+    const viewport=page.getViewport({scale});
+    const canvas=document.createElement('canvas');
+    canvas.width=Math.max(1,Math.round(viewport.width));canvas.height=Math.max(1,Math.round(viewport.height));
+    const ctx=canvas.getContext('2d');
+    await page.render({canvasContext:ctx,viewport}).promise;
+    return await new Promise(res=>canvas.toBlob(res,'image/jpeg',0.82));
+  }catch(e){console.error('PDF thumbnail generation failed — falling back to the file-type cover',e);return null;}
+}
+/* Batched, cached signed-URL fetch for card thumbnails — one Storage call
+   for a whole page of cards instead of one per card, and reused across
+   re-renders (search/filter) within the same ~1hr signed-URL lifetime. */
+let __thumbUrlCache={};
+const THUMB_CACHE_MS=45*60*1000;
+async function loadAssetThumbnails(list){
+  if(!CLOUD||!sb)return;
+  const now=Date.now();
+  const need=list.filter(a=>a.thumbPath&&(!__thumbUrlCache[a.thumbPath]||now-__thumbUrlCache[a.thumbPath].ts>THUMB_CACHE_MS)).map(a=>a.thumbPath);
+  if(need.length){
+    try{
+      const {data,error}=await sb.storage.from(ASSETS_BUCKET).createSignedUrls(need,3600);
+      if(!error&&data)data.forEach((d,i)=>{if(d&&d.signedUrl)__thumbUrlCache[need[i]]={url:d.signedUrl,ts:now};});
+    }catch(e){console.error('Thumbnail signed URL batch failed',e);}
+  }
+  list.forEach(a=>{
+    if(!a.thumbPath)return;
+    const c=__thumbUrlCache[a.thumbPath];const el=document.getElementById('athumb-'+a.id);
+    if(el&&c&&c.url&&!el.querySelector('img')){el.innerHTML='<img src="'+esc(c.url)+'" loading="lazy" alt="">';}
+  });
+}
+
 function vAssets(){
   const list=state.assets||[];
   const uploadBtn='<button class="btn gold" onclick="assetForm()">+ Upload Asset</button>';
@@ -1144,16 +1203,21 @@ function assetsHtml(){
   else if(f.sort==='az')list.sort((a,b)=>a.title.localeCompare(b.title));
   else list.sort((a,b)=>(b.updatedDate||b.uploadedDate||'').localeCompare(a.updatedDate||a.uploadedDate||''));
   if(!list.length)return '<div class="empty"><div class="em">'+ICON('assets')+'</div><h3>No assets match</h3><p>Try a different search or filter.</p></div>';
-  return '<div class="grid g-auto">'+list.map(assetCard).join('')+'</div>';
+  setTimeout(()=>loadAssetThumbnails(list),0); // fires after this render's innerHTML assignment completes
+  return '<div class="assets-grid">'+list.map(assetCard).join('')+'</div>';
 }
 function renderAssetsBox(){const b=document.getElementById('assetsBox');if(b)b.innerHTML=assetsHtml();}
 function assetCard(a){const it=assetIconType(a);
+  const fallback='<div class="a-thumb-fallback"><div class="a-thumb-ico">'+it.ico+'</div><div class="a-thumb-label">'+it.label+'</div></div>';
   return '<div class="asset-card" onclick="go(\'assetDetail\',\''+a.id+'\')">'+
-    '<div class="a-top"><div class="a-ico">'+it.ico+'</div><div style="min-width:0"><div class="a-title">'+esc(a.title)+'</div>'+
-    '<div class="a-sub">'+esc(a.collection||'Uncategorised')+' · '+esc(a.assetType||it.label)+(a.version?' · '+esc(a.version):'')+'</div></div></div>'+
-    (a.description?'<div class="a-desc">'+esc(a.description)+'</div>':'')+
-    ((a.tags&&a.tags.length)?'<div class="a-chips">'+a.tags.map(t=>'<span class="chip">'+esc(t)+'</span>').join('')+'</div>':'')+
-    '<div class="a-foot"><span>'+fmtDate(a.updatedDate||a.uploadedDate)+'</span><span>'+fmtBytes(a.fileSize)+'</span></div>'+
+    '<div class="a-thumb"'+(a.thumbPath?' id="athumb-'+a.id+'"':'')+'>'+fallback+'</div>'+
+    '<div class="a-body">'+
+      '<div class="a-title">'+esc(a.title)+'</div>'+
+      '<div class="a-sub">'+esc(a.collection||'Uncategorised')+' · '+esc(a.assetType||it.label)+(a.version?' · '+esc(a.version):'')+'</div>'+
+      (a.description?'<div class="a-desc">'+esc(a.description)+'</div>':'')+
+      ((a.tags&&a.tags.length)?'<div class="a-chips">'+a.tags.map(t=>'<span class="chip">'+esc(t)+'</span>').join('')+'</div>':'')+
+      '<div class="a-foot"><span>'+fmtDate(a.updatedDate||a.uploadedDate)+'</span><span>'+fmtBytes(a.fileSize)+'</span></div>'+
+    '</div>'+
   '</div>';
 }
 function vAssetDetail(){const a=byIdAsset(route.id);if(!a)return vAssets();
@@ -1440,14 +1504,23 @@ async function saveAsset(id){
     if(btn){btn.disabled=false;btn.textContent='Upload';}
     toast('Upload failed: '+(e.message||e));return;
   }
-  const na=Object.assign({id:newId,fileName:__afPicked.name,fileType:__afPicked.type||'',fileSize:__afPicked.size,filePath:path,
+  let thumbPath='';
+  if(isPdfFile(__afPicked)){
+    if(btn)btn.textContent='Generating cover…';
+    const thumbBlob=await generatePdfThumbnailBlob(__afPicked);
+    if(thumbBlob){
+      try{thumbPath=await uploadAssetToStorage(newId+'/thumb.jpg',thumbBlob);}
+      catch(e){console.error('Thumbnail upload failed — asset still saved fine without one',e);}
+    }
+  }
+  const na=Object.assign({id:newId,fileName:__afPicked.name,fileType:__afPicked.type||'',fileSize:__afPicked.size,filePath:path,thumbPath,
     uploadedDate:today(),updatedDate:today(),createdBy:userName()},d);
   state.assets=state.assets||[];state.assets.push(na);
   persistAsset(na);
   __afPicked=null;closeModal();go('assetDetail',na.id);toast('Asset uploaded — visible to every authorised user');
 }
 async function delAsset(id){const a=byIdAsset(id);if(!a)return;if(!confirm('Delete this asset for everyone? This cannot be undone.'))return;
-  if(CLOUD)await removeAssetFromStorage(a.filePath);
+  if(CLOUD){await removeAssetFromStorage(a.filePath);if(a.thumbPath)await removeAssetFromStorage(a.thumbPath);}
   state.assets=(state.assets||[]).filter(x=>x.id!==id);persistAssetDelete(id);closeModal();go('assets');toast('Deleted');}
 function replaceFileForm(id){const a=byIdAsset(id);if(!a)return;
   if(!CLOUD){toast('Sign in first — Assets are shared via the cloud');return;}
@@ -1475,7 +1548,17 @@ async function saveReplaceFile(id){const a=byIdAsset(id);if(!a)return;if(!__rfPi
     toast('Upload failed: '+(e.message||e));return;
   }
   if(oldPath&&oldPath!==newPath)await removeAssetFromStorage(oldPath); // best-effort cleanup of the old object
-  a.fileName=__rfPicked.name;a.fileType=__rfPicked.type||'';a.fileSize=__rfPicked.size;a.filePath=newPath;a.updatedDate=today();
+  let newThumbPath='';
+  if(isPdfFile(__rfPicked)){
+    if(btn)btn.textContent='Generating cover…';
+    const thumbBlob=await generatePdfThumbnailBlob(__rfPicked);
+    if(thumbBlob){
+      try{newThumbPath=await uploadAssetToStorage(a.id+'/thumb.jpg',thumbBlob);}
+      catch(e){console.error('Thumbnail upload failed — file still replaced fine without one',e);}
+    }
+  }
+  if(a.thumbPath&&a.thumbPath!==newThumbPath){await removeAssetFromStorage(a.thumbPath);delete __thumbUrlCache[a.thumbPath];} // old cover no longer applies (file type may have changed)
+  a.fileName=__rfPicked.name;a.fileType=__rfPicked.type||'';a.fileSize=__rfPicked.size;a.filePath=newPath;a.thumbPath=newThumbPath;a.updatedDate=today();
   const v=document.getElementById('rf_version');if(v&&v.value.trim())a.version=v.value.trim();
   persistAsset(a); // upserts by id — updates the existing row, never creates a duplicate
   __rfPicked=null;closeModal();render();toast('File replaced');
