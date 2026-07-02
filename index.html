@@ -140,6 +140,27 @@
   .lc-rel-item{font-size:11.5px;color:var(--muted);padding:4px 0;cursor:pointer}
   .lc-rel-item:hover{color:var(--gold)}
 
+  /* asset cards */
+  .asset-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;cursor:pointer;
+    display:flex;flex-direction:column;gap:10px;transition:border-color .15s}
+  .asset-card:hover{border-color:var(--gold)}
+  .a-top{display:flex;gap:12px;align-items:flex-start}
+  .a-ico{width:38px;height:38px;border-radius:9px;flex:none;display:grid;place-items:center;background:var(--panel2);
+    font-size:17px;border:1px solid var(--line)}
+  .a-title{font-size:14.5px;font-weight:620;line-height:1.35;letter-spacing:-.01em}
+  .a-sub{font-size:11.5px;color:var(--faint);font-family:ui-monospace,monospace;margin-top:2px}
+  .a-desc{font-size:12.5px;color:var(--muted);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .a-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .a-chips .chip{padding:3px 10px;font-size:10.5px}
+  .a-foot{margin-top:auto;padding-top:8px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;
+    font-size:10.5px;color:var(--faint);font-family:ui-monospace,monospace}
+  .a-preview{width:100%;border-radius:10px;border:1px solid var(--line);overflow:hidden;background:var(--bg)}
+  .a-preview img{width:100%;display:block}
+  .a-preview iframe{width:100%;height:480px;border:none;display:block}
+  .a-dropzone{border:1px dashed var(--line-s);border-radius:12px;padding:22px;text-align:center;cursor:pointer;transition:border-color .15s;font-size:13px;color:var(--muted)}
+  .a-dropzone:hover{border-color:var(--gold)}
+  .a-dropzone.has-file{border-color:var(--green);border-style:solid}
+
   /* buttons / inputs */
   .btn{background:var(--panel2);border:1px solid var(--line-s);color:var(--txt);border-radius:10px;padding:10px 16px;
     font-size:13px;font-weight:540;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:8px;white-space:nowrap;transition:all .15s}
@@ -237,7 +258,7 @@
       <button class="hamb" onclick="toggleSidebar(true)">&#9776;</button>
       <div class="searchwrap">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-        <input id="globalSearch" placeholder="Search companies, people, notes, objections, lessons, ideas…" autocomplete="off"
+        <input id="globalSearch" placeholder="Search companies, people, notes, objections, lessons, assets…" autocomplete="off"
           oninput="runSearch(this.value)" onfocus="runSearch(this.value)">
         <div id="searchPanel"></div>
       </div>
@@ -267,6 +288,14 @@ const WAITING_STAGES=["Contacted","Proposal sent"];
 const CLOSED=["Closed","Paused"];
 const STAGE_COLOR={"Identified":"#6E8794","Researched":"#7CA0B0","Contacted":"#C9A24B","Replied":"#D9B968","Meeting booked":"#4FA3D1","Meeting done":"#5FB0C9","Proposal sent":"#C9A24B","Pilot discussion":"#6FBE9E","Pilot agreed":"#46B98A","Closed":"#46B98A","Paused":"#5E7785"};
 const ACT_TYPES=["Note","Research","Email","Meeting","Proposal","Follow-up","Pilot","Stage"];
+
+/* Assets — central repository for every EAX Global business asset */
+const ASSET_TYPES=["Presentation Deck","Proposal","Company Profile","Investor Deck","One Pager","Contract","Case Study","Brand Asset","Logo","Video","Demo","Other"];
+const ASSET_COLLECTIONS=["Kweli","EAX Global","Insurance","Laboratories","Export","Agriculture","Banking","Governance","Education","Legal","Investor","Partner","Marketing","Internal","Other"];
+const ASSET_TAG_SUGGESTIONS=["Insurance","Agriculture","Laboratory","Investor","Proposal","Sales","Marketing","Internal","Carbon","Banking","Export","Education"];
+const ASSET_ACCEPT=".pdf,.ppt,.pptx,.doc,.docx,.png,.jpg,.jpeg,.svg,.xls,.xlsx,.csv,.txt,.mp4,.mov,.webm";
+const MAX_ASSET_BYTES=50*1024*1024;  // sanity cap for a single upload
+const WARN_ASSET_BYTES=20*1024*1024; // soft warning threshold
 
 const WS_ACTIONS=[
   {id:'research',label:'Research'},{id:'brief',label:'Meeting brief'},{id:'followup',label:'Follow-up'},
@@ -391,11 +420,12 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Q9dXQ-QIkSDC4B4rswzgLg_sTRcCbOw
 const STORE='kweli_brain_v2';      // original local data + migration source (never overwritten in cloud mode)
 const CACHE='kweli_brain_cache';   // cloud-mode offline mirror
 const PENDING='kweli_brain_pending';
+const ASSETS_BUCKET='assets';      // Supabase Storage bucket holding the actual asset files
 
 let sb=null, currentUser=null, online=true, CLOUD=false, onlineUsers=[];
 const SUPA_READY = /^https:\/\/[a-z0-9-]+\.supabase\.co/i.test(SUPABASE_URL) && /^(sb_|eyJ)/.test(SUPABASE_PUBLISHABLE_KEY) && typeof window!=='undefined' && window.supabase;
 
-let state={opps:[],people:[],lessons:[],brain:defaultBrain(),version:2};
+let state={opps:[],people:[],lessons:[],assets:[],brain:defaultBrain(),version:2};
 
 function migrateBrain(b){const nb=defaultBrain();if(!b)return nb;
   if(b.product||b.industries){return Object.assign(nb,b);}
@@ -405,10 +435,10 @@ function migrateBrain(b){const nb=defaultBrain();if(!b)return nb;
 /* local-mode load (also migration source) */
 function legacyLoad(){
   try{const raw=localStorage.getItem(STORE);if(raw){const s=JSON.parse(raw);
-    s.brain=migrateBrain(s.brain);s.people=s.people||[];s.lessons=s.lessons||[];s.opps=s.opps||[];
+    s.brain=migrateBrain(s.brain);s.people=s.people||[];s.lessons=s.lessons||[];s.opps=s.opps||[];s.assets=s.assets||[];
     s.opps.forEach(o=>{o.timeline=o.timeline||[]});return s;}}catch(e){}
   try{const v1=localStorage.getItem('kweli_mc_v1');if(v1){const s=JSON.parse(v1);
-    const ns={opps:(s.opps||[]).map(o=>Object.assign({timeline:[]},o)),people:[],lessons:[],brain:migrateBrain(s.brain),version:2};
+    const ns={opps:(s.opps||[]).map(o=>Object.assign({timeline:[]},o)),people:[],lessons:[],brain:migrateBrain(s.brain),assets:[],version:2};
     localStorage.setItem(STORE,JSON.stringify(ns));return ns;}}catch(e){}
   const fresh=seed();localStorage.setItem(STORE,JSON.stringify(fresh));return fresh;
 }
@@ -456,6 +486,10 @@ function personRow(p){return {id:p.id,name:p.name,company_id:p.companyId||null,c
 function rowToPerson(r){const un=unpackPersonNotes(r.notes);return {id:r.id,name:r.name,companyId:r.company_id||'',company:r.company||'',role:r.role||'',email:r.email||'',linkedin:r.linkedin||'',relationship:r.relationship||'',relationshipToKweli:un.meta.rk||'',introducedBy:un.meta.ib||'',expertise:un.meta.ex||[],whyMatters:un.meta.wm||'',warmth:r.warmth||'',lastInteraction:r.last_interaction||'',nextAction:r.next_action||'',notes:un.notes||'',createdBy:r.created_by||''};}
 function lessonRow(l){return {id:l.id,title:l.title,date:D(l.date),category:l.category||null,source:l.source||null,description:l.description||null,impact:l.impact||null,related:l.related||null,created_by:l.createdBy||userName(),updated_by:userName()};}
 function rowToLesson(r){return {id:r.id,title:r.title,date:r.date||'',category:r.category||'',source:r.source||'',description:r.description||'',impact:r.impact||'',related:r.related||'',createdBy:r.created_by||''};}
+/* Assets — metadata row only. The actual file lives in Supabase Storage
+   (bucket ASSETS_BUCKET); file_path here is the storage object key. */
+function assetRow(a){return {id:a.id,title:a.title,collection:a.collection||null,asset_type:a.assetType||null,description:a.description||null,version:a.version||null,tags:(a.tags&&a.tags.length)?a.tags:null,notes:a.notes||null,file_name:a.fileName||null,file_path:a.filePath||null,file_type:a.fileType||null,file_size:a.fileSize||0,created_by:a.createdBy||userName(),updated_by:userName()};}
+function rowToAsset(r){return {id:r.id,title:r.title,collection:r.collection||'',assetType:r.asset_type||'',description:r.description||'',version:r.version||'',tags:r.tags||[],notes:r.notes||'',fileName:r.file_name||'',filePath:r.file_path||'',fileType:r.file_type||'',fileSize:r.file_size||0,uploadedDate:(r.created_at||'').slice(0,10),updatedDate:(r.updated_at||'').slice(0,10),createdBy:r.created_by||''};}
 function tlRow(ev){return {id:ev.id||uid(),opportunity_id:ev.oppId,date:D(ev.date)||today(),type:ev.type||'Note',text:ev.text||'',created_by:userName()};}
 function brainRow(k){const lbl=(BRAIN_SECTIONS.find(s=>s[0]===k)||[k,k])[1];return {section_key:k,title:lbl,content:state.brain[k]||'',updated_by:userName()};}
 
@@ -525,6 +559,8 @@ function persistPerson(p){cacheSave();sync('people','upsert',personRow(p));}
 function persistPersonDelete(id){cacheSave();sync('people','delete',id);}
 function persistLesson(l){cacheSave();sync('lessons','upsert',lessonRow(l));}
 function persistLessonDelete(id){cacheSave();sync('lessons','delete',id);}
+function persistAsset(a){cacheSave();sync('assets','upsert',assetRow(a));}
+function persistAssetDelete(id){cacheSave();sync('assets','delete',id);}
 function persistTimeline(ev){cacheSave();sync('timeline_events','upsert',tlRow(ev));}
 let brainTimers={};
 function persistBrain(k){cacheSave();clearTimeout(brainTimers[k]);brainTimers[k]=setTimeout(()=>sync('brain_sections','upsert',brainRow(k)),600);}
@@ -549,7 +585,7 @@ function fetchTableSafe(t){
   });
 }
 async function fetchAll(){
-  const tables=['opportunities','people','lessons','brain_sections','timeline_events'];
+  const tables=['opportunities','people','lessons','brain_sections','timeline_events','assets'];
   const results=await Promise.all(tables.map(fetchTableSafe));
   const raw={};results.forEach(r=>{raw[r.table]=r;});
   const anyNetworkFailure=results.some(r=>r.networkFailure);
@@ -557,7 +593,7 @@ async function fetchAll(){
     // A genuine connectivity problem — fall back to the last known-good cached
     // snapshot, exactly as before, and mark the app Offline.
     online=false;updateStatus();
-    try{const c=JSON.parse(localStorage.getItem(CACHE));if(c){state=c;state.brain=migrateBrain(state.brain);state.opps.forEach(op=>op.timeline=op.timeline||[]);}}catch(_){}
+    try{const c=JSON.parse(localStorage.getItem(CACHE));if(c){state=c;state.brain=migrateBrain(state.brain);state.opps.forEach(op=>op.timeline=op.timeline||[]);state.assets=state.assets||[];}}catch(_){}
     return false;
   }
   // We reached the server for every table — connectivity is fine. Any individual
@@ -566,6 +602,7 @@ async function fetchAll(){
   if(raw.opportunities.ok)state.opps=raw.opportunities.data.map(rowToOpp);
   if(raw.people.ok)state.people=raw.people.data.map(rowToPerson);
   if(raw.lessons.ok)state.lessons=raw.lessons.data.map(rowToLesson);
+  if(raw.assets.ok)state.assets=raw.assets.data.map(rowToAsset);
   if(raw.brain_sections.ok){
     const nb=defaultBrain();
     if(raw.brain_sections.data.length){raw.brain_sections.data.forEach(r=>{nb[r.section_key]=r.content;});}
@@ -590,7 +627,7 @@ async function fetchAll(){
 }
 let reloadT;
 function scheduleReload(){clearTimeout(reloadT);reloadT=setTimeout(async()=>{try{await fetchAll();}catch(e){console.error('fetchAll table error',{table:'(scheduleReload)',error:e});}render();},250);}
-function subscribeRealtime(){['opportunities','people','lessons','brain_sections','timeline_events'].forEach(tb=>{
+function subscribeRealtime(){['opportunities','people','lessons','brain_sections','timeline_events','assets'].forEach(tb=>{
   sb.channel('rt_'+tb).on('postgres_changes',{event:'*',schema:'public',table:tb},scheduleReload).subscribe();});}
 let presenceCh=null;
 function setupPresence(){try{
@@ -662,6 +699,7 @@ async function init(){
 let route={view:'dashboard',id:null,companyView:'cards',
   oppFilter:{q:'',cat:'',stage:'',sort:'priority'},
   lessonFilter:{q:'',cat:'',src:'',sort:'newest'},
+  assetFilter:{q:'',collection:'',type:'',sort:'updated'},
   ws:{task:'research',company:'',text:''}};
 const NAV=[
   {id:'dashboard',label:'Today',icon:'home'},
@@ -674,6 +712,7 @@ const NAV=[
   {id:'lessons',label:'Lessons Learned',icon:'bulb'},
   {id:'objections',label:'Objections',icon:'shield'},
   {id:'knowledge',label:'Knowledge Base',icon:'book'},
+  {id:'assets',label:'Assets',icon:'assets'},
   {sect:'System'},
   {id:'settings',label:'Settings / Backup',icon:'gear'}
 ];
@@ -687,6 +726,7 @@ function ICON(n){const p={
   bulb:'<path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10c1 1 1.5 2 1.5 3h5c0-1 .5-2 1.5-3a6 6 0 0 0-4-10z"/>',
   shield:'<path d="M12 3l7 3v5c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V6z"/><path d="M9 12l2 2 4-4"/>',
   book:'<path d="M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"/><path d="M4 4v14"/>',
+  assets:'<path d="M3 7.5a2 2 0 0 1 2-2h4l1.6 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 13a7 7 0 0 0 0-2l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1L15 3H9l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5L4.6 11a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1L9 21h6l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5z"/>'
 }[n]||'';return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';}
 function renderNav(){const od=overdue().length;
@@ -793,7 +833,7 @@ function allObjections(){return state.opps.filter(o=>getCompanyObjections(o));}
 /* ============ RENDER ============ */
 function render(){renderNav();
   const v={dashboard:vDash,companies:vCompanies,investors:vInvestors,people:vPeople,followups:vFollow,
-    lessons:vLessons,objections:vObjections,workspace:vWorkspace,knowledge:vKnowledge,settings:vSettings,detail:vDetail}[route.view]||vDash;
+    lessons:vLessons,objections:vObjections,workspace:vWorkspace,knowledge:vKnowledge,assets:vAssets,assetDetail:vAssetDetail,settings:vSettings,detail:vDetail}[route.view]||vDash;
   document.getElementById('content').innerHTML=v();afterRender();}
 
 /* Dashboard — command centre */
@@ -1040,6 +1080,115 @@ function vKnowledge(){
       return '<div class="card"><label class="fl">'+label+'</label><textarea class="input" rows="'+(big?6:3)+'" oninput="state.brain[\''+k+'\']=this.value;persistBrain(\''+k+'\')">'+esc(state.brain[k]||'')+'</textarea></div>';}).join('')+'</div>';
 }
 
+/* Assets — central repository for every EAX Global business asset.
+   Metadata (this table) is synced exactly like companies/people/lessons via
+   Supabase + realtime. The actual file lives in Supabase Storage (ASSETS_BUCKET);
+   we only ever store its path here and mint short-lived signed URLs on demand. */
+function byIdAsset(id){return (state.assets||[]).find(a=>a.id===id)}
+function fmtBytes(n){n=+n||0;if(!n)return '—';if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(1)+' KB';return (n/1048576).toFixed(1)+' MB';}
+function assetIconType(a){const t=(a.fileType||'').toLowerCase(),n=(a.fileName||'').toLowerCase();
+  if(t.indexOf('pdf')>=0||n.endsWith('.pdf'))return{ico:'📄',label:'PDF'};
+  if(t.indexOf('presentation')>=0||/\.(pptx?|key)$/.test(n))return{ico:'📊',label:'Slides'};
+  if(t.indexOf('word')>=0||/\.docx?$/.test(n))return{ico:'📝',label:'Doc'};
+  if(t.indexOf('sheet')>=0||/\.(xlsx?|csv)$/.test(n))return{ico:'📈',label:'Sheet'};
+  if(t.indexOf('image')>=0||/\.(png|jpe?g|svg|gif|webp)$/.test(n))return{ico:'🖼️',label:'Image'};
+  if(t.indexOf('video')>=0||/\.(mp4|mov|webm)$/.test(n))return{ico:'🎬',label:'Video'};
+  if(t.indexOf('text')>=0||n.endsWith('.txt'))return{ico:'📃',label:'Text'};
+  return{ico:'📁',label:'File'};}
+function assetStoragePath(id,fileName){return id+'/'+String(fileName||'file').replace(/[^a-zA-Z0-9.\-_]/g,'_');}
+async function uploadAssetToStorage(path,file){const {error}=await sb.storage.from(ASSETS_BUCKET).upload(path,file,{cacheControl:'3600',upsert:true});if(error)throw error;return path;}
+async function removeAssetFromStorage(path){if(!path)return;try{const {error}=await sb.storage.from(ASSETS_BUCKET).remove([path]);if(error)console.error('Storage delete failed',{path,error});}catch(e){console.error('Storage delete failed',{path,error:e});}}
+async function getAssetViewUrl(path){if(!CLOUD||!path)return null;try{const {data,error}=await sb.storage.from(ASSETS_BUCKET).createSignedUrl(path,3600);if(error){console.error('Signed URL error',error);return null;}return data.signedUrl;}catch(e){console.error('Signed URL error',e);return null;}}
+async function getAssetDownloadUrl(path,fileName){if(!CLOUD||!path)return null;try{const {data,error}=await sb.storage.from(ASSETS_BUCKET).createSignedUrl(path,3600,{download:fileName||true});if(error){console.error('Signed URL error',error);return null;}return data.signedUrl;}catch(e){console.error('Signed URL error',e);return null;}}
+async function openAssetFile(id){const a=byIdAsset(id);if(!a||!a.filePath){toast('No file stored for this asset');return;}
+  if(!CLOUD){toast('Sign in to open files — Assets are stored in the shared cloud');return;}
+  const win=window.open('','_blank'); // open synchronously so popup blockers don't catch the async URL fetch
+  const url=await getAssetViewUrl(a.filePath);
+  if(!url){if(win)win.close();toast('Could not generate file link');return;}
+  if(win)win.location.href=url;else window.open(url,'_blank');}
+async function downloadAssetFile(id){const a=byIdAsset(id);if(!a||!a.filePath){toast('No file stored for this asset');return;}
+  if(!CLOUD){toast('Sign in to download files — Assets are stored in the shared cloud');return;}
+  const url=await getAssetDownloadUrl(a.filePath,a.fileName);
+  if(!url){toast('Could not generate download link');return;}
+  const link=document.createElement('a');link.href=url;link.download=a.fileName||a.title;document.body.appendChild(link);link.click();link.remove();}
+
+function vAssets(){
+  const list=state.assets||[];
+  const uploadBtn='<button class="btn gold" onclick="assetForm()">+ Upload Asset</button>';
+  if(!list.length)return '<div class="page-head"><div><div class="eyebrow">EAX Global</div><div class="page-title">Assets</div><div class="page-sub">Every deck, proposal, one-pager and company profile — one shared place, visible to every authorised Kweli Brain user.</div></div>'+uploadBtn+'</div>'+
+    (CLOUD?'':'<div class="card" style="margin-bottom:20px;border-color:rgba(224,101,75,.4)"><span style="color:var(--amber)">Sign in</span> to see and upload shared assets — files live in the cloud, not this browser.</div>')+
+    '<div class="empty"><div class="em">'+ICON('assets')+'</div><h3>No assets yet</h3><p>Upload the first business asset — decks, proposals, company profiles, anything worth keeping in one place.</p><div class="row">'+uploadBtn+'</div></div>';
+  const f=route.assetFilter;
+  const collections=[...new Set(list.map(a=>a.collection).filter(Boolean))].sort();
+  const types=[...new Set(list.map(a=>a.assetType).filter(Boolean))].sort();
+  return '<div class="page-head"><div><div class="eyebrow">EAX Global</div><div class="page-title">Assets</div><div class="page-sub">'+list.length+' asset'+(list.length===1?'':'s')+' · shared with every authorised user</div></div>'+uploadBtn+'</div>'+
+    '<div class="toolbar">'+
+      '<input class="input search-in" placeholder="Search assets…" value="'+esc(f.q)+'" oninput="route.assetFilter.q=this.value;renderAssetsBox()">'+
+      (collections.length?'<select class="select" onchange="route.assetFilter.collection=this.value;renderAssetsBox()"><option value="">All collections</option>'+collections.map(c=>'<option '+(f.collection===c?'selected':'')+'>'+esc(c)+'</option>').join('')+'</select>':'')+
+      (types.length?'<select class="select" onchange="route.assetFilter.type=this.value;renderAssetsBox()"><option value="">All types</option>'+types.map(t=>'<option '+(f.type===t?'selected':'')+'>'+esc(t)+'</option>').join('')+'</select>':'')+
+      '<select class="select" onchange="route.assetFilter.sort=this.value;renderAssetsBox()">'+
+        '<option value="updated"'+(f.sort==='updated'?' selected':'')+'>Sort: Recently updated</option>'+
+        '<option value="newest"'+(f.sort==='newest'?' selected':'')+'>Sort: Newest</option>'+
+        '<option value="oldest"'+(f.sort==='oldest'?' selected':'')+'>Sort: Oldest</option>'+
+        '<option value="az"'+(f.sort==='az'?' selected':'')+'>Sort: Alphabetical</option>'+
+      '</select>'+
+    '</div><div id="assetsBox">'+assetsHtml()+'</div>';
+}
+function assetsHtml(){
+  const f=route.assetFilter;let list=[...(state.assets||[])];
+  if(f.q){const q=f.q.toLowerCase();list=list.filter(a=>(a.title+' '+(a.collection||'')+' '+(a.description||'')+' '+(a.notes||'')+' '+((a.tags||[]).join(' '))).toLowerCase().includes(q));}
+  if(f.collection)list=list.filter(a=>a.collection===f.collection);
+  if(f.type)list=list.filter(a=>a.assetType===f.type);
+  if(f.sort==='newest')list.sort((a,b)=>(b.uploadedDate||'').localeCompare(a.uploadedDate||''));
+  else if(f.sort==='oldest')list.sort((a,b)=>(a.uploadedDate||'').localeCompare(b.uploadedDate||''));
+  else if(f.sort==='az')list.sort((a,b)=>a.title.localeCompare(b.title));
+  else list.sort((a,b)=>(b.updatedDate||b.uploadedDate||'').localeCompare(a.updatedDate||a.uploadedDate||''));
+  if(!list.length)return '<div class="empty"><div class="em">'+ICON('assets')+'</div><h3>No assets match</h3><p>Try a different search or filter.</p></div>';
+  return '<div class="grid g-auto">'+list.map(assetCard).join('')+'</div>';
+}
+function renderAssetsBox(){const b=document.getElementById('assetsBox');if(b)b.innerHTML=assetsHtml();}
+function assetCard(a){const it=assetIconType(a);
+  return '<div class="asset-card" onclick="go(\'assetDetail\',\''+a.id+'\')">'+
+    '<div class="a-top"><div class="a-ico">'+it.ico+'</div><div style="min-width:0"><div class="a-title">'+esc(a.title)+'</div>'+
+    '<div class="a-sub">'+esc(a.collection||'Uncategorised')+' · '+esc(a.assetType||it.label)+(a.version?' · '+esc(a.version):'')+'</div></div></div>'+
+    (a.description?'<div class="a-desc">'+esc(a.description)+'</div>':'')+
+    ((a.tags&&a.tags.length)?'<div class="a-chips">'+a.tags.map(t=>'<span class="chip">'+esc(t)+'</span>').join('')+'</div>':'')+
+    '<div class="a-foot"><span>'+fmtDate(a.updatedDate||a.uploadedDate)+'</span><span>'+fmtBytes(a.fileSize)+'</span></div>'+
+  '</div>';
+}
+function vAssetDetail(){const a=byIdAsset(route.id);if(!a)return vAssets();
+  const it=assetIconType(a);
+  const kv=(k,v,raw)=>'<div class="kv"><span class="k">'+k+'</span><span class="v">'+(raw?v:(v?esc(v):'<span class="faint">—</span>'))+'</span></div>';
+  const ft=(a.fileType||'').toLowerCase();
+  const showPreview=a.filePath&&(ft.indexOf('image')>=0||ft.indexOf('pdf')>=0);
+  if(showPreview)setTimeout(()=>loadAssetPreview(a.id),0); // fires after this render's innerHTML assignment completes
+  return '<div class="page-head"><div><div class="eyebrow" style="cursor:pointer" onclick="go(\'assets\')">← Assets</div>'+
+    '<div class="page-title">'+esc(a.title)+'</div><div class="page-sub">'+esc(a.collection||'Uncategorised')+' · '+esc(a.assetType||it.label)+(a.version?' · '+esc(a.version):'')+'</div></div>'+
+    '<div style="display:flex;gap:9px;flex-wrap:wrap">'+(a.filePath?'<button class="btn" onclick="openAssetFile(\''+a.id+'\')">Open</button><button class="btn" onclick="downloadAssetFile(\''+a.id+'\')">Download</button>':'')+
+    '<button class="btn" onclick="assetForm(\''+a.id+'\')">Edit</button><button class="btn" onclick="replaceFileForm(\''+a.id+'\')">Replace File</button><button class="btn danger" onclick="delAsset(\''+a.id+'\')">Delete</button></div></div>'+
+    '<div class="detail-grid"><div>'+
+      (showPreview?'<div class="card" style="padding:10px" id="assetPreviewWrap"><div class="muted" style="padding:30px;text-align:center;font-size:13px">Loading preview…</div></div>':'')+
+      '<div class="card" style="margin-top:'+(showPreview?'16px':'0')+'">'+
+        (a.description?'<div class="block" style="margin-top:0"><h4>Description</h4><div class="prose">'+esc(a.description)+'</div></div>':'<div class="muted" style="font-size:13px">No description yet.</div>')+
+        (a.notes?'<div class="block"><h4>Notes</h4><div class="prose">'+esc(a.notes)+'</div></div>':'')+
+        ((a.tags&&a.tags.length)?'<div class="block"><h4>Tags</h4><div class="a-chips">'+a.tags.map(t=>'<span class="chip">'+esc(t)+'</span>').join('')+'</div></div>':'')+
+      '</div></div>'+
+    '<div><div class="card"><div class="sec-h"><h2>File</h2></div>'+
+      kv('File name',a.fileName)+kv('File type',a.fileType||it.label)+kv('File size',fmtBytes(a.fileSize),true)+
+      kv('Version',a.version)+kv('Upload date',fmtDate(a.uploadedDate))+kv('Last updated',fmtDate(a.updatedDate||a.uploadedDate))+
+      kv('Created by',a.createdBy)+'</div></div>'+
+    '</div></div>';
+}
+async function loadAssetPreview(id){const a=byIdAsset(id);if(!a)return;
+  const url=await getAssetViewUrl(a.filePath);
+  const wrap=document.getElementById('assetPreviewWrap');if(!wrap)return; // user navigated away
+  if(!url){wrap.innerHTML='<div class="muted" style="padding:30px;text-align:center;font-size:13px">Preview unavailable</div>';return;}
+  const ft=(a.fileType||'').toLowerCase();
+  if(ft.indexOf('image')>=0)wrap.innerHTML='<div class="a-preview"><img src="'+esc(url)+'"></div>';
+  else if(ft.indexOf('pdf')>=0)wrap.innerHTML='<div class="a-preview"><iframe src="'+esc(url)+'"></iframe></div>';
+  else wrap.innerHTML='';
+}
+
 /* Settings */
 function vSettings(){
   const pend=loadPending().length;
@@ -1068,7 +1217,7 @@ function vSettings(){
   '<div class="card"><div class="sec-h"><h2>Demo &amp; danger zone</h2></div><p class="muted" style="margin-top:0">'+(CLOUD?'These affect the SHARED data everyone sees.':'Reload the sample pipeline, or wipe and start clean.')+'</p>'+
     '<div style="display:flex;gap:11px;flex-wrap:wrap"><button class="btn" onclick="resetDemo()">Reset demo data</button><button class="btn danger" onclick="clearAll()">Delete all data</button></div></div>'+
   '<div class="card"><div class="sec-h"><h2>Storage</h2></div>'+
-    '<div class="kv"><span class="k">Companies</span><span class="v">'+state.opps.length+'</span></div><div class="kv"><span class="k">People</span><span class="v">'+state.people.length+'</span></div><div class="kv"><span class="k">Lessons</span><span class="v">'+state.lessons.length+'</span></div><div class="kv"><span class="k">Mode</span><span class="v">'+(CLOUD?'Cloud (shared)':'Local (this browser)')+'</span></div></div>'+
+    '<div class="kv"><span class="k">Companies</span><span class="v">'+state.opps.length+'</span></div><div class="kv"><span class="k">People</span><span class="v">'+state.people.length+'</span></div><div class="kv"><span class="k">Lessons</span><span class="v">'+state.lessons.length+'</span></div><div class="kv"><span class="k">Assets</span><span class="v">'+(state.assets||[]).length+'</span></div><div class="kv"><span class="k">Mode</span><span class="v">'+(CLOUD?'Cloud (shared)':'Local (this browser)')+'</span></div></div>'+
   '</div>';
 }
 
@@ -1085,6 +1234,8 @@ function runSearch(q){const panel=document.getElementById('searchPanel');q=(q||'
   if(les.length)groups.push(['Lessons',les.map(l=>({title:l.title,sub:l.category||'',snip:l.impact,go:"openLesson('"+l.id+"')"}))]);
   const kb=BRAIN_SECTIONS.filter(([k,label])=>hit(label)||hit(state.brain[k]));
   if(kb.length)groups.push(['Knowledge Base',kb.map(([k,label])=>({title:label,sub:'section',snip:(state.brain[k]||'').slice(0,90),go:"go('knowledge')"}))]);
+  const ast=(state.assets||[]).filter(a=>hit(a.title)||hit(a.collection)||hit(a.description)||hit(a.notes)||hit((a.tags||[]).join(' ')));
+  if(ast.length)groups.push(['Assets',ast.map(a=>({title:a.title,sub:a.collection||'',snip:a.description||a.assetType,go:"go('assetDetail','"+a.id+"')"}))]);
   if(!groups.length){panel.innerHTML='<div class="search-empty">No matches for “'+esc(q)+'”.</div>';return;}
   panel.innerHTML='<div class="search-panel">'+groups.map(([title,items])=>'<div class="search-group-h">'+title+'</div>'+
     items.slice(0,6).map(it=>'<div class="search-res" onclick="'+it.go+'"><div style="flex:1;min-width:0"><span class="r-title">'+esc(it.title)+'</span>'+(it.snip?'<span class="r-snip">'+esc(String(it.snip).slice(0,100))+'</span>':'')+'</div><span class="r-sub">'+esc(it.sub)+'</span></div>').join('')).join('')+'</div>';
@@ -1242,14 +1393,102 @@ function saveLesson(id,companyId){const title=lval('title');if(!title){toast('Ti
   closeModal();render();toast(id?'Updated':'Lesson saved');}
 function delLesson(id){if(!confirm('Delete this lesson?'))return;state.lessons=state.lessons.filter(l=>l.id!==id);persistLessonDelete(id);closeModal();render();toast('Deleted');}
 
+/* Assets form */
+function assetForm(id){
+  if(!id&&!CLOUD){toast('Sign in first — Assets are shared via the cloud, not saved in this browser');return;}
+  const a=id?byIdAsset(id):{};
+  const F=(l,k,ph)=>'<div class="field"><label class="fl">'+l+'</label><input class="input" id="af_'+k+'" value="'+esc(a[k]||'')+'" placeholder="'+(ph||'')+'"></div>';
+  const TA=(l,k,r)=>'<div class="field"><label class="fl">'+l+'</label><textarea class="input" id="af_'+k+'" rows="'+(r||3)+'">'+esc(a[k]||'')+'</textarea></div>';
+  const collList='<datalist id="af_collectionList">'+ASSET_COLLECTIONS.map(c=>'<option value="'+esc(c)+'">').join('')+'</datalist>';
+  const tagList='<datalist id="af_tagList">'+ASSET_TAG_SUGGESTIONS.map(t=>'<option value="'+esc(t)+'">').join('')+'</datalist>';
+  __afPicked=null;
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal lg"><div class="modal-h"><h2>'+(id?'Edit asset':'Upload asset')+'</h2><button class="x" onclick="closeModal()">×</button></div>'+
+    F('Title','title')+
+    '<div class="field-row"><div class="field"><label class="fl">Collection</label><input class="input" id="af_collection" list="af_collectionList" value="'+esc(a.collection||'')+'" placeholder="e.g. Kweli, Insurance, Investor"></div>'+
+    '<div class="field"><label class="fl">Asset Type</label><select class="select" id="af_assetType">'+['',...ASSET_TYPES].map(t=>'<option '+(a.assetType===t?'selected':'')+'>'+t+'</option>').join('')+'</select></div></div>'+
+    collList+
+    TA('Description','description',2)+
+    '<div class="field-row">'+F('Version','version','e.g. v1.0')+'<div class="field"><label class="fl">Tags</label><input class="input" id="af_tags" list="af_tagList" value="'+esc((a.tags||[]).join(', '))+'" placeholder="comma-separated"></div></div>'+
+    tagList+
+    TA('Notes','notes',2)+
+    (id?'<div class="field"><label class="fl">File</label><div class="a-dropzone has-file" style="cursor:default">Current file: '+esc(a.fileName||'—')+' ('+fmtBytes(a.fileSize)+'). Use “Replace File” on the detail page to change it.</div></div>':
+      '<div class="field"><label class="fl">File *</label><div class="a-dropzone" id="af_dropzone" onclick="document.getElementById(\'af_file\').click()">Click to choose a file — PDF, PowerPoint, Word, Excel, image or text<div class="faint" id="af_fileLabel" style="margin-top:6px;font-size:11.5px"></div></div><input type="file" id="af_file" accept="'+ASSET_ACCEPT+'" style="display:none" onchange="afFilePicked(this)"></div>')+
+    '<div class="modal-foot">'+(id?'<button class="btn danger" style="margin-right:auto" onclick="delAsset(\''+id+'\')">Delete</button>':'')+'<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" id="af_saveBtn" onclick="saveAsset(\''+(id||'')+'\')">'+(id?'Save':'Upload')+'</button></div></div></div>';
+}
+let __afPicked=null;
+function afFilePicked(input){const f=input.files[0];if(!f){__afPicked=null;return;}
+  if(f.size>MAX_ASSET_BYTES){toast('File too large (max '+fmtBytes(MAX_ASSET_BYTES)+')');input.value='';__afPicked=null;return;}
+  if(f.size>WARN_ASSET_BYTES&&!confirm('This file is '+fmtBytes(f.size)+'. Continue uploading?')){input.value='';__afPicked=null;return;}
+  __afPicked=f;const lbl=document.getElementById('af_fileLabel');if(lbl)lbl.textContent=f.name+' · '+fmtBytes(f.size);
+  const dz=document.getElementById('af_dropzone');if(dz)dz.classList.add('has-file');}
+function aval(k){const el=document.getElementById('af_'+k);return el?el.value.trim():''}
+async function saveAsset(id){
+  const title=aval('title');if(!title){toast('Title required');return;}
+  if(!CLOUD){toast('Sign in first — Assets are shared via the cloud');return;}
+  const tags=aval('tags').split(',').map(s=>s.trim()).filter(Boolean);
+  const d={title,collection:aval('collection'),assetType:aval('assetType'),description:aval('description'),version:aval('version'),tags,notes:aval('notes')};
+  if(id){
+    const ex=byIdAsset(id);if(!ex)return;Object.assign(ex,d);ex.updatedDate=today();
+    persistAsset(ex);closeModal();render();toast('Updated');return;
+  }
+  if(!__afPicked){toast('Choose a file to upload');return;}
+  const btn=document.getElementById('af_saveBtn');if(btn){btn.disabled=true;btn.textContent='Uploading…';}
+  const newId=uid('a');const path=assetStoragePath(newId,__afPicked.name);
+  try{
+    await uploadAssetToStorage(path,__afPicked);
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent='Upload';}
+    toast('Upload failed: '+(e.message||e));return;
+  }
+  const na=Object.assign({id:newId,fileName:__afPicked.name,fileType:__afPicked.type||'',fileSize:__afPicked.size,filePath:path,
+    uploadedDate:today(),updatedDate:today(),createdBy:userName()},d);
+  state.assets=state.assets||[];state.assets.push(na);
+  persistAsset(na);
+  __afPicked=null;closeModal();go('assetDetail',na.id);toast('Asset uploaded — visible to every authorised user');
+}
+async function delAsset(id){const a=byIdAsset(id);if(!a)return;if(!confirm('Delete this asset for everyone? This cannot be undone.'))return;
+  if(CLOUD)await removeAssetFromStorage(a.filePath);
+  state.assets=(state.assets||[]).filter(x=>x.id!==id);persistAssetDelete(id);closeModal();go('assets');toast('Deleted');}
+function replaceFileForm(id){const a=byIdAsset(id);if(!a)return;
+  if(!CLOUD){toast('Sign in first — Assets are shared via the cloud');return;}
+  __rfPicked=null;
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>Replace file</h2><button class="x" onclick="closeModal()">×</button></div>'+
+    '<p class="muted" style="margin-top:0;font-size:13px">Current: '+esc(a.fileName||'—')+' ('+fmtBytes(a.fileSize)+')</p>'+
+    '<div class="field"><label class="fl">New file *</label><div class="a-dropzone" id="rf_dropzone" onclick="document.getElementById(\'rf_file\').click()">Click to choose a replacement file<div class="faint" id="rf_fileLabel" style="margin-top:6px;font-size:11.5px"></div></div><input type="file" id="rf_file" accept="'+ASSET_ACCEPT+'" style="display:none" onchange="rfFilePicked(this)"></div>'+
+    '<div class="field"><label class="fl">New version (optional)</label><input class="input" id="rf_version" value="'+esc(a.version||'')+'"></div>'+
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" id="rf_saveBtn" onclick="saveReplaceFile(\''+id+'\')">Replace</button></div></div></div>';
+}
+let __rfPicked=null;
+function rfFilePicked(input){const f=input.files[0];if(!f){__rfPicked=null;return;}
+  if(f.size>MAX_ASSET_BYTES){toast('File too large (max '+fmtBytes(MAX_ASSET_BYTES)+')');input.value='';__rfPicked=null;return;}
+  if(f.size>WARN_ASSET_BYTES&&!confirm('This file is '+fmtBytes(f.size)+'. Continue uploading?')){input.value='';__rfPicked=null;return;}
+  __rfPicked=f;const lbl=document.getElementById('rf_fileLabel');if(lbl)lbl.textContent=f.name+' · '+fmtBytes(f.size);
+  const dz=document.getElementById('rf_dropzone');if(dz)dz.classList.add('has-file');}
+async function saveReplaceFile(id){const a=byIdAsset(id);if(!a)return;if(!__rfPicked){toast('Choose a file');return;}
+  const btn=document.getElementById('rf_saveBtn');if(btn){btn.disabled=true;btn.textContent='Uploading…';}
+  const oldPath=a.filePath;
+  const newPath=assetStoragePath(a.id,__rfPicked.name);
+  try{
+    await uploadAssetToStorage(newPath,__rfPicked); // upsert:true — same path overwrites in place
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent='Replace';}
+    toast('Upload failed: '+(e.message||e));return;
+  }
+  if(oldPath&&oldPath!==newPath)await removeAssetFromStorage(oldPath); // best-effort cleanup of the old object
+  a.fileName=__rfPicked.name;a.fileType=__rfPicked.type||'';a.fileSize=__rfPicked.size;a.filePath=newPath;a.updatedDate=today();
+  const v=document.getElementById('rf_version');if(v&&v.value.trim())a.version=v.value.trim();
+  persistAsset(a); // upserts by id — updates the existing row, never creates a duplicate
+  __rfPicked=null;closeModal();render();toast('File replaced');
+}
+
 function closeModal(){document.getElementById('modal-root').innerHTML=''}
 
 /* data actions */
 function resetBrain(){if(confirm('Reset the Knowledge Base to defaults? Your edits will be lost.')){state.brain=defaultBrain();cacheSave();if(CLOUD){BRAIN_SECTIONS.forEach(([k,label])=>sync('brain_sections','upsert',{section_key:k,title:label,content:state.brain[k]}));}render();toast('Knowledge Base reset');}}
 function exportData(){const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='kweli-brain-'+today()+'.json';a.click();URL.revokeObjectURL(a.href);toast('Backup downloaded');}
 function importData(input){const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.opps&&!d.brain)throw new Error('not a valid backup');if(!confirm(CLOUD?'Upload this backup into the shared cloud? Existing records are kept; this adds the backup\'s records.':'Replace all current data with this backup?'))return;
-  if(CLOUD){toast('Importing…');uploadDataset(d).then(()=>fetchAll()).then(()=>{render();toast('Backup imported');}).catch(e=>toast('Import failed: '+(e.message||e)));}
-  else{state={opps:d.opps||[],people:d.people||[],lessons:d.lessons||[],brain:migrateBrain(d.brain),version:2};state.opps.forEach(o=>o.timeline=o.timeline||[]);cacheSave();go('dashboard');toast('Backup restored');}
+  if(CLOUD){toast('Importing…');uploadDataset(d).then(()=>fetchAll()).then(()=>{render();toast('Backup imported'+(d.assets&&d.assets.length?' — note: asset files must be re-uploaded via Upload Asset, backups don\'t carry files.':'.'));}).catch(e=>toast('Import failed: '+(e.message||e)));}
+  else{state={opps:d.opps||[],people:d.people||[],lessons:d.lessons||[],brain:migrateBrain(d.brain),assets:state.assets||[],version:2};state.opps.forEach(o=>o.timeline=o.timeline||[]);cacheSave();go('dashboard');toast('Backup restored');}
   }catch(e){toast('Import failed: '+e.message);}};r.readAsText(f);input.value='';}
 function resetDemo(){if(!confirm(CLOUD?'Replace ALL shared cloud data with demo data?':'Reload demo data? This replaces everything currently stored.'))return;
   if(CLOUD){(async()=>{toast('Resetting…');try{await clearCloud();await uploadDataset(seed());await fetchAll();render();toast('Demo data loaded');}catch(e){toast('Failed: '+(e.message||e));}})();}
