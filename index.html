@@ -1126,28 +1126,30 @@ function searchBrain(query,limit){return searchKnowledge(query,limit);}
    matching every company whose next-action happens to mention following up. */
 function resolveEntities(query){
   const qNorm=normalizeText(query),qTokens=tokenize(query);
-  const people=topScored(state.people,p=>{
+  const MIN=6; // require a real distinctive-word or phrase hit, not incidental overlap
+  const scoreP=p=>{
     const nameNorm=normalizeName(p.name),nameTokens=nameNorm.split(' ').filter(Boolean);
     let score=0;
     if(qNorm&&nameNorm&&qNorm.indexOf(nameNorm)>=0)score+=20; // full name mentioned
     nameTokens.forEach(nt=>{if(nt.length>=3&&qTokens.indexOf(nt)>=0)score+=8;}); // first/last name as its own word
     return score;
-  },5);
-  const companies=topScored(state.opps,o=>{
+  };
+  const scoreC=o=>{
     const compNorm=normalizeName(o.company);
     let score=0;
     if(qNorm&&compNorm&&qNorm.indexOf(compNorm)>=0)score+=20; // full company name mentioned
     else compNorm.split(' ').filter(t=>t.length>=4).forEach(ct=>{if(qTokens.indexOf(ct)>=0)score+=8;}); // distinctive word from the name
     return score;
-  },5);
-  const assets=topScored(state.assets||[],a=>{
+  };
+  const scoreA=a=>{
     const titleNorm=normalizeText(a.title);
     let score=0;
     if(qNorm&&titleNorm&&(qNorm.indexOf(titleNorm)>=0||titleNorm.indexOf(qNorm)>=0))score+=20; // whole title mentioned (either direction)
     else{let hits=0;titleNorm.split(' ').filter(t=>t.length>=4).forEach(tt=>{if(qTokens.indexOf(tt)>=0){score+=6;hits++;}});if(hits>=2)score+=6;} // 2+ distinctive title words
     return score;
-  },5);
-  return {people,companies,assets};
+  };
+  const rank=(items,scoreFn)=>items.map(item=>({item,score:scoreFn(item)})).filter(x=>x.score>=MIN).sort((a,b)=>b.score-a.score).slice(0,5).map(x=>x.item);
+  return {people:rank(state.people,scoreP),companies:rank(state.opps,scoreC),assets:rank(state.assets||[],scoreA)};
 }
 function resolveCompanyForPerson(p){
   if(!p)return null;
@@ -1261,51 +1263,47 @@ function buildAIContext(query){
   return buildGenericContext(query);
 }
 
-/* Structured, data-only answer — used whenever no AI model is connected.
-   Every line traces back to a specific retrieved record; nothing invented.
-   Opens by naming whichever specific person/company/asset was resolved,
-   instead of a generic "here's what I found" — and is honest when there's
-   no verbatim quote on file (the app never stores one). */
-function answerFromContext(query,ctx){
-  const L=[];const a=ctx.anchor||{};
+/* Structured listing of exactly what retrieval found — this is deliberately
+   NOT an "answer". Without a connected LLM the app cannot actually reason
+   about the question, so it doesn't pretend to; it shows the records
+   retrieval matched, grouped and in priority order, and nothing else. */
+function retrievedContextText(query,ctx){
+  const L=[];
   const has=ctx.companies.length||ctx.people.length||ctx.assets.length||ctx.lessons.length||ctx.objections.length||ctx.followups.length||ctx.knowledge.length;
-  if(!has)return 'I couldn\'t find anything in Kweli Brain matching "'+query+'". Try a different name, company, or keyword — or add the record first if it doesn\'t exist yet.';
-  if(a.person){
-    const bits=[a.person.role,a.company?a.company.company:(a.person.company||null)].filter(Boolean);
-    L.push('I found '+a.person.name+(bits.length?' ('+bits.join(', ')+')':'')+'.');
-    L.push('I don\'t have a direct quote recorded from '+a.person.name.split(' ')[0]+', however based on the'+(a.company?' '+a.company.company:'')+' records here is what I know:');
-  }else if(a.company){
-    L.push('I found '+a.company.company+' ('+a.company.category+').');
-  }else if(a.asset){
-    L.push('I found "'+a.asset.title+'" in Assets.');
-  }else{
-    L.push('Here is what Kweli Brain found for "'+query+'":');
-  }
-  if(ctx.companies.length){L.push('','COMPANIES');ctx.companies.forEach(o=>{
+  if(!has)return 'No matching records found for "'+query+'". Try a different name, company, or keyword — or add the record first if it doesn\'t exist yet.';
+  if(ctx.companies.length){L.push('COMPANIES');ctx.companies.forEach(o=>{
     L.push('- '+o.company+' ('+o.category+', stage: '+o.stage+', priority '+(+o.priority||0)+')');
     if(o.angle)L.push('  Kweli angle: '+o.angle);
     if(o.nextAction)L.push('  Next action: '+o.nextAction+(o.followUp?' — due '+fmtDate(o.followUp):''));
-  });}
-  if(ctx.people.length){L.push('','PEOPLE');ctx.people.forEach(p=>{
+  });L.push('');}
+  if(ctx.people.length){L.push('PEOPLE');ctx.people.forEach(p=>{
     L.push('- '+p.name+(p.role?', '+p.role:'')+(p.company?' at '+p.company:'')+(p.warmth?' — '+p.warmth:''));
     if(p.whyMatters)L.push('  Why they matter: '+p.whyMatters);
     if(p.nextAction)L.push('  Next action: '+p.nextAction);
-  });}
-  if(ctx.assets.length){L.push('','ASSETS');ctx.assets.forEach(a2=>{
+  });L.push('');}
+  if(ctx.assets.length){L.push('ASSETS');ctx.assets.forEach(a2=>{
     L.push('- '+a2.title+' ('+(a2.collection||'Uncategorised')+(a2.assetType?' · '+a2.assetType:'')+(a2.version?' · '+a2.version:'')+')');
     if(a2.description)L.push('  '+a2.description);
     L.push(a2.extractedText?'  Extracted text (excerpt): '+a2.extractedText.slice(0,300)+(a2.extractedText.length>300?'…':'')
-      :'  I found this in Assets, but full document text extraction is not enabled yet. This is based on its title, description and tags only.');
-  });}
-  if(ctx.lessons.length){L.push('','LESSONS LEARNED');ctx.lessons.forEach(l=>{
+      :'  Metadata only — full document text extraction is not enabled yet.');
+  });L.push('');}
+  if(ctx.lessons.length){L.push('LESSONS LEARNED');ctx.lessons.forEach(l=>{
     L.push('- '+l.title+(l.category?' ('+l.category+')':''));
     if(l.impact)L.push('  Impact: '+l.impact);
-  });}
-  if(ctx.objections.length){L.push('','OBJECTIONS');ctx.objections.forEach(o=>L.push('- '+o.company+': '+getCompanyObjections(o)));}
-  if(ctx.followups.length){L.push('','FOLLOW-UPS');ctx.followups.forEach(o=>L.push('- '+o.company+': '+(o.nextAction||'no action noted')+(o.followUp?' — due '+fmtDate(o.followUp):'')));}
-  if(ctx.knowledge.length){L.push('','KNOWLEDGE BASE');ctx.knowledge.forEach(k=>L.push('- '+k.label+': '+(k.content||'').slice(0,220)+((k.content||'').length>220?'…':'')));}
-  L.push('','This is a structured summary of matching records, not free-form reasoning — no AI model is connected yet. Use the Copy to Claude prompt for a written answer, or wire one up in callLLM().');
+  });L.push('');}
+  if(ctx.objections.length){L.push('OBJECTIONS');ctx.objections.forEach(o=>L.push('- '+o.company+': '+getCompanyObjections(o)));L.push('');}
+  if(ctx.followups.length){L.push('FOLLOW-UPS');ctx.followups.forEach(o=>L.push('- '+o.company+': '+(o.nextAction||'no action noted')+(o.followUp?' — due '+fmtDate(o.followUp):'')));L.push('');}
+  if(ctx.knowledge.length){L.push('KNOWLEDGE BASE');ctx.knowledge.forEach(k=>L.push('- '+k.label+': '+(k.content||'').slice(0,220)+((k.content||'').length>220?'…':'')));L.push('');}
+  while(L.length&&L[L.length-1]==='')L.pop();
   return L.join('\n');
+}
+function countRetrieved(ctx){return ctx.companies.length+ctx.people.length+ctx.assets.length+ctx.lessons.length+ctx.objections.length+ctx.followups.length+ctx.knowledge.length;}
+function anchorLabel(a){
+  a=a||{};
+  if(a.person)return a.person.name+(a.person.role?', '+a.person.role:'')+(a.company?' — '+a.company.company:(a.person.company?' — '+a.person.company:''));
+  if(a.company)return a.company.company+' ('+a.company.category+')';
+  if(a.asset)return a.asset.title+' (Asset)';
+  return '';
 }
 function buildAskPrompt(query,ctx){
   const rules='You are the Kweli BD Analyst. Answer the question below using ONLY the context provided. Do not invent names, emails, facts, or figures — if the context does not contain the answer, say so plainly and note what\'s missing. Hold the precision rule: Kweli proves a document is the authentic, unaltered issued one; it does NOT prove the contents are correct.';
@@ -1320,11 +1318,30 @@ function buildAskPrompt(query,ctx){
   parts.push('=== INSTRUCTIONS ===\nAnswer the question using only the material above. If asked to summarise a specific asset and its text isn\'t included, say clearly that document text extraction isn\'t enabled yet and offer to summarise once the text is pasted in.');
   return parts.join('\n\n');
 }
-/* Placeholder — no AI API is connected yet. Wire this to Claude's Messages
-   API or OpenAI's chat completions endpoint and return the model's text.
-   Until then, askKweliBrain() falls back to answerFromContext() plus a
-   ready-to-paste "Copy to Claude" prompt built from the same context. */
-async function callLLM(prompt){return null;}
+/* ============ THE ONE FUNCTION GPT/Claude integration needs ============
+   Everything above this line — entity resolution, retrieval, ranking,
+   context building — is the retrieval engine and does not need to change
+   when a real model is connected. This is the only seam.
+
+   Today it returns null, so the UI shows Retrieved Context + Copy to Claude
+   instead of a generated answer — no faked reasoning.
+
+   To connect a model later: call it here with the structured context and the
+   question, and return the model's text (or null on failure, which the UI
+   already handles by falling back to Retrieved Context). For example:
+
+   async function callLLM(context, question){
+     const prompt = buildAskPrompt(question, context); // same context, same builder
+     const res = await fetch('https://api.openai.com/v1/chat/completions', {
+       method:'POST',
+       headers:{'Content-Type':'application/json','Authorization':'Bearer '+OPENAI_KEY},
+       body: JSON.stringify({model:'gpt-4o-mini', messages:[{role:'user',content:prompt}]})
+     });
+     const data = await res.json();
+     return data.choices?.[0]?.message?.content || null;
+   }
+*/
+async function callLLM(context,question){return null;}
 
 async function askKweliBrain(){
   const input=document.getElementById('askInput');
@@ -1332,12 +1349,11 @@ async function askKweliBrain(){
   if(!q){toast('Type a question first');return;}
   route.ask.query=q;route.ask.loading=true;render();
   const context=buildAIContext(q);
-  const prompt=buildAskPrompt(q,context);
+  const prompt=buildAskPrompt(q,context); // used for Copy to Claude, and as the reference format callLLM can reuse
   let llmAnswer=null;
-  try{llmAnswer=await callLLM(prompt);}catch(e){console.error('callLLM failed',e);}
-  const answer=llmAnswer||answerFromContext(q,context);
+  try{llmAnswer=await callLLM(context,q);}catch(e){console.error('callLLM failed',e);}
   route.ask.loading=false;
-  route.ask.results={context,answer,prompt,usedLLM:!!llmAnswer};
+  route.ask.results={context,prompt,llmAnswer,usedLLM:!!llmAnswer};
   render();
 }
 function askAgain(){route.ask.results=null;render();setTimeout(()=>{const el=document.getElementById('askInput');if(el)el.focus();},30);}
@@ -1369,8 +1385,8 @@ function suggestedPromptsHtml(){
 }
 function vWorkspace(){
   const st=route.ask;
-  return '<div class="page-head"><div><div class="eyebrow">Search + reasoning across Kweli Brain</div><div class="page-title">Ask Kweli Brain</div>'+
-    '<div class="page-sub">Ask about companies, people, decks, lessons, investors or knowledge — retrieval runs across the whole system, even when records aren\'t manually linked.</div></div></div>'+
+  return '<div class="page-head"><div><div class="eyebrow">Retrieval engine · no AI connected yet</div><div class="page-title">Ask Kweli Brain</div>'+
+    '<div class="page-sub">Retrieves the companies, people, decks, lessons and knowledge relevant to your question, then hands you a ready Claude prompt — this is the retrieval layer a real AI assistant will run on top of.</div></div></div>'+
     '<div class="card"><div class="field-row" style="grid-template-columns:1fr auto;align-items:end;gap:11px">'+
       '<div class="field" style="margin-bottom:0"><label class="fl">Ask anything</label>'+
       '<input class="input" id="askInput" placeholder="Ask anything about your companies, people, decks, lessons, investors or knowledge…" value="'+esc(st.query)+'" onkeydown="if(event.key===\'Enter\')askKweliBrain()"></div>'+
@@ -1388,14 +1404,22 @@ function emptyAskState(){
     '<p>Pick a suggested question above, or ask your own — Kweli Brain resolves who or what you mean first, then only pulls what\'s actually related.</p></div>';
 }
 function renderAskResults(st){
-  const ctx=st.results.context,answer=st.results.answer,usedLLM=st.results.usedLLM;
-  return '<div style="margin-top:20px"><div class="page-sub" style="margin-bottom:14px">You asked: <span style="color:var(--txt)">"'+esc(ctx.query)+'"</span> · <a onclick="askAgain()">ask something else</a></div>'+
+  const ctx=st.results.context,llmAnswer=st.results.llmAnswer,usedLLM=st.results.usedLLM;
+  const anchor=anchorLabel(ctx.anchor);
+  const n=countRetrieved(ctx);
+  return '<div style="margin-top:20px">'+
+    '<div class="page-sub" style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">'+
+      '<span>You asked: <span style="color:var(--txt)">"'+esc(ctx.query)+'"</span> · <a onclick="askAgain()">ask something else</a></span>'+
+      (n?'<button class="btn gold sm" onclick="copy(route.ask.results.prompt)">Copy to Claude</button>':'')+
+    '</div>'+
+    (usedLLM?'<div class="card" style="margin-bottom:16px"><div class="sec-h"><h2>AI Answer</h2><span class="chip right">AI-generated</span></div><div class="prose">'+esc(llmAnswer)+'</div></div>':'')+
     '<div class="detail-grid"><div><div class="card">'+
-      '<div class="sec-h"><h2>Answer</h2>'+(usedLLM?'<span class="chip right">AI-generated</span>':'<span class="chip right">Structured from data</span>')+'</div>'+
-      '<div class="prose">'+esc(answer)+'</div>'+
-      (usedLLM?'':'<div class="block"><h4>Copy to Claude</h4><p class="muted" style="font-size:12.5px;margin-top:0">No AI API is connected yet — paste this into Claude for a written answer using the same retrieved context.</p>'+
+      '<div class="sec-h"><h2>Retrieved Context</h2>'+(n?'<span class="chip right">'+n+' record'+(n===1?'':'s')+'</span>':'')+'</div>'+
+      (anchor?'<div class="kv" style="border-bottom:1px solid var(--line);margin-bottom:10px"><span class="k">Resolved to</span><span class="v">'+esc(anchor)+'</span></div>':'')+
+      '<div class="prose">'+esc(retrievedContextText(ctx.query,ctx))+'</div>'+
+      '<div class="block"><h4>Copy to Claude</h4><p class="muted" style="font-size:12.5px;margin-top:0">'+(usedLLM?'The same retrieved context, ready to paste for a deeper follow-up in Claude.':'No AI model is connected yet — this is the primary way to get a written answer: paste the context below into Claude.')+'</p>'+
         '<div class="out" style="max-height:280px">'+esc(st.results.prompt)+'</div>'+
-        '<button class="btn sm" style="margin-top:10px" onclick="copy(route.ask.results.prompt)">Copy prompt</button></div>')+
+        '<button class="btn gold sm" style="margin-top:10px" onclick="copy(route.ask.results.prompt)">Copy to Claude</button></div>'+
     '</div></div>'+
     '<div>'+renderAskContextPanel(ctx)+'</div></div></div>';
 }
