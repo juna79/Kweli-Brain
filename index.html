@@ -251,7 +251,7 @@
   @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" onload="console.log('[Assets thumbnail] STEP 1 OK: PDF.js loaded'+(typeof pdfjsLib!=='undefined'&&pdfjsLib.version?(' — version '+pdfjsLib.version):''))" onerror="console.error('[Assets thumbnail] STEP 1 FAILED: the PDF.js library file failed to load from cdnjs.cloudflare.com — check network access, ad-blockers, or Content-Security-Policy restrictions on this domain.')"></script>
 </head>
 <body>
 <div class="app">
@@ -513,7 +513,7 @@ function savePending(q){try{localStorage.setItem(PENDING,JSON.stringify(q));}cat
    The supabase-js client only throws for the former; it returns {error:...} for the
    latter — so the try/catch below vs. the res.error check below are how we tell them apart. */
 async function sync(table,op,payload){
-  if(!CLOUD)return;
+  if(!CLOUD)return false;
   let res;
   try{
     if(op==='upsert')res=await sb.from(table).upsert(payload, table==='brain_sections'?{onConflict:'section_key'}:undefined);
@@ -525,7 +525,7 @@ async function sync(table,op,payload){
     const q=loadPending();q.push({table,op,payload});savePending(q);
     updateStatus();
     toast('Offline — could not reach the server to save '+table+' ('+op+'). Will retry.');
-    return;
+    return false;
   }
   if(res&&res.error){
     // We got a real response from Supabase — connectivity is fine, the write itself
@@ -535,9 +535,10 @@ async function sync(table,op,payload){
     if(!online){online=true;}
     updateStatus();
     toast('Save failed: '+table+' '+op+' error. Check console.');
-    return;
+    return false;
   }
   if(!online){online=true;updateStatus();}
+  return true;
 }
 async function trySyncPending(){
   if(!CLOUD)return;const q=loadPending();if(!q.length)return;
@@ -569,8 +570,8 @@ function persistPerson(p){cacheSave();sync('people','upsert',personRow(p));}
 function persistPersonDelete(id){cacheSave();sync('people','delete',id);}
 function persistLesson(l){cacheSave();sync('lessons','upsert',lessonRow(l));}
 function persistLessonDelete(id){cacheSave();sync('lessons','delete',id);}
-function persistAsset(a){cacheSave();sync('assets','upsert',assetRow(a));}
-function persistAssetDelete(id){cacheSave();sync('assets','delete',id);}
+function persistAsset(a){cacheSave();return sync('assets','upsert',assetRow(a));}
+function persistAssetDelete(id){cacheSave();return sync('assets','delete',id);}
 function persistTimeline(ev){cacheSave();sync('timeline_events','upsert',tlRow(ev));}
 let brainTimers={};
 function persistBrain(k){cacheSave();clearTimeout(brainTimers[k]);brainTimers[k]=setTimeout(()=>sync('brain_sections','upsert',brainRow(k)),600);}
@@ -1130,24 +1131,79 @@ async function downloadAssetFile(id){const a=byIdAsset(id);if(!a||!a.filePath){t
    PowerPoint/Word: no reliable dependency-free renderer runs in a browser
    (that needs a real Office engine — LibreOffice/Office server-side, or a
    heavy paid API). Rather than fake a cover, those get the polished
-   file-type "cover" treatment below instead of a tiny inline icon. */
+   file-type "cover" treatment below instead of a tiny inline icon.
+
+   Every stage below logs explicitly to the console (prefixed
+   "[Assets thumbnail]") so a failure is always traceable to one exact step —
+   nothing here is swallowed silently. */
 function isPdfFile(file){return (file.type||'').toLowerCase()==='application/pdf'||/\.pdf$/i.test(file.name||'');}
+
+const PDFJS_WORKER_CDN_URL='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+/* Browsers only allow the Worker() constructor to load a script from the
+   SAME origin as the page by default — a plain <script src> tag can be
+   cross-origin, but new Worker('https://cdnjs...') throws a SecurityError
+   in most browsers. Pointing GlobalWorkerOptions.workerSrc straight at the
+   CDN (the "obvious" setup) hits exactly that restriction, and PDF.js swallows
+   the resulting failure inside its internal worker bootstrap — which is why
+   every render was failing silently. Fix: fetch the worker script ourselves
+   and hand PDF.js a same-origin blob: URL instead. This is the standard,
+   documented workaround for "PDF.js worker from a CDN". */
+let __pdfWorkerReady=null;
+function ensurePdfWorkerConfigured(){
+  if(__pdfWorkerReady)return __pdfWorkerReady;
+  __pdfWorkerReady=(async()=>{
+    if(typeof pdfjsLib==='undefined'){
+      console.error('[Assets thumbnail] STEP 1 FAILED: pdfjsLib is undefined at generation time — the PDF.js <script> tag did not load (see the STEP 1 log at page load above, or check the Network tab for a blocked/failed request to cdnjs.cloudflare.com).');
+      return false;
+    }
+    console.log('[Assets thumbnail] STEP 1 confirmed OK: pdfjsLib is available.');
+    try{
+      const res=await fetch(PDFJS_WORKER_CDN_URL);
+      if(!res.ok)throw new Error('HTTP '+res.status+' fetching pdf.worker.min.js');
+      const code=await res.text();
+      const blobUrl=URL.createObjectURL(new Blob([code],{type:'application/javascript'}));
+      pdfjsLib.GlobalWorkerOptions.workerSrc=blobUrl;
+      console.log('[Assets thumbnail] PDF.js worker configured via same-origin blob URL (cross-origin Worker() restriction avoided).');
+      return true;
+    }catch(e){
+      console.error('[Assets thumbnail] Could not fetch/blob-ify the PDF.js worker script, falling back to a direct CDN workerSrc (may hit cross-origin Worker restrictions in some browsers):',e);
+      pdfjsLib.GlobalWorkerOptions.workerSrc=PDFJS_WORKER_CDN_URL;
+      return true; // still attempt rendering — some browsers/CDN CORS configs allow this directly
+    }
+  })();
+  return __pdfWorkerReady;
+}
 async function generatePdfThumbnailBlob(file){
-  if(typeof pdfjsLib==='undefined'){console.error('PDF.js not loaded — skipping thumbnail');return null;}
+  const workerReady=await ensurePdfWorkerConfigured();
+  if(!workerReady){console.error('[Assets thumbnail] Aborting thumbnail generation — PDF.js is not usable (see STEP 1 error above).');return null;}
+  let pdf,page,viewport,canvas,ctx;
   try{
-    if(!pdfjsLib.GlobalWorkerOptions.workerSrc)pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     const buf=await file.arrayBuffer();
-    const pdf=await pdfjsLib.getDocument({data:buf}).promise;
-    const page=await pdf.getPage(1);
+    pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    page=await pdf.getPage(1);
+  }catch(e){console.error('[Assets thumbnail] STEP 2 FAILED: could not open the PDF or load page 1:',e);return null;}
+  try{
     const base=page.getViewport({scale:1});
     const scale=Math.min(2,600/base.width);
-    const viewport=page.getViewport({scale});
-    const canvas=document.createElement('canvas');
+    viewport=page.getViewport({scale});
+    canvas=document.createElement('canvas');
     canvas.width=Math.max(1,Math.round(viewport.width));canvas.height=Math.max(1,Math.round(viewport.height));
-    const ctx=canvas.getContext('2d');
+    ctx=canvas.getContext('2d');
+    if(!ctx){console.error('[Assets thumbnail] STEP 2 FAILED: canvas.getContext("2d") returned null.');return null;}
     await page.render({canvasContext:ctx,viewport}).promise;
-    return await new Promise(res=>canvas.toBlob(res,'image/jpeg',0.82));
-  }catch(e){console.error('PDF thumbnail generation failed — falling back to the file-type cover',e);return null;}
+  }catch(e){console.error('[Assets thumbnail] STEP 2 FAILED: page.render() threw an error:',e);return null;}
+  if(!canvas||!canvas.width||!canvas.height){
+    console.error('[Assets thumbnail] STEP 2 FAILED: canvas exists but has zero dimensions after render.',canvas&&canvas.width,canvas&&canvas.height);
+    return null;
+  }
+  console.log('[Assets thumbnail] STEP 2 OK: Page rendered ('+canvas.width+'×'+canvas.height+')');
+  let blob;
+  try{
+    blob=await new Promise(res=>canvas.toBlob(res,'image/jpeg',0.82));
+  }catch(e){console.error('[Assets thumbnail] STEP 3 FAILED: canvas.toBlob() threw an error:',e);return null;}
+  if(!blob){console.error('[Assets thumbnail] STEP 3 FAILED: canvas.toBlob() returned null (possible tainted-canvas or unsupported-format issue).');return null;}
+  console.log('[Assets thumbnail] STEP 3 OK: Thumbnail generated, blob size',fmtBytes(blob.size));
+  return blob;
 }
 /* Batched, cached signed-URL fetch for card thumbnails — one Storage call
    for a whole page of cards instead of one per card, and reused across
@@ -1155,19 +1211,32 @@ async function generatePdfThumbnailBlob(file){
 let __thumbUrlCache={};
 const THUMB_CACHE_MS=45*60*1000;
 async function loadAssetThumbnails(list){
-  if(!CLOUD||!sb)return;
+  const withThumb=list.filter(a=>a.thumbPath);
+  if(!withThumb.length)return; // nothing to fetch — cards already show the fallback cover
+  if(!CLOUD||!sb){console.warn('[Assets thumbnail] STEP 6 SKIPPED: not signed in / no Supabase client — showing fallback covers.');return;}
   const now=Date.now();
-  const need=list.filter(a=>a.thumbPath&&(!__thumbUrlCache[a.thumbPath]||now-__thumbUrlCache[a.thumbPath].ts>THUMB_CACHE_MS)).map(a=>a.thumbPath);
+  const need=withThumb.filter(a=>!__thumbUrlCache[a.thumbPath]||now-__thumbUrlCache[a.thumbPath].ts>THUMB_CACHE_MS).map(a=>a.thumbPath);
   if(need.length){
+    console.log('[Assets thumbnail] STEP 6: requesting signed URLs for',need.length,'thumbnail(s):',need);
     try{
       const {data,error}=await sb.storage.from(ASSETS_BUCKET).createSignedUrls(need,3600);
-      if(!error&&data)data.forEach((d,i)=>{if(d&&d.signedUrl)__thumbUrlCache[need[i]]={url:d.signedUrl,ts:now};});
-    }catch(e){console.error('Thumbnail signed URL batch failed',e);}
+      if(error){
+        console.error('[Assets thumbnail] STEP 6 FAILED: createSignedUrls error:',error);
+      }else if(data){
+        let ok=0;
+        data.forEach((d,i)=>{
+          if(d&&d.signedUrl){__thumbUrlCache[need[i]]={url:d.signedUrl,ts:now};ok++;}
+          else console.error('[Assets thumbnail] STEP 6 FAILED for path',need[i],':',d&&d.error);
+        });
+        console.log('[Assets thumbnail] STEP 6 OK: signed URLs ready for',ok,'of',need.length);
+      }
+    }catch(e){console.error('[Assets thumbnail] STEP 6 FAILED: signed URL batch request threw:',e);}
   }
-  list.forEach(a=>{
-    if(!a.thumbPath)return;
+  withThumb.forEach(a=>{
     const c=__thumbUrlCache[a.thumbPath];const el=document.getElementById('athumb-'+a.id);
-    if(el&&c&&c.url&&!el.querySelector('img')){el.innerHTML='<img src="'+esc(c.url)+'" loading="lazy" alt="">';}
+    if(!el)return;
+    if(c&&c.url){if(!el.querySelector('img'))el.innerHTML='<img src="'+esc(c.url)+'" loading="lazy" alt="">';}
+    else console.warn('[Assets thumbnail] No signed URL available for',a.title,'('+a.thumbPath+') — leaving fallback cover in place.');
   });
 }
 
@@ -1509,14 +1578,25 @@ async function saveAsset(id){
     if(btn)btn.textContent='Generating cover…';
     const thumbBlob=await generatePdfThumbnailBlob(__afPicked);
     if(thumbBlob){
-      try{thumbPath=await uploadAssetToStorage(newId+'/thumb.jpg',thumbBlob);}
-      catch(e){console.error('Thumbnail upload failed — asset still saved fine without one',e);}
+      try{
+        thumbPath=await uploadAssetToStorage(newId+'/thumb.jpg',thumbBlob);
+        console.log('[Assets thumbnail] STEP 4 OK: Thumbnail uploaded to',thumbPath);
+      }catch(e){
+        console.error('[Assets thumbnail] STEP 4 FAILED: Thumbnail upload error:',e);
+      }
+    }else{
+      console.warn('[Assets thumbnail] No thumbnail blob produced (see STEP 2/3 log above) — asset will use the fallback file-type cover.');
     }
+  }else{
+    console.log('[Assets thumbnail] Skipped — not a PDF ('+(__afPicked.type||__afPicked.name)+'). Fallback cover will show; only PDF page-1 thumbnails are generated automatically today.');
   }
   const na=Object.assign({id:newId,fileName:__afPicked.name,fileType:__afPicked.type||'',fileSize:__afPicked.size,filePath:path,thumbPath,
     uploadedDate:today(),updatedDate:today(),createdBy:userName()},d);
   state.assets=state.assets||[];state.assets.push(na);
-  persistAsset(na);
+  persistAsset(na).then(ok=>{
+    if(ok)console.log('[Assets thumbnail] STEP 5 OK: thumb_path saved =',thumbPath||'(empty — no thumbnail for this file)');
+    else console.error('[Assets thumbnail] STEP 5 FAILED: the assets row upsert did not confirm — thumb_path NOT reliably saved. Check the "Supabase sync error" log above for the actual DB/RLS error.');
+  });
   __afPicked=null;closeModal();go('assetDetail',na.id);toast('Asset uploaded — visible to every authorised user');
 }
 async function delAsset(id){const a=byIdAsset(id);if(!a)return;if(!confirm('Delete this asset for everyone? This cannot be undone.'))return;
@@ -1553,14 +1633,25 @@ async function saveReplaceFile(id){const a=byIdAsset(id);if(!a)return;if(!__rfPi
     if(btn)btn.textContent='Generating cover…';
     const thumbBlob=await generatePdfThumbnailBlob(__rfPicked);
     if(thumbBlob){
-      try{newThumbPath=await uploadAssetToStorage(a.id+'/thumb.jpg',thumbBlob);}
-      catch(e){console.error('Thumbnail upload failed — file still replaced fine without one',e);}
+      try{
+        newThumbPath=await uploadAssetToStorage(a.id+'/thumb.jpg',thumbBlob);
+        console.log('[Assets thumbnail] STEP 4 OK: Thumbnail uploaded to',newThumbPath);
+      }catch(e){
+        console.error('[Assets thumbnail] STEP 4 FAILED: Thumbnail upload error:',e);
+      }
+    }else{
+      console.warn('[Assets thumbnail] No thumbnail blob produced (see STEP 2/3 log above) — asset will use the fallback file-type cover.');
     }
+  }else{
+    console.log('[Assets thumbnail] Skipped — not a PDF ('+(__rfPicked.type||__rfPicked.name)+'). Fallback cover will show.');
   }
   if(a.thumbPath&&a.thumbPath!==newThumbPath){await removeAssetFromStorage(a.thumbPath);delete __thumbUrlCache[a.thumbPath];} // old cover no longer applies (file type may have changed)
   a.fileName=__rfPicked.name;a.fileType=__rfPicked.type||'';a.fileSize=__rfPicked.size;a.filePath=newPath;a.thumbPath=newThumbPath;a.updatedDate=today();
   const v=document.getElementById('rf_version');if(v&&v.value.trim())a.version=v.value.trim();
-  persistAsset(a); // upserts by id — updates the existing row, never creates a duplicate
+  persistAsset(a).then(ok=>{ // upserts by id — updates the existing row, never creates a duplicate
+    if(ok)console.log('[Assets thumbnail] STEP 5 OK: thumb_path saved =',newThumbPath||'(empty — no thumbnail for this file)');
+    else console.error('[Assets thumbnail] STEP 5 FAILED: the assets row upsert did not confirm — thumb_path NOT reliably saved. Check the "Supabase sync error" log above for the actual DB/RLS error.');
+  });
   __rfPicked=null;closeModal();render();toast('File replaced');
 }
 
