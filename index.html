@@ -249,6 +249,72 @@
     .g2,.detail-grid,.field-row{grid-template-columns:1fr}
   }
   @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+  /* ===== Marketing Assistant ===== */
+  .mk-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-bottom:8px}
+  .mk-taskcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px;
+    display:flex;flex-direction:column;gap:10px;transition:border-color .15s}
+  .mk-taskcard.overdue{border-color:rgba(224,101,75,.45)}
+  .mk-taskcard.done{opacity:.6}
+  .mk-tc-label{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+  .mk-tc-title{font-size:16px;font-weight:620;line-height:1.35;letter-spacing:-.01em}
+  .mk-tc-sub{font-size:12.5px;color:var(--muted);line-height:1.5}
+  .mk-tc-meta{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--faint);margin-top:auto;padding-top:4px}
+  .mk-tc-when{font-family:ui-monospace,monospace}
+  .mk-tc-when.overdue{color:var(--red)}
+  .mk-tc-when.today{color:var(--gold)}
+  .mk-status{display:inline-flex;border:1px solid var(--line-s);border-radius:9px;overflow:hidden}
+  .mk-status button{background:transparent;border:none;color:var(--muted);padding:6px 11px;font-size:11.5px;cursor:pointer;font-family:inherit}
+  .mk-status button.active{background:var(--panel2);color:var(--gold)}
+  .mk-check{width:19px;height:19px;flex:none;accent-color:var(--gold);cursor:pointer}
+  .mk-tc-check-row{display:flex;align-items:center;gap:10px}
+
+  .mk-upcoming{display:flex;flex-direction:column;gap:2px}
+  .mk-up-row{display:flex;align-items:baseline;gap:12px;padding:9px 4px;font-size:13px;border-bottom:1px solid var(--line)}
+  .mk-up-row:last-child{border-bottom:none}
+  .mk-up-day{font-family:ui-monospace,monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);min-width:80px;flex:none}
+  .mk-up-text{color:var(--txt)}
+
+  .rem-row{display:flex;align-items:flex-start;gap:12px;padding:12px 15px;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;margin-bottom:8px;transition:border-color .15s}
+  .rem-row:hover{border-color:var(--line-s)}
+  .rem-row.overdue{border-color:rgba(224,101,75,.4)}
+  .rem-row.done{opacity:.5}
+  .rem-chk{width:18px;height:18px;flex:none;margin-top:1px;accent-color:var(--gold);cursor:pointer}
+  .rem-main{flex:1;min-width:0;cursor:pointer}
+  .rem-title{font-size:13.5px;font-weight:560;line-height:1.4}
+  .rem-row.done .rem-title{text-decoration:line-through;color:var(--muted)}
+  .rem-notes{font-size:11.5px;color:var(--muted);margin-top:3px}
+  .rem-side{display:flex;align-items:center;gap:8px;flex:none;margin-top:1px}
+  .rem-dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .rem-date{font-size:11px;color:var(--faint);font-family:ui-monospace,monospace;white-space:nowrap;min-width:58px;text-align:right}
+
+  /* month-grid calendar */
+  .cal-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .cal-toolbar .cal-label{font-size:15px;font-weight:620;min-width:170px}
+  .cal-grid-wrap{overflow-x:auto;margin-bottom:8px}
+  .cal-head-row{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--line);
+    border:1px solid var(--line);border-radius:12px 12px 0 0;overflow:hidden;min-width:900px}
+  .cal-head-cell{background:#060B10;padding:9px 10px;font-family:ui-monospace,monospace;font-size:9.5px;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--faint);text-align:center}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--line);
+    border:1px solid var(--line);border-top:none;border-radius:0 0 12px 12px;overflow:hidden;min-width:900px}
+  .cal-cell{background:var(--panel);min-height:118px;padding:7px;display:flex;flex-direction:column;gap:4px}
+  .cal-cell.other{background:#0A1620;opacity:.5}
+  .cal-cell.today{box-shadow:inset 0 0 0 2px var(--gold)}
+  .cal-cell-num{font-family:ui-monospace,monospace;font-size:11px;color:var(--faint)}
+  .cal-cell.today .cal-cell-num{color:var(--gold);font-weight:700}
+  .cal-cell-more{font-size:10px;color:var(--faint);font-family:ui-monospace,monospace;padding:1px 2px}
+  .cal-mini{background:var(--panel2);border-radius:6px;padding:3px 6px 3px 7px;font-size:10.5px;line-height:1.35;
+    cursor:pointer;display:flex;align-items:flex-start;gap:5px;border-left:2px solid var(--gold);transition:background .12s}
+  .cal-mini:hover{background:var(--raise)}
+  .cal-mini.overdue{border-left-color:var(--red);background:rgba(224,101,75,.14)}
+  .cal-mini.done{opacity:.55;border-left-color:var(--faint);cursor:default}
+  .cal-mini.done .cal-mini-text{text-decoration:line-through}
+  .cal-mini-chk{width:12px;height:12px;flex:none;margin-top:2px;accent-color:var(--gold);cursor:pointer}
+  .cal-mini-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;
+    -webkit-line-clamp:2;-webkit-box-orient:vertical}
+  @media(max-width:880px){.cal-head-row,.cal-grid{min-width:680px}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" onload="console.log('[Assets thumbnail] STEP 1 OK: PDF.js loaded'+(typeof pdfjsLib!=='undefined'&&pdfjsLib.version?(' — version '+pdfjsLib.version):''))" onerror="console.error('[Assets thumbnail] STEP 1 FAILED: the PDF.js library file failed to load from cdnjs.cloudflare.com — check network access, ad-blockers, or Content-Security-Policy restrictions on this domain.')"></script>
@@ -295,6 +361,162 @@ const INVEST_STATUS=["Researching","Contacted","Pitched","In discussion","Term s
 const WARMTH=["Warm","Neutral","Cold"];
 const REL_TO_KWELI=["Prospect","Customer","Investor","Strategic Advisor","Mentor","Partner","Supplier","Friend","Team","Board Member","Other"];
 const WAITING_STAGES=["Contacted","Proposal sent"];
+
+/* ---- Marketing Assistant constants ---- */
+const REM_PRIORITIES=["High","Medium","Low"];
+const REM_REPEATS=[["","Doesn't repeat"],["daily","Daily"],["weekly","Weekly"],["monthly","Monthly"],["quarterly","Quarterly"]];
+function repeatLabel(r){return (REM_REPEATS.find(x=>x[0]===r)||['',''])[1];}
+/* The engine — one entry per slot in the annual plan. `weekday` (0=Sun) is used
+   only to seed the first due date and to label the Upcoming preview; after that,
+   each slot's own due date drives everything. `est` is a fixed, informational
+   time estimate — not something you configure per task. */
+const MK_ENGINE_DEF={
+  monday:   {label:'Today\u2019s Marketing',weekday:1,repeat:'weekly',est:90,queue:'article'},
+  tuesday:  {label:'Today\u2019s LinkedIn', weekday:2,repeat:'weekly',est:20,queue:'linkedin'},
+  wednesday:{label:'Research',              weekday:3,repeat:'weekly',est:30,queue:'research'},
+  thursday: {label:'Founder / Opinion',     weekday:4,repeat:'weekly',est:60,queue:'founderOpinion'},
+  friday:   {label:'Today\u2019s Outreach', weekday:5,repeat:'weekly',est:30,queue:'outreach'},
+  monthly:  {label:'Research report',       weekday:null,repeat:'monthly',est:90,queue:'report'},
+  quarterly:{label:'Flagship report',       weekday:null,repeat:'quarterly',est:120,queue:'flagship'}
+};
+const MK_UPCOMING_ORDER=['monday','tuesday','wednesday','thursday','friday'];
+const MK_DAY_NAMES=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+/* ---- Annual content queues, drawn from Kweli's marketing strategy doc ---- */
+const ARTICLE_QUEUE=[
+  {title:"Why Every Institution Depends on Documents It Didn’t Create",audience:"Founders, CFOs",goal:"Names the universal problem; objective: seed category awareness; CTA: “What’s the last document you trusted without checking?”"},
+  {title:"The Difference Between Fraud Detection and Tamper-Evidence",audience:"Auditors, compliance",goal:"Protects the precision line; objective: pre-qualify buyers; CTA: link to explainer page"},
+  {title:"What a Certificate Actually Proves (And What It Doesn’t)",audience:"Labs, certification bodies",goal:"Reframes trust in credentials; objective: lab vertical education; CTA: invite to pilot"},
+  {title:"The Hidden Cost of “We’ll Just Call to Confirm”",audience:"Insurers, brokers",goal:"Makes manual verification’s cost visible; objective: ROI framing; CTA: download cost calculator"},
+  {title:"Why Insurance Claims Fraud Is a Documentation Problem, Not a People Problem",audience:"Insurance claims leaders",goal:"Reframes blame from adjusters to process; objective: mandate-mechanic seeding; CTA: request pilot"},
+  {title:"The Export Certificate Nobody Can Verify",audience:"Exporters, trade bodies",goal:"Grounds the trade vertical in a real workflow; objective: KEBS/KEPHIS awareness; CTA: download trade guide"},
+  {title:"Why Blockchain Is the Boring Part of Verification Infrastructure",audience:"Technical/investor audience",goal:"De-hypes blockchain, builds credibility; objective: differentiate from crypto noise; CTA: read technology page"},
+  {title:"What Happens When a Lab Report Gets Edited After Signing",audience:"Labs, quality managers",goal:"Concrete scenario storytelling; objective: urgency; CTA: request demo"},
+  {title:"The Audit Trail You Don’t Actually Have",audience:"Internal audit, compliance",goal:"Challenges assumed control maturity; objective: compliance vertical entry; CTA: download audit checklist"},
+  {title:"Why “Trust Us” Doesn’t Scale Past Ten Customers",audience:"Founders/operators",goal:"Business philosophy angle; objective: brand voice; CTA: none, pure thought leadership"},
+  {title:"The Missing Layer Between Your Database and the Real World",audience:"Technical buyers, CTOs",goal:"Explains the proof-layer concept simply; objective: technical credibility; CTA: read how-it-works page"},
+  {title:"Why Regulators Should Care About Document Provenance",audience:"Regulators, standards bodies",goal:"Positions Kweli as policy-adjacent; objective: long-term mandate path; CTA: invite to roundtable"},
+  {title:"The One Insurer That Changed an Entire Provider Network",audience:"Insurers, brokers",goal:"Tells the mandate-mechanic story generically; objective: seed the mandate idea; CTA: request pilot"},
+  {title:"Why Independent Verification Beats Internal Controls Alone",audience:"CFOs, risk officers",goal:"Argues for third-party proof; objective: enterprise governance entry; CTA: download whitepaper"},
+  {title:"What SHA-256 Actually Does (Explained Without Jargon)",audience:"General business audience",goal:"Demystifies the tech; objective: accessibility; CTA: none"},
+  {title:"The Real Reason Certificates Get Faked",audience:"Certification bodies",goal:"Root-cause framing; objective: lab/cert vertical; CTA: request pilot"},
+  {title:"Why “We Have an ERP” Isn’t the Same as “Our Records Are Provable”",audience:"Enterprise IT, CFOs",goal:"Distinguishes storage from proof; objective: enterprise governance; CTA: download comparison guide"},
+  {title:"The Cost of a Single Fraudulent Insurance Claim, Broken Down",audience:"Insurers",goal:"Data-led piece; objective: ROI case; CTA: download cost model"},
+  {title:"Why AI-Generated Documents Make Verification More Urgent, Not Less",audience:"Broad enterprise audience",goal:"Timely hook tied to AI; objective: category urgency; CTA: subscribe to newsletter"},
+  {title:"What a Chain of Custody Really Requires",audience:"Legal, compliance",goal:"Legal-adjacent framing; objective: legal influencer channel; CTA: invite legal roundtable"},
+  {title:"The Three Questions Every Auditor Should Ask About a Document",audience:"Auditors",goal:"Practical utility piece; objective: auditor influence channel; CTA: download checklist"},
+  {title:"Why Kenya’s Export Sector Has a Trust Problem Worth $X",audience:"Trade bodies, exporters",goal:"Local data-led framing; objective: PR-worthy stat; CTA: read full report"},
+  {title:"The Difference Between “Verified” and “Approved”",audience:"General B2B",goal:"Precision-language education; objective: category clarity; CTA: none"},
+  {title:"Why Universities Still Can’t Stop Fake Degrees",audience:"Universities, HR leaders",goal:"Credentials vertical seeding; objective: long-game awareness; CTA: none"},
+  {title:"What Happens After a Document Is Verified — And Why That Matters",audience:"Buyers/verifiers",goal:"Explains the free, public verification model; objective: trust-building; CTA: try verification demo"},
+  {title:"The Business Case for Paying to Prove You Didn’t Lie",audience:"CFOs, founders",goal:"Reframes registration cost as insurance; objective: pricing narrative; CTA: request pricing"},
+  {title:"Why Trust Breaks Down at the Handoff, Not the Origin",audience:"Operations leaders",goal:"Process-level insight; objective: workflow education; CTA: download workflow guide"},
+  {title:"The Quiet Infrastructure Behind Every Trusted Brand",audience:"General audience",goal:"Category-framing, Stripe/Twilio analogy; objective: brand positioning; CTA: none"},
+  {title:"Why a Lab’s Reputation Is Only as Strong as Its Weakest Report",audience:"Labs",goal:"Reputational risk framing; objective: lab vertical; CTA: request pilot"},
+  {title:"What Insurers Get Wrong About Claims Fraud Prevention",audience:"Insurers",goal:"Contrarian, thought-leadership angle; objective: authority-building; CTA: download report"},
+  {title:"The Case for Boring Technology in High-Stakes Industries",audience:"Technical/investor audience",goal:"Philosophy piece on reliability over hype; objective: brand voice; CTA: none"},
+  {title:"Why “Tamper-Evident” Is a Better Promise Than “Tamper-Proof”",audience:"Technical/compliance",goal:"Precision-language piece; objective: honesty as differentiator; CTA: none"},
+  {title:"How a Broker Uncovered the Real Leverage Point in Insurance Fraud",audience:"Brokers, insurers",goal:"Field-story format; objective: broker channel activation; CTA: invite broker conversation"},
+  {title:"The Documents Your Business Can’t Afford to Leave Unverifiable",audience:"SMBs, founders",goal:"Practical starter piece; objective: SMB education (future market); CTA: none"},
+  {title:"Why Verification Should Be Free and Registration Should Be the Business",audience:"General B2B/investors",goal:"Business model transparency; objective: pricing philosophy; CTA: none"},
+  {title:"What East Africa Can Teach the World About Document Trust",audience:"Global audience, press",goal:"PR-angled thought piece; objective: international press pickup; CTA: none"},
+  {title:"The Compliance Officer’s Impossible Job",audience:"Compliance officers",goal:"Empathy-driven piece; objective: compliance vertical; CTA: download guide"},
+  {title:"Why Certification Bodies Are the Most Underrated Vertical in Trust Tech",audience:"Investors, cert bodies",goal:"Investor-facing category education; objective: fundraising support; CTA: none"},
+  {title:"What a Verification Link Actually Shows You",audience:"General buyers",goal:"Product-education piece; objective: reduce sales friction; CTA: try demo link"},
+  {title:"The Myth That Blockchain Alone Solves Trust",audience:"Technical/skeptical audience",goal:"Addresses objection directly; objective: credibility; CTA: none"},
+  {title:"Why We Chose Base Over Other Chains",audience:"Technical audience",goal:"Transparent technical reasoning; objective: technical credibility; CTA: read tech page"},
+  {title:"The Hidden Tax of Manual Document Verification in African Trade",audience:"Trade bodies, exporters",goal:"Economic framing; objective: PR/report seed; CTA: read trade report"},
+  {title:"Why Institutional Buyers Don’t Trust Self-Reported Compliance",audience:"Enterprise buyers",goal:"Governance-vertical seeding; objective: long-game category; CTA: none"},
+  {title:"What It Actually Takes to Fake a PDF (And Why It’s Easier Than You Think)",audience:"General audience",goal:"Attention-grabbing, factual; objective: urgency without fear-mongering; CTA: none"},
+  {title:"The Three Types of Document Trust Failures We See Most",audience:"Multi-vertical",goal:"Pattern-recognition piece; objective: category education; CTA: download taxonomy guide"},
+  {title:"Why We Built Kweli to Never See Your Documents",audience:"Privacy-conscious buyers",goal:"Privacy-first differentiation; objective: objection handling; CTA: read privacy explainer"},
+  {title:"What Happens to Trust When Everyone Can Generate a Perfect Fake",audience:"AI-adjacent audience",goal:"Timely, forward-looking; objective: category urgency; CTA: subscribe"},
+  {title:"The Founders Building Trust Infrastructure for Africa",audience:"Press, investors",goal:"Founder-story framing; objective: PR angle; CTA: none"},
+  {title:"Why We Say No to Fraud-Detection Framing",audience:"Skeptical buyers/investors",goal:"Direct precision-line defense; objective: credibility through restraint; CTA: none"},
+  {title:"What a Five-Year Verification Infrastructure Category Looks Like",audience:"Investors, press",goal:"Vision piece closing the year; objective: category ownership; CTA: none"},
+];
+
+const OPINION_QUEUE=[
+  {title:"Fraud Detection Is the Wrong Framing for What African Institutions Actually Need",audience:"Investors, buyers",goal:"Contrarian, category-defining; CTA: none"},
+  {title:"Why “Blockchain for Trust” Marketing Has Set the Category Back Five Years",audience:"Technical/press",goal:"De-hype positioning; CTA: none"},
+  {title:"The Insurance Industry Doesn’t Have a Fraud Problem. It Has a Documentation Problem.",audience:"Insurers",goal:"Reframing argument; CTA: request pilot"},
+  {title:"Africa Doesn’t Need to Import Trust Infrastructure. It Can Build the Reference Model.",audience:"Press, investors",goal:"Regional pride/PR angle; CTA: none"},
+  {title:"Why Regulators Move Slower Than Fraud — And What Changes That",audience:"Regulators, policy",goal:"Policy-adjacent thought piece; CTA: invite dialogue"},
+  {title:"The Danger of Overpromising What Verification Can Do",audience:"Investors, buyers",goal:"Precision-defense piece; CTA: none"},
+  {title:"Why Every Export Economy Has a Silent Tax Called Document Friction",audience:"Trade bodies",goal:"Economic argument; CTA: read trade report"},
+  {title:"AI Will Make Document Forgery Free. Institutions Aren’t Ready.",audience:"Broad enterprise",goal:"Urgent, timely; CTA: subscribe"},
+  {title:"The Quiet Failure Mode of Every Audit: Assumed Authenticity",audience:"Auditors",goal:"Professional-audience challenge; CTA: none"},
+  {title:"Why Mandates, Not Marketing, Create Trust Markets",audience:"Investors",goal:"Strategic honesty; CTA: none"},
+  {title:"Stop Calling It “Blockchain for X.” Start Explaining What X Actually Needs.",audience:"Founders/technical",goal:"Industry critique; CTA: none"},
+  {title:"The Case Against Building Trust Infrastructure as a Feature Inside Someone Else’s Platform",audience:"Investors, technical",goal:"Independence argument; CTA: none"},
+  {title:"Why Kenya Is a Better Proving Ground for Trust Infrastructure Than Silicon Valley",audience:"Press, investors",goal:"Regional-strength argument; CTA: none"},
+  {title:"The Ethics of Building Verification Tools That Never See the Document",audience:"Privacy advocates",goal:"Values-led piece; CTA: none"},
+  {title:"Why “Move Fast” Is the Wrong Motto for Infrastructure Companies",audience:"Founders",goal:"Philosophy/credibility; CTA: none"},
+  {title:"Insurance Fraud Isn’t Solved by Better Investigators. It’s Solved by Better Provenance.",audience:"Insurers",goal:"Industry critique; CTA: none"},
+  {title:"The Coming Reckoning Between AI-Generated Content and Institutional Trust",audience:"Broad/press",goal:"Forward-looking, PR-friendly; CTA: none"},
+  {title:"Why Certification Bodies Are Sitting on an Unpriced Liability",audience:"Cert bodies, investors",goal:"Provocative framing; CTA: none"},
+  {title:"What the Global South Can Teach the World About Building Trust Without Legacy Infrastructure",audience:"Press, global investors",goal:"Leapfrog-narrative; CTA: none"},
+  {title:"Why We Refuse to Say Kweli “Proves the Truth”",audience:"All",goal:"Precision-line manifesto; CTA: none"},
+  {title:"The Overlooked Cost of Trust: What Manual Verification Actually Takes Out of an Economy",audience:"Trade bodies, economists",goal:"Macro argument; CTA: read report"},
+  {title:"Why Standards Bodies Should Get Ahead of Verification Mandates Now",audience:"Regulators",goal:"Policy nudge; CTA: invite roundtable"},
+  {title:"The Myth That More Regulation Solves Document Fraud",audience:"Policy, regulators",goal:"Contrarian argument; CTA: none"},
+  {title:"Why We Chose to Launch with Insurance and Not the “Obvious” Government Use Case",audience:"Investors",goal:"Strategic transparency; CTA: none"},
+  {title:"What Happens to Institutional Trust When Verification Is Free but Ignored",audience:"All",goal:"Closing-the-loop philosophy piece; CTA: none"},
+];
+
+const FOUNDER_QUEUE=[
+  {title:"The Conversation That Made Arjun Realize Verification Was the Real Problem",audience:"Press, investors",goal:"Origin story; CTA: none"},
+  {title:"Why Mason Left [Prior Work] to Build the Technical Core of Kweli",audience:"Talent, technical",goal:"Team credibility; CTA: none"},
+  {title:"What Paris Learned Watching Farmers Lose Money to Missing Records",audience:"Press, agriculture",goal:"Grounded origin story; CTA: none"},
+  {title:"The First Pitch Deck We’re Embarrassed to Show Anyone",audience:"Investors",goal:"Vulnerability/growth; CTA: none"},
+  {title:"What a Broker Told Us That Changed Our Entire Go-to-Market",audience:"Insurers, brokers",goal:"Field-insight story; CTA: none"},
+  {title:"Building a CRM Before We Had a Single Customer",audience:"Founders",goal:"Building-in-public; CTA: none"},
+  {title:"The Week We Almost Positioned Kweli as a Fraud-Detection Company",audience:"Investors",goal:"Honest strategic pivot story; CTA: none"},
+  {title:"Why We Said No to Our First Interested Customer",audience:"Investors, buyers",goal:"Discipline story; CTA: none"},
+  {title:"What Three Founders from Media, Engineering, and Agriculture Have in Common",audience:"Press",goal:"Team-diversity narrative; CTA: none"},
+  {title:"The Investor Meeting That Taught Us Our TAM Slide Was Wrong",audience:"Investors",goal:"Credibility through humility; CTA: none"},
+  {title:"Why We Moved from Celo to Base",audience:"Technical",goal:"Transparent technical decision story; CTA: none"},
+  {title:"The First Time Someone Tried to Break Kweli’s Verification",audience:"Technical, buyers",goal:"Security credibility; CTA: none"},
+  {title:"What It’s Like Selling Infrastructure Nobody Asked For Yet",audience:"Founders, investors",goal:"Category-creation honesty; CTA: none"},
+  {title:"Why We’re Building This in Nairobi, Not Relocating to Raise Faster",audience:"Press, investors",goal:"Regional-commitment story; CTA: none"},
+  {title:"The Lesson From Our First Failed Pilot Conversation",audience:"Investors, buyers",goal:"Honest failure story; CTA: none"},
+  {title:"How a Lab Director’s Frustration Became Our Clearest Use Case",audience:"Labs",goal:"Customer-origin story; CTA: none"},
+  {title:"What We Got Wrong About Who Our First Customer Would Be",audience:"Investors",goal:"Retrospective honesty; CTA: none"},
+  {title:"Why Paris Spends More Time Listening Than Pitching",audience:"Press, sales",goal:"Sales-philosophy story; CTA: none"},
+  {title:"The Night We Rewrote the Entire Pitch Deck Narrative",audience:"Investors",goal:"Process transparency; CTA: none"},
+  {title:"What Building Trust Infrastructure Has Taught Us About Trusting Each Other",audience:"Press, general",goal:"Team-culture closer; CTA: none"},
+];
+
+const FLAGSHIP_QUEUE=[
+  {title:"The State of Document Trust in East Africa (flagship annual)"},
+  {title:"The Annual Verification Infrastructure Index (Kweli’s own proprietary index, tracking adoption/maturity across sectors — this is the report designed specifically to become the category’s reference statistic, the equivalent of a “State of DevOps” report for this category)"},
+  {title:"The State of Verification Infrastructure Globally (positions Kweli against/alongside international peers like Vanta, Persona, Trinsic, SpruceID)"},
+  {title:"Trust Infrastructure Investment Trends (annual, investor-facing)"},
+];
+
+const REPORT_QUEUE=[
+  {title:"The Cost of Unverifiable Documents to African Trade"},
+  {title:"The Insurance Claims Fraud Report: Kenya"},
+  {title:"The State of Laboratory Reporting Integrity"},
+  {title:"The Certification Fraud Index"},
+  {title:"What Auditors Wish Their Clients Understood About Document Trust"},
+  {title:"The Export Documentation Friction Report"},
+  {title:"The Hidden Cost of Manual Verification: A Time-and-Motion Study"},
+  {title:"The African Regulator’s Guide to Document Provenance Standards"},
+  {title:"Credential Fraud in East African Higher Education"},
+  {title:"The Broker’s View: How Insurance Intermediaries See Documentation Risk"},
+  {title:"ESG Reporting and the Verification Gap"},
+  {title:"The State of Corporate Governance Recordkeeping in Kenya"},
+  {title:"The AI-Generated Document Risk Index"},
+  {title:"What a Mandate-Driven Market Looks Like: Insurance Empanelment Case Study"},
+  {title:"The Cross-Border Trade Trust Gap: Kenya–Tanzania"},
+  {title:"The State of Audit Trail Maturity Among East African Enterprises"},
+  {title:"Why Fraud Investigations Take So Long: A Documentation Bottleneck Study"},
+  {title:"The Cost of a Single Fraudulent Claim: A Sector-by-Sector Breakdown"},
+  {title:"The State of Blockchain Infrastructure Adoption in African Enterprise (positions Kweli as the pragmatic, non-hype voice)"},
+  {title:"Verification and the Informal Economy: A Five-Year Outlook"},
+  {title:"What Institutions Actually Mean When They Say “We Have Controls”"},
+];
 const CLOSED=["Closed","Paused"];
 const STAGE_COLOR={"Identified":"#6E8794","Researched":"#7CA0B0","Contacted":"#C9A24B","Replied":"#D9B968","Meeting booked":"#4FA3D1","Meeting done":"#5FB0C9","Proposal sent":"#C9A24B","Pilot discussion":"#6FBE9E","Pilot agreed":"#46B98A","Closed":"#46B98A","Paused":"#5E7785"};
 const ACT_TYPES=["Note","Research","Email","Meeting","Proposal","Follow-up","Pilot","Stage"];
@@ -353,6 +575,53 @@ function addDays(n){const d=new Date();d.setDate(d.getDate()+n);return iso(d)}
 function fmtDate(s){if(!s)return"";return new Date(s+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}
 function daysUntil(s){if(!s)return null;return Math.round((new Date(s+"T00:00:00")-new Date(today()+"T00:00:00"))/864e5)}
 function uid(p){try{if(crypto&&crypto.randomUUID)return crypto.randomUUID();}catch(e){}return (p||'o')+Math.random().toString(36).slice(2,9)+Math.random().toString(36).slice(2,9);}
+
+/* ====== Marketing Assistant — data model & persistence ======
+   Two kinds of items, deliberately kept separate from `state` (the shared
+   Supabase-backed CRM data) so it can never be wiped out by the several
+   places in this app that wholesale-replace `state` (legacyLoad, resetDemo,
+   importData, the offline cache fallback in fetchAll). It's its own small
+   localStorage store — see Settings for the upgrade path if this should
+   ever become shared/cross-device.
+
+   1) `engine` — the 7 slots of the annual plan (Mon–Fri + monthly + quarterly).
+      Each slot just tracks {dueDate, status/completed, index}. The index is a
+      pointer into that slot's content queue (e.g. ARTICLE_QUEUE) — completing
+      a slot logs it, advances the pointer to the next item, and pushes the due
+      date forward by the slot's cadence. Nothing to configure, nothing to pick:
+      the title always comes from wherever the pointer currently sits. Miss a
+      week and the pointer simply doesn't move — it stays overdue and keeps
+      showing until you catch up.
+   2) `custom` — your own one-off reminders (follow-ups, ad hoc things) using
+      the same simple fields as before: title, due date, optional repeat,
+      priority, notes, completed. */
+const MK_STORE='kweli_marketing_v3';
+function mkEngineSlot(key,o){const def=MK_ENGINE_DEF[key];
+  return Object.assign({dueDate:def.weekday!=null?nextWeekday(def.weekday):(def.repeat==='monthly'?nextMonthFirst():nextQuarterFirst()),
+    status:'not_started',index:0},o||{});}
+function defaultEngine(){const e={};Object.keys(MK_ENGINE_DEF).forEach(k=>e[k]=mkEngineSlot(k));return e;}
+function mkReminder(o){return Object.assign({id:uid('rem'),title:'',dueDate:today(),repeat:'',priority:'Medium',
+  notes:'',completed:false,completedDate:''},o||{});}
+function defaultMk(){return {engine:defaultEngine(),custom:[],completions:[]};}
+function migrateMk(m){
+  if(!m||typeof m!=='object')return null;
+  if(!m.engine||!Array.isArray(m.custom))return null; // old/foreign shape — caller will seed fresh instead
+  const engine={};Object.keys(MK_ENGINE_DEF).forEach(k=>{engine[k]=mkEngineSlot(k,m.engine[k]||{});});
+  return {engine,custom:m.custom.map(r=>mkReminder(r)),completions:m.completions||[]};
+}
+function nextWeekday(targetDow){const d=new Date();let add=(targetDow-d.getDay()+7)%7;if(add===0)add=7;d.setDate(d.getDate()+add);return iso(d);}
+function nextMonthFirst(){const d=new Date();d.setMonth(d.getMonth()+1);d.setDate(1);return iso(d);}
+function nextQuarterFirst(){const d=new Date();const q=Math.floor(d.getMonth()/3);d.setMonth(q*3+3);d.setDate(1);return iso(d);}
+function loadMarketing(){
+  try{const raw=localStorage.getItem(MK_STORE);if(raw){const m=migrateMk(JSON.parse(raw));if(m)return m;}}catch(e){}
+  const fresh=defaultMk();
+  try{localStorage.setItem(MK_STORE,JSON.stringify(fresh));}catch(e){}
+  return fresh;
+}
+function saveMarketing(){try{localStorage.setItem(MK_STORE,JSON.stringify(mk));}catch(e){}}
+function byMkReminder(id){return mk.custom.find(r=>r.id===id)}
+let mk=loadMarketing(); // Marketing Assistant data — own localStorage store, independent of `state` (see note above loadMarketing()).
+console.log('[MK_CAL_DEBUG] Kweli Brain build check — calendar-nav-debug-build loaded. If you do NOT see this line in your console, your browser is serving a cached/older copy of this file — hard refresh (Ctrl/Cmd+Shift+R) or re-download it.');
 
 /* demo */
 function seed(){
@@ -712,7 +981,8 @@ let route={view:'dashboard',id:null,companyView:'cards',
   lessonFilter:{q:'',cat:'',src:'',sort:'newest'},
   assetFilter:{q:'',collection:'',type:'',sort:'updated'},
   ask:{query:'',results:null,loading:false,showTemplates:false},
-  ws:{task:'research',company:'',text:''}};
+  ws:{task:'research',company:'',text:''},
+  mk:{showCompleted:false,view:'today',calMonth:mkThisMonthFirst()}};
 const NAV=[
   {id:'dashboard',label:'Today',icon:'home'},
   {id:'companies',label:'Companies',icon:'list'},
@@ -725,6 +995,8 @@ const NAV=[
   {id:'objections',label:'Objections',icon:'shield'},
   {id:'knowledge',label:'Knowledge Base',icon:'book'},
   {id:'assets',label:'Assets',icon:'assets'},
+  {sect:'Growth'},
+  {id:'marketing',label:'Marketing',icon:'marketing'},
   {sect:'System'},
   {id:'settings',label:'Settings / Backup',icon:'gear'}
 ];
@@ -739,7 +1011,8 @@ function ICON(n){const p={
   shield:'<path d="M12 3l7 3v5c0 4.4-3 7.7-7 9-4-1.3-7-4.6-7-9V6z"/><path d="M9 12l2 2 4-4"/>',
   book:'<path d="M4 4h13a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2z"/><path d="M4 4v14"/>',
   assets:'<path d="M3 7.5a2 2 0 0 1 2-2h4l1.6 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
-  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 13a7 7 0 0 0 0-2l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1L15 3H9l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5L4.6 11a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1L9 21h6l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5z"/>'
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 13a7 7 0 0 0 0-2l2-1.5-2-3.5-2.3 1a7 7 0 0 0-1.7-1L15 3H9l-.4 2.5a7 7 0 0 0-1.7 1l-2.3-1-2 3.5L4.6 11a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.3-1a7 7 0 0 0 1.7 1L9 21h6l.4-2.5a7 7 0 0 0 1.7-1l2.3 1 2-3.5z"/>',
+  marketing:'<path d="M9 11l2 2 4-5"/><rect x="3" y="4" width="18" height="17" rx="3"/><path d="M3 9h18"/>'
 }[n]||'';return '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';}
 function renderNav(){const od=overdue().length;
   document.getElementById('nav').innerHTML=NAV.map(n=>{
@@ -845,7 +1118,7 @@ function allObjections(){return state.opps.filter(o=>getCompanyObjections(o));}
 /* ============ RENDER ============ */
 function render(){renderNav();
   const v={dashboard:vDash,companies:vCompanies,investors:vInvestors,people:vPeople,followups:vFollow,
-    lessons:vLessons,objections:vObjections,workspace:vWorkspace,knowledge:vKnowledge,assets:vAssets,assetDetail:vAssetDetail,settings:vSettings,detail:vDetail}[route.view]||vDash;
+    lessons:vLessons,objections:vObjections,workspace:vWorkspace,knowledge:vKnowledge,assets:vAssets,assetDetail:vAssetDetail,settings:vSettings,detail:vDetail,marketing:vMarketing}[route.view]||vDash;
   document.getElementById('content').innerHTML=v();afterRender();}
 
 /* Dashboard — command centre */
@@ -1732,6 +2005,9 @@ function vSettings(){
     '<div style="display:flex;gap:11px;flex-wrap:wrap"><button class="btn" onclick="resetDemo()">Reset demo data</button><button class="btn danger" onclick="clearAll()">Delete all data</button></div></div>'+
   '<div class="card"><div class="sec-h"><h2>Storage</h2></div>'+
     '<div class="kv"><span class="k">Companies</span><span class="v">'+state.opps.length+'</span></div><div class="kv"><span class="k">People</span><span class="v">'+state.people.length+'</span></div><div class="kv"><span class="k">Lessons</span><span class="v">'+state.lessons.length+'</span></div><div class="kv"><span class="k">Assets</span><span class="v">'+(state.assets||[]).length+'</span></div><div class="kv"><span class="k">Mode</span><span class="v">'+(CLOUD?'Cloud (shared)':'Local (this browser)')+'</span></div></div>'+
+  '<div class="card"><div class="sec-h"><h2>Marketing Assistant</h2></div>'+
+    '<div class="kv"><span class="k">Your own reminders</span><span class="v">'+mk.custom.length+'</span></div><div class="kv"><span class="k">Mode</span><span class="v">Local (this browser)</span></div>'+
+    '<p class="faint" style="font-size:11.5px;line-height:1.6;margin:10px 0 0">The annual plan and your own reminders live in this browser\u2019s storage only, so they\u2019re not shared with other signed-in users yet — they\u2019re captured in Export/Import JSON above though. If this should become shared across devices later, a small <span class="mono">marketing_state</span> table in Supabase is all it\u2019d take.</p></div>'+
   '</div>';
 }
 
@@ -1750,6 +2026,8 @@ function runSearch(q){const panel=document.getElementById('searchPanel');q=(q||'
   if(kb.length)groups.push(['Knowledge Base',kb.map(([k,label])=>({title:label,sub:'section',snip:(state.brain[k]||'').slice(0,90),go:"go('knowledge')"}))]);
   const ast=(state.assets||[]).filter(a=>hit(a.title)||hit(a.collection)||hit(a.description)||hit(a.notes)||hit((a.tags||[]).join(' ')));
   if(ast.length)groups.push(['Assets',ast.map(a=>({title:a.title,sub:a.collection||'',snip:a.description||a.assetType,go:"go('assetDetail','"+a.id+"')"}))]);
+  const rem=mk.custom.filter(r=>hit(r.title)||hit(r.notes));
+  if(rem.length)groups.push(['Marketing reminders',rem.map(r=>({title:r.title,sub:r.repeat?repeatLabel(r.repeat):(r.dueDate?fmtDate(r.dueDate):''),snip:r.notes,go:"mkOpenFromSearch('"+r.id+"')"}))]);
   if(!groups.length){panel.innerHTML='<div class="search-empty">No matches for “'+esc(q)+'”.</div>';return;}
   panel.innerHTML='<div class="search-panel">'+groups.map(([title,items])=>'<div class="search-group-h">'+title+'</div>'+
     items.slice(0,6).map(it=>'<div class="search-res" onclick="'+it.go+'"><div style="flex:1;min-width:0"><span class="r-title">'+esc(it.title)+'</span>'+(it.snip?'<span class="r-snip">'+esc(String(it.snip).slice(0,100))+'</span>':'')+'</div><span class="r-sub">'+esc(it.sub)+'</span></div>').join('')).join('')+'</div>';
@@ -2036,12 +2314,342 @@ async function saveReplaceFile(id){const a=byIdAsset(id);if(!a)return;if(!__rfPi
   __rfPicked=null;closeModal();render();toast('File replaced');
 }
 
+/* ================= Marketing Assistant ================= */
+function mkAdvance(dueDate,repeat){const d=new Date((dueDate||today())+'T00:00:00');
+  if(repeat==='daily')d.setDate(d.getDate()+1);
+  else if(repeat==='weekly')d.setDate(d.getDate()+7);
+  else if(repeat==='monthly')d.setMonth(d.getMonth()+1);
+  else if(repeat==='quarterly')d.setMonth(d.getMonth()+3);
+  return iso(d);
+}
+function mkWhen(dueDate){
+  const dd=daysUntil(dueDate);
+  if(dd<0)return {label:Math.abs(dd)+' day'+(Math.abs(dd)===1?'':'s')+' overdue',cls:'overdue'};
+  if(dd===0)return {label:'Due today',cls:'today'};
+  if(dd===1)return {label:'Due tomorrow',cls:''};
+  return {label:'Due '+fmtDate(dueDate),cls:''};
+}
+
+/* ---- content queue lookups (this is the "the system already knows" part) ----
+   mkOccurrenceContent works off an explicit {key,index} rather than live engine
+   state, so the exact same lookup logic can render both today's live card AND
+   future calendar previews without drifting apart. */
+function mkOccurrenceContent(occ){
+  const key=occ.key,idx=occ.index;
+  if(key==='monday'){const a=ARTICLE_QUEUE[idx%ARTICLE_QUEUE.length];
+    return {title:'Write: '+a.title,sub:'For '+a.audience+'. '+a.goal};}
+  if(key==='tuesday'){const a=ARTICLE_QUEUE[idx%ARTICLE_QUEUE.length];
+    return {title:'Turn this week\u2019s article into a LinkedIn post',sub:'Article: '+a.title};}
+  if(key==='wednesday'){const a=ARTICLE_QUEUE[idx%ARTICLE_QUEUE.length];
+    return {title:'Research next week\u2019s article',sub:'Up next: '+a.title};}
+  if(key==='thursday'){const isFounder=idx%2===0;const list=isFounder?FOUNDER_QUEUE:OPINION_QUEUE;
+    const item=list[Math.floor(idx/2)%list.length];
+    return {title:(isFounder?'Write a founder story: ':'Write an opinion piece: ')+item.title,sub:item.goal};}
+  if(key==='friday'){return {title:'Industry outreach and engagement',sub:'Reach out to one auditor, broker, partner, or prospect — keep the relationships warm.'};}
+  if(key==='monthly'){const r=REPORT_QUEUE[idx%REPORT_QUEUE.length];
+    return {title:'Progress: '+r.title,sub:'Move this report forward — research, data, or drafting.'};}
+  if(key==='quarterly'){const r=FLAGSHIP_QUEUE[idx%FLAGSHIP_QUEUE.length];
+    return {title:'Prepare & publish: '+r.title,sub:'This quarter\u2019s flagship milestone.'};}
+  return {title:'',sub:''};
+}
+/* The richer version for the click-to-view popover — same lookups, audience/objective kept separate. */
+function mkOccurrenceDetail(key,idx){
+  if(key==='monday'){const a=ARTICLE_QUEUE[idx%ARTICLE_QUEUE.length];return {kind:'Long-form article',title:a.title,audience:a.audience,objective:a.goal};}
+  if(key==='tuesday'){const a=ARTICLE_QUEUE[idx%ARTICLE_QUEUE.length];return {kind:'LinkedIn post',title:'From: '+a.title,audience:a.audience,objective:a.goal};}
+  if(key==='wednesday'){const a=ARTICLE_QUEUE[idx%ARTICLE_QUEUE.length];return {kind:'Research',title:a.title,audience:a.audience,objective:a.goal};}
+  if(key==='thursday'){const isFounder=idx%2===0;const list=isFounder?FOUNDER_QUEUE:OPINION_QUEUE;const item=list[Math.floor(idx/2)%list.length];
+    return {kind:isFounder?'Founder story':'Opinion piece',title:item.title,audience:item.audience,objective:item.goal};}
+  if(key==='friday')return {kind:'Outreach',title:'Industry outreach and engagement',audience:'',objective:'Reach out to one auditor, broker, partner, or prospect — keep the relationships warm.'};
+  if(key==='monthly'){const r=REPORT_QUEUE[idx%REPORT_QUEUE.length];return {kind:'Research report',title:r.title,audience:'',objective:'Move this report forward this month — research, data, or drafting.'};}
+  if(key==='quarterly'){const r=FLAGSHIP_QUEUE[idx%FLAGSHIP_QUEUE.length];return {kind:'Flagship report',title:r.title,audience:'',objective:'This quarter\u2019s flagship milestone.'};}
+  return {kind:'',title:'',audience:'',objective:''};
+}
+function mkSlotContent(key){
+  let idx;
+  if(key==='tuesday')idx=mk.engine.monday.index;
+  else if(key==='wednesday')idx=mk.engine.monday.index+1;
+  else idx=mk.engine[key].index;
+  return mkOccurrenceContent({key,index:idx});
+}
+function mkUpcomingLine(key){
+  if(key==='monday'){const a=ARTICLE_QUEUE[mk.engine.monday.index%ARTICLE_QUEUE.length];return a.title;}
+  if(key==='tuesday')return 'LinkedIn post';
+  if(key==='wednesday')return 'Research article';
+  if(key==='thursday')return mk.engine.thursday.index%2===0?'Founder story':'Opinion piece';
+  if(key==='friday')return 'Outreach';
+  return '';
+}
+
+/* ---- engine completion — this is the whole "next one becomes active" mechanic ---- */
+function mkSetStatus(key,status){
+  const slot=mk.engine[key];if(!slot)return;
+  if(status==='done'){
+    const content=mkSlotContent(key);
+    mk.completions.unshift({title:content.title,date:today()});
+    if(mk.completions.length>200)mk.completions.length=200;
+    const def=MK_ENGINE_DEF[key];
+    if(key==='monday'||key==='thursday'||key==='monthly'||key==='quarterly')slot.index++;
+    slot.dueDate=mkAdvance(slot.dueDate,def.repeat);
+    slot.status='not_started';
+    toast('Done — the next one is already queued up.');
+  }else{
+    slot.status=status;
+  }
+  saveMarketing();renderMk();
+}
+
+/* ---- rendering ---- */
+function mkTaskCard(key){
+  const slot=mk.engine[key],def=MK_ENGINE_DEF[key],content=mkSlotContent(key),when=mkWhen(slot.dueDate);
+  const isMonday=key==='monday';
+  return '<div class="mk-taskcard'+(when.cls==='overdue'?' overdue':'')+'">'+
+    '<div class="mk-tc-label">'+def.label+'</div>'+
+    (isMonday?
+      '<div class="mk-tc-title">'+esc(content.title)+'</div>'+
+      '<div class="mk-tc-sub">'+esc(content.sub)+'</div>'+
+      '<div class="mk-status">'+['not_started','in_progress','done'].map(s=>'<button class="'+(slot.status===s?'active':'')+'" onclick="mkSetStatus(\'monday\',\''+s+'\')">'+({not_started:'Not started',in_progress:'In progress',done:'Done'}[s])+'</button>').join('')+'</div>'
+    :
+      '<div class="mk-tc-check-row"><input type="checkbox" class="mk-check" '+(slot.status==='done'?'checked':'')+' onclick="mkSetStatus(\''+key+'\',this.checked?\'done\':\'not_started\')">'+
+      '<div><div class="mk-tc-title" style="font-size:14.5px">'+esc(content.title)+'</div><div class="mk-tc-sub">'+esc(content.sub)+'</div></div></div>'
+    )+
+    '<div class="mk-tc-meta"><span class="mk-tc-when '+when.cls+'">'+when.label+'</span><span>Est. '+def.est+' min</span></div>'+
+  '</div>';
+}
+function mkUpcomingHtml(){
+  return '<div class="mk-upcoming">'+MK_UPCOMING_ORDER.map(k=>{
+    const def=MK_ENGINE_DEF[k];
+    return '<div class="mk-up-row"><span class="mk-up-day">'+MK_DAY_NAMES[def.weekday]+'</span><span class="mk-up-text">'+esc(mkUpcomingLine(k))+'</span></div>';
+  }).join('')+'</div>';
+}
+function vMarketing(){
+  const view=route.mk.view||'today';
+  return '<div class="page-head"><div><div class="eyebrow">Growth</div><div class="page-title">Marketing Assistant</div>'+
+    '<div class="page-sub">Your personal CMO — here\u2019s today\u2019s plan, straight from the annual strategy.</div></div>'+
+    '<div class="seg"><button class="'+(view==='today'?'active':'')+'" onclick="mkSetView(\'today\')">Today</button>'+
+    '<button class="'+(view==='calendar'?'active':'')+'" onclick="mkSetView(\'calendar\')">Calendar</button></div></div>'+
+    '<div id="mkBody">'+(view==='calendar'?mkCalendarHtml():mkBodyHtml())+'</div>';
+}
+function mkSetView(v){route.mk.view=v;render();}
+function renderMk(){
+  console.log('[MK_CAL_DEBUG] renderMk() called — route.mk.view:',route.mk.view,'| route.mk.calMonth:',route.mk.calMonth); // TEMP DEBUG — safe to remove
+  const el=document.getElementById('mkBody');if(el)el.innerHTML=(route.mk.view==='calendar'?mkCalendarHtml():mkBodyHtml());
+}
+function mkBodyHtml(){
+  const cardsOrder=['monday','tuesday','wednesday','thursday','friday','monthly','quarterly'];
+  return '<div class="mk-cards sec">'+cardsOrder.map(mkTaskCard).join('')+'</div>'+
+    '<div class="sec"><div class="sec-h"><h2>Upcoming this week</h2></div><div class="card">'+mkUpcomingHtml()+'</div></div>'+
+    mkCustomSectionHtml()+
+    mkCompletedHtml();
+}
+
+/* ---- Calendar view — a real month grid, generated by projecting the same
+   7 engine slots onto the visible date range. Nothing is stored per-future-
+   date: each slot's current {dueDate,index} is fast-forwarded in memory,
+   using the exact same content lookups as the Today cards, so the two views
+   can never disagree about what's scheduled. If a slot is currently overdue,
+   it gets exactly one overdue marker on its real due date — not a stack of
+   speculative missed dates — and projection resumes from the next real
+   occurrence of that slot's cadence (e.g. next Monday) onward. */
+const MK_KIND_LABEL={monday:'Article',tuesday:'LinkedIn',wednesday:'Research',thursday:'Founder/Opinion',friday:'Outreach',monthly:'Report',quarterly:'Flagship'};
+const MK_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+function mkThisMonthFirst(){const d=new Date();return iso(new Date(d.getFullYear(),d.getMonth(),1));}
+function mkCatchUpDate(key){ // where projection resumes right after a single overdue marker
+  const def=MK_ENGINE_DEF[key];
+  if(def.weekday!=null)return nextWeekday(def.weekday);
+  if(def.repeat==='monthly')return nextMonthFirst();
+  if(def.repeat==='quarterly')return nextQuarterFirst();
+  return mkAdvance(today(),def.repeat);
+}
+function mkProjectRange(key,rangeStartISO,rangeEndISO){
+  const slot=mk.engine[key],def=MK_ENGINE_DEF[key];
+  const isOwner=(key==='monday'||key==='thursday'||key==='monthly'||key==='quarterly');
+  const out=[];
+  let date=slot.dueDate,idx=slot.index,i=0;
+  const maxIter=60; // safety cap — plenty for even a year of weekly slots
+  while(i<maxIter){
+    let contentIdx;
+    if(key==='tuesday')contentIdx=mk.engine.monday.index+i;
+    else if(key==='wednesday')contentIdx=mk.engine.monday.index+i+1;
+    else contentIdx=idx;
+    const overdue=date<today();
+    if(date>=rangeStartISO&&date<=rangeEndISO)out.push({key,date,index:contentIdx,isFirst:i===0,overdue});
+    if(date>rangeEndISO&&!overdue)break;
+    if(i===0&&overdue){date=mkCatchUpDate(key);if(isOwner)idx++;}
+    else{date=mkAdvance(date,def.repeat);if(isOwner)idx++;}
+    i++;
+  }
+  return out;
+}
+function mkOccurrencesInRange(startISO,endISO){
+  const keys=['monday','tuesday','wednesday','thursday','friday','monthly','quarterly'];
+  let all=[];keys.forEach(k=>{all=all.concat(mkProjectRange(k,startISO,endISO));});
+  return all;
+}
+/* Compact per-cell wording — matches the plain "Kind: reference" phrasing
+   asked for, rather than the fuller Today-card copy. */
+function mkCalCellText(occ){
+  const idx=occ.index;
+  if(occ.key==='monday'){const a=ARTICLE_QUEUE[idx%ARTICLE_QUEUE.length];return 'Write article: '+a.title;}
+  if(occ.key==='tuesday')return 'LinkedIn: Turn Monday\u2019s article into a post';
+  if(occ.key==='wednesday')return 'Research: Next article';
+  if(occ.key==='thursday'){const isFounder=idx%2===0;const list=isFounder?FOUNDER_QUEUE:OPINION_QUEUE;const item=list[Math.floor(idx/2)%list.length];
+    return 'Founder / Opinion: '+item.title;}
+  if(occ.key==='friday')return 'Outreach';
+  if(occ.key==='monthly'){const r=REPORT_QUEUE[idx%REPORT_QUEUE.length];return 'Report: '+r.title;}
+  if(occ.key==='quarterly'){const r=FLAGSHIP_QUEUE[idx%FLAGSHIP_QUEUE.length];return 'Flagship: '+r.title;}
+  return '';
+}
+function mkMonthGridDates(viewMonthFirstISO){
+  const d0=new Date(viewMonthFirstISO+'T00:00:00');
+  const firstOfMonth=new Date(d0.getFullYear(),d0.getMonth(),1);
+  const lastOfMonth=new Date(d0.getFullYear(),d0.getMonth()+1,0);
+  const startOffset=(firstOfMonth.getDay()+6)%7; // Monday=0 ... Sunday=6
+  const gridStart=new Date(firstOfMonth);gridStart.setDate(gridStart.getDate()-startOffset);
+  const endOffset=(7-lastOfMonth.getDay())%7;
+  const gridEnd=new Date(lastOfMonth);gridEnd.setDate(gridEnd.getDate()+endOffset);
+  const cells=[];let cur=new Date(gridStart);
+  while(cur<=gridEnd){cells.push(new Date(cur));cur.setDate(cur.getDate()+1);}
+  return cells;
+}
+function mkCalMonthLabel(viewMonthFirstISO){const d=new Date(viewMonthFirstISO+'T00:00:00');return MK_MONTHS[d.getMonth()]+' '+d.getFullYear();}
+function mkCalNavMonth(delta){
+  const oldMonth=route.mk.calMonth;
+  const d=new Date(route.mk.calMonth+'T00:00:00');d.setMonth(d.getMonth()+delta);
+  route.mk.calMonth=iso(new Date(d.getFullYear(),d.getMonth(),1));
+  console.log('[MK_CAL_DEBUG] mkCalNavMonth fired — delta:',delta,'| old route.mk.calMonth:',oldMonth,'| new route.mk.calMonth:',route.mk.calMonth); // TEMP DEBUG — safe to remove
+  renderMk();
+}
+function mkCalToday(){
+  const oldMonth=route.mk.calMonth;
+  route.mk.calMonth=mkThisMonthFirst();
+  console.log('[MK_CAL_DEBUG] mkCalToday fired — old:',oldMonth,'| new:',route.mk.calMonth); // TEMP DEBUG — safe to remove
+  renderMk();
+}
+function mkCalMiniItem(it){
+  if(it.done)return '<div class="cal-mini done"><span class="cal-mini-text">\u2713 '+esc(it.title)+'</span></div>';
+  return '<div class="cal-mini'+(it.overdue?' overdue':'')+'" onclick="mkOccurrenceModal(\''+it.key+'\','+it.index+',\''+it.date+'\','+it.isFirst+')">'+
+    (it.isFirst?'<input type="checkbox" class="cal-mini-chk" onclick="event.stopPropagation();mkSetStatus(\''+it.key+'\',\'done\')">':'')+
+    '<span class="cal-mini-text">'+esc(mkCalCellText(it))+'</span></div>';
+}
+function mkCalDayCell(date,viewMonthNum,byDate){
+  const iso_=iso(date);
+  const items=(byDate[iso_]||[]).slice(0,4);
+  const overflow=(byDate[iso_]||[]).length-items.length;
+  const isToday=iso_===today();
+  const inMonth=date.getMonth()===viewMonthNum;
+  return '<div class="cal-cell'+(isToday?' today':'')+(inMonth?'':' other')+'">'+
+    '<div class="cal-cell-num">'+date.getDate()+'</div>'+
+    items.map(mkCalMiniItem).join('')+
+    (overflow>0?'<div class="cal-cell-more">+'+overflow+' more</div>':'')+
+  '</div>';
+}
+function mkCalendarHtml(){
+  route.mk.calMonth=route.mk.calMonth||mkThisMonthFirst();
+  const viewMonth=route.mk.calMonth;
+  console.log('[MK_CAL_DEBUG] mkCalendarHtml() rendering with route.mk.calMonth =',viewMonth); // TEMP DEBUG — safe to remove
+  const cells=mkMonthGridDates(viewMonth);
+  const rangeStart=iso(cells[0]),rangeEnd=iso(cells[cells.length-1]);
+  const byDate={};
+  mkOccurrencesInRange(rangeStart,rangeEnd).forEach(o=>{(byDate[o.date]=byDate[o.date]||[]).push(o);});
+  mk.completions.forEach(c=>{if(c.date>=rangeStart&&c.date<=rangeEnd)(byDate[c.date]=byDate[c.date]||[]).push({done:true,title:c.title,date:c.date});});
+  const viewMonthNum=new Date(viewMonth+'T00:00:00').getMonth();
+  const toolbar='<div class="cal-toolbar"><button class="btn" onclick="mkCalNavMonth(-1)">\u2190</button>'+
+    '<div class="cal-label">'+mkCalMonthLabel(viewMonth)+'</div>'+
+    '<button class="btn" onclick="mkCalNavMonth(1)">\u2192</button>'+
+    '<button class="btn ghost" onclick="mkCalToday()">This month</button>'+
+    '<span class="mono faint" style="font-size:10.5px;margin-left:8px" title="Temporary debug readout — safe to remove once navigation is confirmed working">[debug: calMonth='+viewMonth+']</span></div>';
+  const head='<div class="cal-head-row">'+['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d=>'<div class="cal-head-cell">'+d+'</div>').join('')+'</div>';
+  const grid='<div class="cal-grid">'+cells.map(d=>mkCalDayCell(d,viewMonthNum,byDate)).join('')+'</div>';
+  return toolbar+head+'<div class="cal-grid-wrap">'+grid+'</div>'+mkCompletedHtml();
+}
+function mkOccurrenceModal(key,idx,date,isFirst){
+  const d=mkOccurrenceDetail(key,idx);
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+esc(d.kind)+'</h2><button class="x" onclick="closeModal()">\u00d7</button></div>'+
+    '<div class="field"><label class="fl">Title</label><div style="font-size:15px;font-weight:600;line-height:1.4">'+esc(d.title)+'</div></div>'+
+    (d.audience?'<div class="field"><label class="fl">Audience</label><div class="muted">'+esc(d.audience)+'</div></div>':'')+
+    (d.objective?'<div class="field"><label class="fl">Objective / notes</label><div class="muted" style="line-height:1.55">'+esc(d.objective)+'</div></div>':'')+
+    '<div class="field"><label class="fl">Scheduled</label><div class="muted">'+fmtDate(date)+'</div></div>'+
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Close</button>'+
+    (isFirst?'<button class="btn gold" onclick="mkSetStatus(\''+key+'\',\'done\');closeModal();">Mark done</button>':'')+
+    '</div></div></div>';
+}
+
+/* ---- your own one-off reminders (not part of the annual plan) ---- */
+function mkDot(priority){return '<span class="rem-dot" style="background:'+(priority==='High'?'var(--red)':priority==='Medium'?'var(--amber)':'var(--faint)')+'"></span>';}
+function reminderRow(r){
+  return '<div class="rem-row'+(!r.completed&&daysUntil(r.dueDate)<0?' overdue':'')+(r.completed?' done':'')+'">'+
+    '<input type="checkbox" class="rem-chk" '+(r.completed?'checked':'')+' onclick="event.stopPropagation();mkToggleCustomComplete(\''+r.id+'\')">'+
+    '<div class="rem-main" onclick="mkReminderForm(\''+r.id+'\')"><div class="rem-title">'+esc(r.title)+'</div>'+
+    (r.notes?'<div class="rem-notes">'+esc(r.notes)+'</div>':'')+'</div>'+
+    '<div class="rem-side">'+(r.repeat?'<span class="chip" style="font-size:10px;padding:3px 9px">'+repeatLabel(r.repeat)+'</span>':'')+mkDot(r.priority)+
+    '<span class="rem-date">'+(r.dueDate?fmtDate(r.dueDate):'')+'</span></div></div>';
+}
+function mkCustomSectionHtml(){
+  const active=mk.custom.filter(r=>!r.completed).sort((a,b)=>(a.dueDate||'').localeCompare(b.dueDate||''));
+  return '<div class="sec"><div class="sec-h"><h2>Your own reminders</h2><span class="count">'+active.length+'</span>'+
+    '<button class="btn ghost" style="margin-left:auto;font-size:11.5px;padding:5px 10px" onclick="mkReminderForm()">+ Add reminder</button></div>'+
+    (active.length?active.map(reminderRow).join(''):'<div class="card muted" style="padding:16px">Nothing of your own added yet — outreach follow-ups, one-off tasks, anything outside the annual plan.</div>')+
+  '</div>';
+}
+function mkToggleCustomComplete(id){
+  const r=byMkReminder(id);if(!r)return;
+  if(r.completed){r.completed=false;r.completedDate='';saveMarketing();renderMk();return;}
+  mk.completions.unshift({title:r.title,date:today()});
+  if(mk.completions.length>200)mk.completions.length=200;
+  if(r.repeat){r.dueDate=mkAdvance(r.dueDate,r.repeat);toast('Nice — back on '+repeatLabel(r.repeat).toLowerCase()+' for '+fmtDate(r.dueDate));}
+  else{r.completed=true;r.completedDate=today();toast('Done');}
+  saveMarketing();renderMk();
+}
+function mkClearCompleted(){mk.custom=mk.custom.filter(r=>!r.completed);saveMarketing();renderMk();toast('Cleared');}
+function mkReminderForm(id){
+  const r=id?byMkReminder(id):mkReminder();
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+(id?'Edit reminder':'New reminder')+'</h2><button class="x" onclick="closeModal()">\u00d7</button></div>'+
+    '<div class="field"><label class="fl">Title *</label><input class="input" id="rm_title" value="'+esc(r.title)+'"></div>'+
+    '<div class="field-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'+
+      '<div class="field"><label class="fl">Due date</label><input class="input" type="date" id="rm_due" value="'+(r.dueDate||today())+'"></div>'+
+      '<div class="field"><label class="fl">Repeat</label><select class="select" id="rm_repeat">'+REM_REPEATS.map(([v,l])=>'<option value="'+v+'" '+(r.repeat===v?'selected':'')+'>'+l+'</option>').join('')+'</select></div>'+
+    '</div>'+
+    '<div class="field"><label class="fl">Priority</label><select class="select" id="rm_priority">'+REM_PRIORITIES.map(p=>'<option '+(r.priority===p?'selected':'')+'>'+p+'</option>').join('')+'</select></div>'+
+    '<div class="field"><label class="fl">Notes</label><textarea class="input" id="rm_notes" rows="2">'+esc(r.notes||'')+'</textarea></div>'+
+    '<div class="modal-foot">'+(id?'<button class="btn danger" style="margin-right:auto" onclick="mkDeleteReminder(\''+id+'\')">Delete</button>':'')+
+    '<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="mkSaveReminder(\''+(id||'')+'\')">'+(id?'Save changes':'Add')+'</button></div></div></div>';
+}
+function mkSaveReminder(existingId){
+  const g=fld=>{const el=document.getElementById(fld);return el?el.value:'';};
+  const title=g('rm_title').trim();if(!title){toast('Title is required');return;}
+  const data={title,dueDate:g('rm_due')||today(),repeat:g('rm_repeat'),priority:g('rm_priority'),notes:g('rm_notes')};
+  if(existingId)Object.assign(byMkReminder(existingId),data);
+  else mk.custom.push(mkReminder(data));
+  saveMarketing();closeModal();
+  if(route.view==='marketing')renderMk();
+  toast(existingId?'Saved':'Added');
+}
+function mkDeleteReminder(id){if(!confirm('Delete this reminder?'))return;mk.custom=mk.custom.filter(r=>r.id!==id);saveMarketing();closeModal();renderMk();toast('Deleted');}
+function mkOpenFromSearch(id){clearSearch();go('marketing');mkReminderForm(id);}
+
+/* ---- history ---- */
+function mkCompletedHtml(){
+  const showN=route.mk.showCompleted?200:8;
+  const logEntries=mk.completions.map(c=>({title:c.title,date:c.date}));
+  const customCompleted=mk.custom.filter(r=>r.completed).map(r=>({title:r.title,date:r.completedDate||r.dueDate}));
+  const total=logEntries.length+customCompleted.length;
+  const merged=[...logEntries,...customCompleted].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,showN);
+  return '<div class="sec"><div class="sec-h"><h2>Recently completed</h2>'+
+    (total>showN&&!route.mk.showCompleted?'<span class="count" style="cursor:pointer;color:var(--gold)" onclick="route.mk.showCompleted=true;renderMk()">Show more</span>':'')+
+    (mk.custom.some(r=>r.completed)?'<button class="btn ghost" style="margin-left:auto;font-size:11.5px;padding:5px 10px" onclick="mkClearCompleted()">Clear finished one-offs</button>':'')+
+  '</div>'+
+  (merged.length?merged.map(c=>'<div class="rem-row done"><input type="checkbox" class="rem-chk" checked disabled><div class="rem-main"><div class="rem-title">'+esc(c.title)+'</div></div><div class="rem-side"><span class="rem-date">'+(c.date?fmtDate(c.date):'')+'</span></div></div>').join('')
+    :'<div class="card muted" style="padding:16px">Nothing completed yet.</div>')+
+  '</div>';
+}
+
 function closeModal(){document.getElementById('modal-root').innerHTML=''}
 
 /* data actions */
 function resetBrain(){if(confirm('Reset the Knowledge Base to defaults? Your edits will be lost.')){state.brain=defaultBrain();cacheSave();if(CLOUD){BRAIN_SECTIONS.forEach(([k,label])=>sync('brain_sections','upsert',{section_key:k,title:label,content:state.brain[k]}));}render();toast('Knowledge Base reset');}}
-function exportData(){const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='kweli-brain-'+today()+'.json';a.click();URL.revokeObjectURL(a.href);toast('Backup downloaded');}
+function exportData(){const blob=new Blob([JSON.stringify(Object.assign({},state,{marketing:mk}),null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='kweli-brain-'+today()+'.json';a.click();URL.revokeObjectURL(a.href);toast('Backup downloaded');}
 function importData(input){const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.opps&&!d.brain)throw new Error('not a valid backup');if(!confirm(CLOUD?'Upload this backup into the shared cloud? Existing records are kept; this adds the backup\'s records.':'Replace all current data with this backup?'))return;
+  if(d.marketing){const m=migrateMk(d.marketing);if(m){mk=m;saveMarketing();}} // Marketing Assistant data restores the same way regardless of cloud/local mode — always local-only for now.
   if(CLOUD){toast('Importing…');uploadDataset(d).then(()=>fetchAll()).then(()=>{render();toast('Backup imported'+(d.assets&&d.assets.length?' — note: asset files must be re-uploaded via Upload Asset, backups don\'t carry files.':'.'));}).catch(e=>toast('Import failed: '+(e.message||e)));}
   else{state={opps:d.opps||[],people:d.people||[],lessons:d.lessons||[],brain:migrateBrain(d.brain),assets:state.assets||[],version:2};state.opps.forEach(o=>o.timeline=o.timeline||[]);cacheSave();go('dashboard');toast('Backup restored');}
   }catch(e){toast('Import failed: '+e.message);}};r.readAsText(f);input.value='';}
