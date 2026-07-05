@@ -453,13 +453,13 @@ function repeatLabel(r){return (REM_REPEATS.find(x=>x[0]===r)||['',''])[1];}
    each slot's own due date drives everything. `est` is a fixed, informational
    time estimate — not something you configure per task. */
 const MK_ENGINE_DEF={
-  monday:   {label:'Today\u2019s Marketing',weekday:1,repeat:'weekly',est:90,queue:'article',priority:'High',icon:'\ud83d\udcdd'},
-  tuesday:  {label:'Today\u2019s LinkedIn', weekday:2,repeat:'weekly',est:20,queue:'linkedin',priority:'Medium',icon:'\ud83d\udce2'},
-  wednesday:{label:'Research',              weekday:3,repeat:'weekly',est:30,queue:'research',priority:'Low',icon:'\ud83d\udd2c'},
-  thursday: {label:'Founder / Opinion',     weekday:4,repeat:'weekly',est:60,queue:'founderOpinion',priority:'Medium',icon:'\u270d\ufe0f'},
-  friday:   {label:'Today\u2019s Outreach', weekday:5,repeat:'weekly',est:30,queue:'outreach',priority:'High',icon:'\ud83e\udd1d'},
-  monthly:  {label:'Research report',       weekday:null,repeat:'monthly',est:90,queue:'report',priority:'Medium',icon:'\ud83d\udcca'},
-  quarterly:{label:'Flagship report',       weekday:null,repeat:'quarterly',est:120,queue:'flagship',priority:'High',icon:'\ud83d\udcca'}
+  monday:   {label:'Article',        weekday:1,repeat:'weekly',est:90,queue:'article',priority:'High',icon:'\ud83d\udcdd'},
+  tuesday:  {label:'LinkedIn',       weekday:2,repeat:'weekly',est:20,queue:'linkedin',priority:'Medium',icon:'\ud83d\udce2'},
+  wednesday:{label:'Research',       weekday:3,repeat:'weekly',est:30,queue:'research',priority:'Low',icon:'\ud83d\udd2c'},
+  thursday: {label:'Founder Story',  weekday:4,repeat:'weekly',est:60,queue:'founderOpinion',priority:'Medium',icon:'\u270d\ufe0f'},
+  friday:   {label:'Outreach',       weekday:5,repeat:'weekly',est:30,queue:'outreach',priority:'High',icon:'\ud83e\udd1d'},
+  monthly:  {label:'Research Report',weekday:null,repeat:'monthly',est:90,queue:'report',priority:'Medium',icon:'\ud83d\udcca'},
+  quarterly:{label:'Flagship Report',weekday:null,repeat:'quarterly',est:120,queue:'flagship',priority:'High',icon:'\ud83d\udcc8'}
 };
 const MK_UPCOMING_ORDER=['monday','tuesday','wednesday','thursday','friday'];
 const MK_DAY_NAMES=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -2800,7 +2800,7 @@ function mkBodyHtml(){
    it gets exactly one overdue marker on its real due date — not a stack of
    speculative missed dates — and projection resumes from the next real
    occurrence of that slot's cadence (e.g. next Monday) onward. */
-const MK_KIND_LABEL={monday:'Article',tuesday:'LinkedIn',wednesday:'Research',thursday:'Founder/Opinion',friday:'Outreach',monthly:'Report',quarterly:'Flagship'};
+const MK_KIND_LABEL={monday:'Article',tuesday:'LinkedIn',wednesday:'Research',thursday:'Founder Story',friday:'Outreach',monthly:'Report',quarterly:'Flagship'};
 const MK_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
 function mkThisMonthFirst(){const d=new Date();return iso(new Date(d.getFullYear(),d.getMonth(),1));}
 function mkCatchUpDate(key){ // where projection resumes right after a single overdue marker
@@ -2843,7 +2843,7 @@ function mkCalCellText(occ){
   if(occ.key==='tuesday')return 'LinkedIn: Turn Monday\u2019s article into a post';
   if(occ.key==='wednesday')return 'Research: Next article';
   if(occ.key==='thursday'){const isFounder=idx%2===0;const list=isFounder?FOUNDER_QUEUE:OPINION_QUEUE;const item=list[Math.floor(idx/2)%list.length];
-    return 'Founder / Opinion: '+item.title;}
+    return (isFounder?'Founder Story: ':'Opinion Piece: ')+item.title;}
   if(occ.key==='friday')return 'Outreach';
   if(occ.key==='monthly'){const r=REPORT_QUEUE[idx%REPORT_QUEUE.length];return 'Report: '+r.title;}
   if(occ.key==='quarterly'){const r=FLAGSHIP_QUEUE[idx%FLAGSHIP_QUEUE.length];return 'Flagship: '+r.title;}
