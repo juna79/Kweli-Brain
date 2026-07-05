@@ -1127,6 +1127,23 @@ function esc(s){return(s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;'
 function byId(id){return state.opps.find(o=>o.id===id)}
 function isActive(o){return !CLOSED.includes(o.stage)&&o.status==='Active'}
 function isInv(o){return o.category==='Investors'}
+/* ---- Investors = standalone investor records + people tagged Investor ----
+   One merged, de-duplicated list is the single source of truth for the
+   Investors page. A person is excluded only if an investor record already
+   exists under the exact same name (the "same entity, don't show twice"
+   case — most often because they were explicitly converted via
+   "Convert to investor record"). Nothing here mutates data; it's a pure
+   view-time merge, so untagging a person or deleting a record instantly
+   and correctly changes who shows up, with no separate list to keep in sync. */
+function investorEntries(){
+  const oppList=state.opps.filter(isInv);
+  const oppNames=new Set(oppList.map(o=>normalizeName(o.company)));
+  const personList=state.people.filter(p=>p.relationshipToKweli==='Investor'&&!oppNames.has(normalizeName(p.name)));
+  return [...oppList.map(o=>({source:'opp',id:o.id,data:o})),...personList.map(p=>({source:'person',id:p.id,data:p}))];
+}
+function invName(e){return e.source==='opp'?e.data.company:e.data.name;}
+function invSortVal(e){return e.source==='opp'?(+e.data.priority||0):0;}
+function invFollowUpKey(e){return e.source==='opp'?(e.data.followUp||'9999'):'9999';}
 function overdue(){return state.opps.filter(o=>isActive(o)&&o.followUp&&daysUntil(o.followUp)<0)}
 function dueToday(){return state.opps.filter(o=>isActive(o)&&o.followUp&&daysUntil(o.followUp)===0)}
 function lastTouch(o){const ds=(o.timeline||[]).map(t=>t.date).filter(Boolean);ds.push(o.lastInteraction);return ds.filter(Boolean).sort().slice(-1)[0]||''}
@@ -1314,7 +1331,69 @@ function emptyDash(){return '<div class="page-head"><div><div class="page-title"
 
 /* Companies / Investors lists */
 function vCompanies(){return listView('Companies','Pipeline',o=>!isInv(o),true);}
-function vInvestors(){route.oppFilter.cat='';return listView('Investors','Capital',o=>isInv(o),false,true);}
+function vInvestors(){
+  const f=route.oppFilter;
+  const entries=investorEntries();
+  return '<div class="page-head"><div><div class="eyebrow">Capital</div><div class="page-title">Investors</div><div class="page-sub">'+entries.length+' investors</div></div>'+
+    '<button class="btn gold" onclick="quickAdd(\'Investors\')">+ Add investor</button></div>'+
+    '<div class="toolbar">'+
+      '<input class="input search-in" placeholder="Search investors…" value="'+esc(f.q)+'" oninput="route.oppFilter.q=this.value;renderInvestorsList()">'+
+      '<select class="select" onchange="route.oppFilter.stage=this.value;renderInvestorsList()"><option value="">All stages</option>'+STAGES.map(s=>'<option '+(f.stage===s?'selected':'')+'>'+s+'</option>').join('')+'</select>'+
+      '<select class="select" onchange="route.oppFilter.sort=this.value;renderInvestorsList()"><option value="priority"'+(f.sort==='priority'?' selected':'')+'>Sort: priority</option><option value="followup"'+(f.sort==='followup'?' selected':'')+'>Sort: follow-up</option><option value="company"'+(f.sort==='company'?' selected':'')+'>Sort: A–Z</option></select>'+
+      '<div class="seg right"><button class="'+(route.companyView==='cards'?'active':'')+'" onclick="route.companyView=\'cards\';renderInvestorsList()">Cards</button><button class="'+(route.companyView==='table'?'active':'')+'" onclick="route.companyView=\'table\';renderInvestorsList()">Table</button></div>'+
+    '</div><div id="listBox">'+investorsListHtml()+'</div>';
+}
+function renderInvestorsList(){const b=document.getElementById('listBox');if(b)b.innerHTML=investorsListHtml();}
+function investorsListHtml(){
+  const f=route.oppFilter;
+  let list=investorEntries().filter(e=>{
+    const extra=e.source==='opp'?(e.data.category+' '+(e.data.angle||'')+' '+(e.data.contactRole||'')):((e.data.role||'')+' '+(e.data.relationshipToKweli||'')+' '+(e.data.company||''));
+    if(f.q&&!(invName(e)+' '+extra).toLowerCase().includes(f.q.toLowerCase()))return false;
+    if(f.stage&&e.source==='opp'&&e.data.stage!==f.stage)return false; // stage doesn't apply to person-sourced entries — never filtered out by it
+    return true;
+  });
+  if(f.sort==='priority')list.sort((a,b)=>invSortVal(b)-invSortVal(a));
+  else if(f.sort==='followup')list.sort((a,b)=>invFollowUpKey(a).localeCompare(invFollowUpKey(b)));
+  else list.sort((a,b)=>invName(a).localeCompare(invName(b)));
+  if(!list.length)return '<div class="empty"><div class="em">'+ICON('list')+'</div><h3>Nothing here yet</h3><p>No investors match — or tag a person as "Investor" on their profile and they\'ll show up here automatically.</p><div class="row"><button class="btn gold" onclick="quickAdd(\'Investors\')">+ Add investor</button></div></div>';
+  if(route.companyView==='table')return investorsTableHtml(list);
+  return '<div class="grid g-auto">'+list.map(investorEntCard).join('')+'</div>';
+}
+function investorEntCard(e){
+  if(e.source==='opp'){
+    const o=e.data,u=urgency(o);
+    return '<div class="ent-card'+(u.cls==='overdue'?' alert':'')+'" onclick="go(\'detail\',\''+o.id+'\')">'+
+      '<div class="ent-top"><div><div class="ent-name">'+esc(o.company)+'</div><div class="ent-sub">'+esc(o.category)+(o.investmentStatus?' · '+esc(o.investmentStatus):'')+'</div></div>'+
+      '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><span class="chip" style="font-size:9.5px">Investor record</span><div class="score" style="color:'+scoreColor(o.priority)+'">'+(+o.priority||0)+'</div></div></div>'+
+      '<div class="ent-line">'+stageChip(o.stage)+'<span style="display:inline-flex;align-items:center;gap:6px;color:'+u.color+'">'+udot(o)+u.label+'</span></div>'+
+      (o.nextAction?'<div class="ent-next"><span class="lbl">Next action</span>'+esc(o.nextAction)+'</div>':'')+'</div>';
+  }
+  const p=e.data;
+  return '<div class="ent-card" onclick="personForm(\''+p.id+'\')">'+
+    '<div class="ent-top"><div><div class="ent-name">'+esc(p.name)+'</div><div class="ent-sub">'+esc(p.role||'')+(p.company?' · '+esc(p.company):'')+'</div></div>'+
+    '<span class="chip" style="font-size:9.5px">Person tagged as Investor</span></div>'+
+    '<div class="ent-line"><span class="chip"><span class="dot" style="background:'+(p.warmth==='Warm'?'var(--green)':p.warmth==='Cold'?'var(--faint)':'var(--amber)')+'"></span>'+esc(p.warmth||'—')+'</span></div>'+
+    (p.nextAction?'<div class="ent-next"><span class="lbl">Next action</span>'+esc(p.nextAction)+'</div>':'')+'</div>';
+}
+function investorsTableHtml(list){
+  return '<div class="card" style="padding:6px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'+
+    ['Name','Source','Detail','Next action','Follow-up'].map(h=>'<th style="text-align:left;padding:11px 12px;border-bottom:1px solid var(--line);font-family:ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)">'+h+'</th>').join('')+'</tr></thead><tbody>'+
+    list.map(e=>{
+      if(e.source==='opp'){const o=e.data;
+        return '<tr style="cursor:pointer" onclick="go(\'detail\',\''+o.id+'\')"><td style="padding:12px;border-bottom:1px solid var(--line)"><strong>'+esc(o.company)+'</strong></td>'+
+          '<td style="padding:12px;border-bottom:1px solid var(--line)"><span class="chip" style="font-size:9.5px">Investor record</span></td>'+
+          '<td class="muted" style="padding:12px;border-bottom:1px solid var(--line)">'+stageChip(o.stage)+'</td>'+
+          '<td class="muted" style="padding:12px;border-bottom:1px solid var(--line);max-width:240px">'+esc(o.nextAction||'')+'</td>'+
+          '<td style="padding:12px;border-bottom:1px solid var(--line)">'+udot(o)+' <span class="mono" style="font-size:11px;color:'+urgency(o).color+'">'+urgency(o).label+'</span></td></tr>';
+      }
+      const p=e.data;
+      return '<tr style="cursor:pointer" onclick="personForm(\''+p.id+'\')"><td style="padding:12px;border-bottom:1px solid var(--line)"><strong>'+esc(p.name)+'</strong></td>'+
+        '<td style="padding:12px;border-bottom:1px solid var(--line)"><span class="chip" style="font-size:9.5px">Person tagged as Investor</span></td>'+
+        '<td class="muted" style="padding:12px;border-bottom:1px solid var(--line)">'+esc(p.role||'—')+'</td>'+
+        '<td class="muted" style="padding:12px;border-bottom:1px solid var(--line);max-width:240px">'+esc(p.nextAction||'')+'</td>'+
+        '<td class="faint" style="padding:12px;border-bottom:1px solid var(--line)">—</td></tr>';
+    }).join('')+'</tbody></table></div>';
+}
 function listView(title,eyebrow,pred,allowCat,investorAdd){
   const f=route.oppFilter;
   return '<div class="page-head"><div><div class="eyebrow">'+eyebrow+'</div><div class="page-title">'+title+'</div></div>'+
@@ -2277,7 +2356,13 @@ function personForm(id,companyId){const p=id?state.people.find(x=>x.id===id):{co
   const kweliRel='<div class="field"><label class="fl">Relationship to Kweli</label><select class="select" id="pf_kweliRelationship"><option value="">— none —</option>'+REL_TO_KWELI.map(r=>'<option '+(p.relationshipToKweli===r?'selected':'')+'>'+r+'</option>').join('')+'</select></div>';
   const introHints=Array.from(new Set(state.people.map(x=>x.name).filter(n=>n&&n!==p.name).concat(['LinkedIn','Cold outreach','Conference','Referral'])));
   const introList='<datalist id="pf_introducedByList">'+introHints.map(n=>'<option value="'+esc(n)+'">').join('')+'</datalist>';
+  const linkedOpp=p.companyId?byId(p.companyId):null;
+  const hasInvestorRecord=!!(linkedOpp&&isInv(linkedOpp));
+  const showConvert=id&&p.relationshipToKweli==='Investor'&&!hasInvestorRecord;
+  const investorBanner=hasInvestorRecord?'<div class="faint" style="font-size:11.5px;margin:-6px 0 14px">Linked to investor record: <a onclick="event.stopPropagation();closeModal();go(\'detail\',\''+linkedOpp.id+'\')">'+esc(linkedOpp.company)+' →</a></div>'
+    :(showConvert?'<div class="faint" style="font-size:11.5px;margin:-6px 0 14px">Tagged as Investor. <a onclick="event.stopPropagation();convertPersonToInvestor(\''+id+'\')">Convert to investor record →</a> <span title="Only needed if you want investor-specific fields like stage, priority, and follow-up dates — otherwise this person already shows up in Investors as-is.">(optional)</span></div>':'');
   document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+(id?'Edit':'New')+' person</h2><button class="x" onclick="closeModal()">×</button></div>'+
+    investorBanner+
     F('Name','name')+
     '<div class="field"><label class="fl">Primary Organisation</label><input class="input" id="pf_company" list="pf_companyList" value="'+esc(p.company||'')+'" placeholder="Type any organisation, or pick an existing company"></div>'+
     compList+
@@ -2308,6 +2393,17 @@ function savePerson(id){const name=pval('name');if(!name){toast('Name required')
   else{findOrCreatePerson(name,d);}
   closeModal();render();toast(id?'Updated':'Person added');}
 function delPerson(id){if(!confirm('Delete this person?'))return;state.people=state.people.filter(p=>p.id!==id);persistPersonDelete(id);closeModal();render();toast('Deleted');}
+function convertPersonToInvestor(id){
+  const p=state.people.find(x=>x.id===id);if(!p)return;
+  if(!confirm('Create a standalone investor record for '+p.name+'? This adds investor-specific fields (stage, priority, follow-up date) and links this person to it — nothing is duplicated, this person will keep showing up in Investors via that one record.'))return;
+  const o={id:uid(),company:p.name,category:'Investors',website:'',contactName:p.name,contactRole:p.role||'',linkedin:p.linkedin||'',email:p.email||'',
+    stage:'Identified',priority:50,status:'Active',angle:'',pilot:'',notes:p.notes||'',meetingNotes:'',objections:'',
+    nextAction:p.nextAction||'',lastInteraction:p.lastInteraction||'',followUp:'',investmentStatus:'Researching',createdBy:userName(),timeline:[]};
+  state.opps.push(o);
+  addActivity(o.id,'Created',userName()+' converted '+p.name+' from a person record to a standalone investor record');
+  p.companyId=o.id;p.company=o.company;persistPerson(p);
+  closeModal();go('detail',o.id);toast('Converted '+p.name+' to an investor record');
+}
 
 /* Lessons form */
 function lessonForm(id,companyId){const l=id?state.lessons.find(x=>x.id===id):{date:today()};
