@@ -370,7 +370,7 @@
   .cal-mini:hover{background:var(--raise)}
   .cal-mini.custom{border-left-color:var(--green)}
   .cal-mini.overdue{border-left-color:var(--red);background:rgba(224,101,75,.14)}
-  .cal-mini.done{opacity:.55;border-left-color:var(--faint);cursor:default}
+  .cal-mini.done{opacity:.55;border-left-color:var(--faint)}
   .cal-mini.done .cal-mini-text{text-decoration:line-through}
   .cal-mini-chk{width:12px;height:12px;flex:none;margin-top:2px;accent-color:var(--gold);cursor:pointer}
   .cal-mini-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;
@@ -684,12 +684,12 @@ function mkEngineSlot(key,o){const def=MK_ENGINE_DEF[key];
 function defaultEngine(){const e={};Object.keys(MK_ENGINE_DEF).forEach(k=>e[k]=mkEngineSlot(k));return e;}
 function mkReminder(o){return Object.assign({id:uid('rem'),title:'',dueDate:today(),repeat:'',priority:'Medium',
   notes:'',completed:false,completedDate:''},o||{});}
-function defaultMk(){return {engine:defaultEngine(),custom:[],completions:[]};}
+function defaultMk(){return {engine:defaultEngine(),custom:[],completions:[],lastRolloverCheck:''};}
 function migrateMk(m){
   if(!m||typeof m!=='object')return null;
   if(!m.engine||!Array.isArray(m.custom))return null; // old/foreign shape — caller will seed fresh instead
   const engine={};Object.keys(MK_ENGINE_DEF).forEach(k=>{engine[k]=mkEngineSlot(k,m.engine[k]||{});});
-  return {engine,custom:m.custom.map(r=>mkReminder(r)),completions:m.completions||[]};
+  return {engine,custom:m.custom.map(r=>mkReminder(r)),completions:m.completions||[],lastRolloverCheck:m.lastRolloverCheck||''};
 }
 function nextWeekday(targetDow){const d=new Date();let add=(targetDow-d.getDay()+7)%7;if(add===0)add=7;d.setDate(d.getDate()+add);return iso(d);}
 function nextMonthFirst(){const d=new Date();d.setMonth(d.getMonth()+1);d.setDate(1);return iso(d);}
@@ -1216,6 +1216,7 @@ function allObjections(){return state.opps.filter(o=>getCompanyObjections(o));}
 
 /* ============ RENDER ============ */
 function render(){renderNav();
+  mkCheckRollovers();
   const v={dashboard:vDash,companies:vCompanies,investors:vInvestors,people:vPeople,followups:vFollow,
     lessons:vLessons,objections:vObjections,workspace:vWorkspace,knowledge:vKnowledge,assets:vAssets,assetDetail:vAssetDetail,settings:vSettings,detail:vDetail,marketing:vMarketing}[route.view]||vDash;
   const contentEl=document.getElementById('content');
@@ -2553,32 +2554,70 @@ function mkWeeklyAgendaHtml(){
 }
 
 /* ---- engine completion — this is the whole "next one becomes active" mechanic ---- */
+/* ---- engine completion ----
+   Completion is now a pure, reversible STATUS — marking something "Completed"
+   never touches its due date, its queue index, or its content. You can move
+   freely between Not Started / In Progress / Completed at any time, and
+   nothing is ever lost by clicking the wrong button.
+   The queue only ever advances to the next scheduled item once its due date
+   has genuinely passed (see mkCheckRollovers) — i.e. once that cycle is
+   truly over, not the instant you tick the box. This is what makes
+   completion safe: while the due date hasn't passed, undoing is just
+   flipping the status back; nothing to reconstruct. */
 function mkSetStatus(key,status){
   const slot=mk.engine[key];if(!slot)return;
-  if(status==='done'){
+  const wasDone=slot.status==='done';
+  if(status==='done'&&!wasDone){
     const content=mkSlotContent(key);
-    mk.completions.unshift({title:content.title,date:today()});
+    mk.completions.unshift({refKey:'engine:'+key,title:content.title,date:today()});
     if(mk.completions.length>200)mk.completions.length=200;
-    const def=MK_ENGINE_DEF[key];
-    if(key==='monday'||key==='thursday'||key==='monthly'||key==='quarterly')slot.index++;
-    slot.dueDate=mkAdvance(slot.dueDate,def.repeat);
-    slot.status='not_started';
-    toast('Done — the next one is already queued up.');
+    slot.status='done';
+    toast('Marked complete');
+  }else if(status!=='done'&&wasDone){
+    // Undo — remove the completion log entry created above; nothing else
+    // ever changed, so there is nothing else to restore.
+    const idx=mk.completions.findIndex(c=>c.refKey==='engine:'+key);
+    if(idx!==-1)mk.completions.splice(idx,1);
+    slot.status=status;
+    toast(status==='in_progress'?'Back to in progress':'Marked not started');
   }else{
     slot.status=status;
   }
   saveMarketing();renderMk();
 }
+/* Runs on every render, but only ever ACTS once per calendar day — this is
+   the critical safety property. Without the once-per-day gate, completing
+   an item that's already overdue (the single most common real case) would
+   roll over the instant you clicked, giving zero window to undo — exactly
+   reproducing the bug this redesign fixes. With the gate, a slot only ever
+   advances to its next occurrence the first time the app is opened on a
+   LATER day, after you've had the entire day to notice and undo a mistake. */
+function mkCheckRollovers(){
+  if(mk.lastRolloverCheck===today())return;
+  mk.lastRolloverCheck=today();
+  const keys=['monday','tuesday','wednesday','thursday','friday','monthly','quarterly'];
+  keys.forEach(k=>{
+    const slot=mk.engine[k],def=MK_ENGINE_DEF[k];
+    if(slot.status==='done'&&slot.dueDate<today()){
+      const isOwner=(k==='monday'||k==='thursday'||k==='monthly'||k==='quarterly');
+      slot.dueDate=mkAdvance(slot.dueDate,def.repeat);
+      if(isOwner)slot.index++;
+      slot.status='not_started';
+    }
+  });
+  saveMarketing();
+}
 
 /* ---- rendering ---- */
 function mkTaskCard(key){
   const slot=mk.engine[key],def=MK_ENGINE_DEF[key],content=mkSlotContent(key),when=mkWhen(slot.dueDate);
-  return '<div class="mk-taskcard'+(when.cls==='overdue'?' overdue':'')+'">'+
-    '<div class="mk-tc-label">'+def.icon+' '+def.label+'</div>'+
+  const isDone=slot.status==='done';
+  return '<div class="mk-taskcard'+(when.cls==='overdue'&&!isDone?' overdue':'')+(isDone?' done':'')+'">'+
+    '<div class="mk-tc-label">'+def.icon+' '+def.label+(isDone?' \u2713':'')+'</div>'+
     '<div class="mk-tc-title">'+esc(content.title)+'</div>'+
     '<div class="mk-tc-sub">'+esc(content.sub)+'</div>'+
-    '<div class="mk-status">'+['not_started','in_progress','done'].map(s=>'<button class="'+(slot.status===s?'active':'')+'" onclick="mkSetStatus(\''+key+'\',\''+s+'\')">'+({not_started:'Not started',in_progress:'In progress',done:'Done'}[s])+'</button>').join('')+'</div>'+
-    '<div class="mk-tc-meta"><span class="mk-tc-when '+when.cls+'">'+when.label+'</span><span>Est. '+def.est+' min</span></div>'+
+    '<div class="mk-status">'+['not_started','in_progress','done'].map(s=>'<button class="'+(slot.status===s?'active':'')+'" onclick="mkSetStatus(\''+key+'\',\''+s+'\')">'+({not_started:'Not started',in_progress:'In progress',done:'Completed'}[s])+'</button>').join('')+'</div>'+
+    '<div class="mk-tc-meta"><span class="mk-tc-when '+(isDone?'':when.cls)+'">'+(isDone?'Completed':when.label)+'</span><span>Est. '+def.est+' min</span></div>'+
   '</div>';
 }
 function vMarketing(){
@@ -2591,6 +2630,7 @@ function vMarketing(){
 }
 function mkSetView(v){route.mk.view=v;render();}
 function renderMk(){
+  mkCheckRollovers();
   const el=document.getElementById('mkBody');if(el)el.innerHTML=(route.mk.view==='calendar'?mkCalendarHtml():mkBodyHtml());
 }
 /* ---- One source of truth ----
@@ -2610,14 +2650,14 @@ function mkEngineIndexFor(key){
 function mkEngineItemDescriptor(key){
   const slot=mk.engine[key],def=MK_ENGINE_DEF[key],idx=mkEngineIndexFor(key);
   const content=mkOccurrenceContent({key,index:idx});
-  return {kind:'engine',key,index:idx,title:content.title,dueDate:slot.dueDate,priority:def.priority,est:def.est,overdue:slot.dueDate<today()};
+  return {kind:'engine',key,index:idx,title:content.title,dueDate:slot.dueDate,priority:def.priority,est:def.est,overdue:slot.dueDate<today(),completed:slot.status==='done'};
 }
 function mkCustomItemDescriptor(r){
   return {kind:'custom',id:r.id,title:r.title,dueDate:r.dueDate,priority:r.priority,est:20,overdue:r.dueDate<today()};
 }
 function mkTodayBrief(){
   const engineKeys=['monday','tuesday','wednesday','thursday','friday','monthly','quarterly'];
-  const all=engineKeys.map(mkEngineItemDescriptor).concat(mk.custom.filter(r=>!r.completed).map(mkCustomItemDescriptor));
+  const all=engineKeys.map(mkEngineItemDescriptor).filter(i=>!i.completed).concat(mk.custom.filter(r=>!r.completed).map(mkCustomItemDescriptor));
   const overdueItems=all.filter(i=>i.overdue).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
   const dueTodayItems=all.filter(i=>!i.overdue&&i.dueDate===today());
   const upcomingItems=all.filter(i=>!i.overdue&&i.dueDate>today()).sort((a,b)=>a.dueDate.localeCompare(b.dueDate)).slice(0,6);
@@ -2822,7 +2862,7 @@ function mkProjectRange(key,rangeStartISO,rangeEndISO){
     else if(key==='wednesday')contentIdx=mk.engine.monday.index+i+1;
     else contentIdx=idx;
     const overdue=date<today();
-    if(date>=rangeStartISO&&date<=rangeEndISO)out.push({key,date,index:contentIdx,isFirst:i===0,overdue});
+    if(date>=rangeStartISO&&date<=rangeEndISO)out.push({key,date,index:contentIdx,isFirst:i===0,overdue,status:i===0?slot.status:undefined});
     if(date>rangeEndISO&&!overdue)break;
     if(i===0&&overdue){date=mkCatchUpDate(key);if(isOwner)idx++;}
     else{date=mkAdvance(date,def.repeat);if(isOwner)idx++;}
@@ -2871,12 +2911,24 @@ function mkCalToday(){
   route.mk.calMonth=mkThisMonthFirst();
   renderMk();
 }
+/* A completion log entry duplicates the LIVE occurrence when that slot is
+   still sitting completed (hasn't rolled over yet) on the same date — in
+   that case the live occurrence rendering already covers it, so the
+   historical log entry should stay hidden from the calendar/Day View to
+   avoid showing the same task twice in one cell. */
+function mkIsLiveCompletion(entry){
+  if(!entry.refKey||entry.refKey.indexOf('engine:')!==0)return false;
+  const key=entry.refKey.slice(7);
+  const slot=mk.engine[key];
+  return !!(slot&&slot.status==='done'&&slot.dueDate===entry.date);
+}
 function mkCalMiniItem(it){
   if(it.custom)return mkCalMiniCustom(it);
   if(it.done)return '<div class="cal-mini done" onclick="event.stopPropagation()"><span class="cal-mini-text">\u2713 '+esc(it.title)+'</span></div>';
-  return '<div class="cal-mini'+(it.overdue?' overdue':'')+'" onclick="event.stopPropagation();mkOccurrenceModal(\''+it.key+'\','+it.index+',\''+it.date+'\','+it.isFirst+')">'+
-    (it.isFirst?'<input type="checkbox" class="cal-mini-chk" onclick="event.stopPropagation();mkSetStatus(\''+it.key+'\',\'done\')">':'')+
-    '<span class="cal-mini-text">'+esc(mkCalCellText(it))+'</span></div>';
+  const isCompleted=it.isFirst&&it.status==='done';
+  return '<div class="cal-mini'+(it.overdue&&!isCompleted?' overdue':'')+(isCompleted?' done':'')+'" onclick="event.stopPropagation();mkOccurrenceModal(\''+it.key+'\','+it.index+',\''+it.date+'\','+it.isFirst+')">'+
+    (it.isFirst&&!isCompleted?'<input type="checkbox" class="cal-mini-chk" onclick="event.stopPropagation();mkSetStatus(\''+it.key+'\',\'done\')">':'')+
+    '<span class="cal-mini-text">'+(isCompleted?'\u2713 ':'')+esc(mkCalCellText(it))+'</span></div>';
 }
 /* Your own manual reminders — same store as the "Your own reminders" list,
    just also placed on their date in the grid so the calendar shows the full
@@ -2891,7 +2943,7 @@ function mkDayView(dateISO){
   const items=[];
   mkOccurrencesInRange(dateISO,dateISO).forEach(o=>items.push(o));
   mk.custom.forEach(r=>{if(r.dueDate===dateISO)items.push(Object.assign({custom:true},r));});
-  mk.completions.forEach(c=>{if(c.date===dateISO)items.push({done:true,title:c.title,date:c.date});});
+  mk.completions.forEach(c=>{if(c.date===dateISO&&!mkIsLiveCompletion(c))items.push({done:true,title:c.title,date:c.date});});
   const d=new Date(dateISO+'T00:00:00');
   const label=MK_DAY_NAMES[d.getDay()]+' '+d.getDate()+' '+MK_MONTHS[d.getMonth()]+' '+d.getFullYear();
   document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+esc(label)+'</h2><button class="x" onclick="closeModal()">\u00d7</button></div>'+
@@ -2923,7 +2975,7 @@ function mkCalendarHtml(){
   // Historical completion-log entries are lowest priority for cell display — a busy day's
   // live tasks (automatic + manual) should never be crowded out by past completions when
   // a cell hits its display cap; the full history is always visible in "Recently completed" below.
-  mk.completions.forEach(c=>{if(c.date>=rangeStart&&c.date<=rangeEnd)(byDate[c.date]=byDate[c.date]||[]).push({done:true,title:c.title,date:c.date});});
+  mk.completions.forEach(c=>{if(c.date>=rangeStart&&c.date<=rangeEnd&&!mkIsLiveCompletion(c))(byDate[c.date]=byDate[c.date]||[]).push({done:true,title:c.title,date:c.date});});
   const viewMonthNum=new Date(viewMonth+'T00:00:00').getMonth();
   const toolbar='<div class="cal-toolbar"><button class="btn" onclick="mkCalNavMonth(-1)">\u2190</button>'+
     '<div class="cal-label">'+mkCalMonthLabel(viewMonth)+'</div>'+
@@ -2937,14 +2989,18 @@ function mkCalendarHtml(){
 }
 function mkOccurrenceModal(key,idx,date,isFirst){
   const d=mkOccurrenceDetail(key,idx);
-  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+esc(d.kind)+'</h2><button class="x" onclick="closeModal()">\u00d7</button></div>'+
+  const slot=isFirst?mk.engine[key]:null;
+  const statusRow=(isFirst&&slot)?'<div class="field"><label class="fl">Status</label><div class="mk-status">'+
+    ['not_started','in_progress','done'].map(s=>'<button class="'+(slot.status===s?'active':'')+'" onclick="mkSetStatus(\''+key+'\',\''+s+'\');mkOccurrenceModal(\''+key+'\','+idx+',\''+date+'\','+isFirst+')">'+({not_started:'Not started',in_progress:'In progress',done:'Completed'}[s])+'</button>').join('')+
+    '</div></div>':'';
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+esc(d.kind)+(slot&&slot.status==='done'?' \u2713':'')+'</h2><button class="x" onclick="closeModal()">\u00d7</button></div>'+
     '<div class="field"><label class="fl">Title</label><div style="font-size:15px;font-weight:600;line-height:1.4">'+esc(d.title)+'</div></div>'+
     (d.audience?'<div class="field"><label class="fl">Audience</label><div class="muted">'+esc(d.audience)+'</div></div>':'')+
     (d.objective?'<div class="field"><label class="fl">Objective / notes</label><div class="muted" style="line-height:1.55">'+esc(d.objective)+'</div></div>':'')+
     '<div class="field"><label class="fl">Scheduled</label><div class="muted">'+fmtDate(date)+'</div></div>'+
-    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Close</button>'+
-    (isFirst?'<button class="btn gold" onclick="mkSetStatus(\''+key+'\',\'done\');closeModal();">Mark done</button>':'')+
-    '</div></div></div>';
+    statusRow+
+    (!isFirst?'<div class="faint" style="font-size:11.5px">This is a preview of an upcoming cycle \u2014 status can only be changed once it becomes the active task.</div>':'')+
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Close</button></div></div></div>';
 }
 
 /* ---- your own one-off reminders (not part of the annual plan) ---- */
@@ -2966,11 +3022,14 @@ function mkCustomSectionHtml(){
 }
 function mkToggleCustomComplete(id){
   const r=byMkReminder(id);if(!r)return;
-  if(r.completed){r.completed=false;r.completedDate='';saveMarketing();renderMk();return;}
-  mk.completions.unshift({title:r.title,date:today()});
+  if(r.completed){r.completed=false;r.completedDate='';
+    const idx=mk.completions.findIndex(c=>c.refKey==='custom:'+id);
+    if(idx!==-1)mk.completions.splice(idx,1);
+    saveMarketing();renderMk();toast('Marked not complete');return;}
+  mk.completions.unshift({refKey:'custom:'+id,title:r.title,date:today()});
   if(mk.completions.length>200)mk.completions.length=200;
   if(r.repeat){r.dueDate=mkAdvance(r.dueDate,r.repeat);toast('Nice — back on '+repeatLabel(r.repeat).toLowerCase()+' for '+fmtDate(r.dueDate));}
-  else{r.completed=true;r.completedDate=today();toast('Done');}
+  else{r.completed=true;r.completedDate=today();toast('Completed');}
   saveMarketing();renderMk();
 }
 function mkClearCompleted(){mk.custom=mk.custom.filter(r=>!r.completed);saveMarketing();renderMk();toast('Cleared');}
@@ -3005,15 +3064,26 @@ function mkOpenFromSearch(id){clearSearch();go('marketing');mkReminderForm(id);}
 /* ---- history ---- */
 function mkCompletedHtml(){
   const showN=route.mk.showCompleted?200:8;
-  const logEntries=mk.completions.map(c=>({title:c.title,date:c.date}));
-  const customCompleted=mk.custom.filter(r=>r.completed).map(r=>({title:r.title,date:r.completedDate||r.dueDate}));
+  const logEntries=mk.completions.map(c=>({title:c.title,date:c.date,refKey:c.refKey}));
+  const customCompleted=mk.custom.filter(r=>r.completed).map(r=>({title:r.title,date:r.completedDate||r.dueDate,refKey:'custom:'+r.id}));
   const total=logEntries.length+customCompleted.length;
   const merged=[...logEntries,...customCompleted].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,showN);
+  const undoFor=entry=>{
+    if(!entry.refKey)return '';
+    if(entry.refKey.indexOf('engine:')===0){
+      const key=entry.refKey.slice(7);
+      if(mk.engine[key]&&mk.engine[key].status==='done')return '<button class="btn ghost" style="font-size:10px;padding:3px 8px;margin-right:6px" onclick="mkSetStatus(\''+key+'\',\'not_started\')">Undo</button>';
+    }else if(entry.refKey.indexOf('custom:')===0){
+      const id=entry.refKey.slice(7);const r=byMkReminder(id);
+      if(r&&r.completed)return '<button class="btn ghost" style="font-size:10px;padding:3px 8px;margin-right:6px" onclick="mkToggleCustomComplete(\''+id+'\')">Undo</button>';
+    }
+    return '';
+  };
   return '<div class="sec"><div class="sec-h"><h2>Recently completed</h2>'+
     (total>showN&&!route.mk.showCompleted?'<span class="count" style="cursor:pointer;color:var(--gold)" onclick="route.mk.showCompleted=true;renderMk()">Show more</span>':'')+
     (mk.custom.some(r=>r.completed)?'<button class="btn ghost" style="margin-left:auto;font-size:11.5px;padding:5px 10px" onclick="mkClearCompleted()">Clear finished one-offs</button>':'')+
   '</div>'+
-  (merged.length?merged.map(c=>'<div class="rem-row done"><input type="checkbox" class="rem-chk" checked disabled><div class="rem-main"><div class="rem-title">'+esc(c.title)+'</div></div><div class="rem-side"><span class="rem-date">'+(c.date?fmtDate(c.date):'')+'</span></div></div>').join('')
+  (merged.length?merged.map(c=>'<div class="rem-row done"><input type="checkbox" class="rem-chk" checked disabled><div class="rem-main"><div class="rem-title">'+esc(c.title)+'</div></div><div class="rem-side">'+undoFor(c)+'<span class="rem-date">'+(c.date?fmtDate(c.date):'')+'</span></div></div>').join('')
     :'<div class="card muted" style="padding:16px">Nothing completed yet.</div>')+
   '</div>';
 }
