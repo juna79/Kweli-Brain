@@ -1272,7 +1272,7 @@ function vDash(){
     .filter(i=>!claimed.has(keyOf(i)))
     .sort((a,b)=>udays(a)-udays(b));
   futureItems.forEach(claim);
-  const upcomingAll=[...realToday,...futureItems].slice(0,10);
+  const upcomingAll=[...realToday,...futureItems].slice(0,16);
   const upcomingRow=item=>item.kind?mkDashRow(item):denseRow(item);
 
   // Recently updated — excludes anything already shown as an active task above.
@@ -1310,10 +1310,9 @@ function vDash(){
     '<div class="dash-grid">'+
       '<div>'+
         '<div class="dsec dsec-primary"><div class="dsec-h"><h2>Upcoming</h2><span class="count">'+upcomingAll.length+'</span></div>'+
-          (upcomingAll.length?'<div class="dlist dlist-primary" style="max-height:36vh">'+upcomingAll.map(upcomingRow).join('')+'</div>'
+          (upcomingAll.length?'<div class="dlist dlist-primary" style="max-height:64vh">'+upcomingAll.map(upcomingRow).join('')+'</div>'
             :'<div class="dempty">Nothing on the horizon.</div>')+
         '</div>'+
-        mkIntelligenceHtml()+
       '</div>'+
       '<div>'+
         mkMiniCalendarHtml()+
@@ -2837,64 +2836,6 @@ function mkMiniCalendarHtml(){
   }).join('')+'</div>';
   return '<div class="dsec"><div class="dsec-h"><h2>'+MK_MONTHS[viewMonthNum]+'</h2><span class="count" style="cursor:pointer;color:var(--gold)" onclick="route.mk.view=\'calendar\';go(\'marketing\')">Open \u2192</span></div>'+
     '<div class="dcard">'+head+grid+'</div></div>';
-}
-
-/* ---- Today's Intelligence ----
-   Zero AI: plain keyword overlap between today's top task and existing
-   records (companies, lessons, assets, other queue ideas). A record only
-   shows up if it genuinely shares a meaningful word — nothing is forced. */
-const MK_STOPWORDS=new Set(['the','a','an','of','to','for','and','or','why','how','what','is','are','in','on','with',
-  'that','this','your','you','we','our','it','its','their','they','do','does','did','can','will','would','should',
-  'from','by','as','at','be','been','being','not','no','yes','if','when','where','who','whom','was','were','has','have']);
-function mkKeywords(text){return (text||'').toLowerCase().replace(/[^a-z0-9\s]/g,' ').split(/\s+/).filter(w=>w.length>3&&!MK_STOPWORDS.has(w));}
-function mkKeywordScore(words,text){const t=(text||'').toLowerCase();return words.reduce((s,w)=>s+(t.includes(w)?1:0),0);}
-function mkIntelligenceFor(topItem){
-  if(!topItem)return null;
-  const words=mkKeywords(topItem.title);
-  if(!words.length)return null;
-  const rank=(list,textFn)=>list.map(x=>({x,score:mkKeywordScore(words,textFn(x))})).filter(r=>r.score>0).sort((a,b)=>b.score-a.score).map(r=>r.x);
-  const companies=rank(state.opps,o=>o.company+' '+o.category+' '+(o.notes||''));
-  const lessons=rank(state.lessons||[],l=>l.title+' '+(l.category||'')+' '+(l.description||'')+' '+(l.impact||''));
-  const assets=rank(state.assets||[],a=>a.title+' '+(a.collection||'')+' '+(a.description||'')+' '+(a.tags||[]).join(' '));
-  return {companies,lessons,assets};
-}
-/* Never a dead end: when nothing is overdue or due today, this surfaces real,
-   honest next steps — the nearest upcoming marketing task plus whatever
-   companies already have a defined next action — instead of leaving the
-   page's main focal point empty. Nothing here is invented. */
-function mkTitleOf(item){return item.kind?item.title:item.company;}
-function mkRecommendedActions(){
-  const engineKeys=['monday','tuesday','wednesday','thursday','friday','monthly','quarterly'];
-  const engineSorted=engineKeys.map(mkEngineItemDescriptor).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
-  const withNextAction=state.opps.filter(o=>isActive(o)&&o.nextAction).sort((a,b)=>(+b.priority||0)-(+a.priority||0));
-  const items=[];
-  if(engineSorted[0])items.push(engineSorted[0]);
-  withNextAction.forEach(o=>{if(items.length<5)items.push(o);});
-  if(items.length<3&&engineSorted[1])items.push(engineSorted[1]);
-  return items.slice(0,5);
-}
-/* One compact line per category: up to 3 named links, "View All" if more
-   exist. No chip clouds, no wrapping grids, no horizontal scroll — this
-   answers exactly one question ("what should I open before I start?"),
-   nothing more. */
-function mkIntelLine(tag,items,titleFn,clickFn,viewAllOnclick){
-  if(!items.length)return '';
-  const shown=items.slice(0,3);
-  const links=shown.map(x=>'<span class="dintel-link" onclick="'+clickFn(x)+'">'+esc(titleFn(x))+'</span>').join('<span class="dintel-sep">, </span>');
-  const more=items.length>3?'<span class="dintel-more" onclick="'+viewAllOnclick+'">View All</span>':'';
-  return '<div class="dintel-line"><span class="dintel-tag">'+tag+'</span>'+links+more+'</div>';
-}
-function mkIntelligenceHtml(){
-  const top=mkTodayBrief().todayItems[0]||mkRecommendedActions()[0];
-  const intel=mkIntelligenceFor(top?{title:mkTitleOf(top)}:null);
-  if(!top||!intel||(!intel.companies.length&&!intel.lessons.length&&!intel.assets.length))return '';
-  const topTitle=mkTitleOf(top);
-  const lines=[
-    mkIntelLine('Companies',intel.companies,o=>o.company,o=>"go('detail','"+o.id+"')","go('companies')"),
-    mkIntelLine('Notes',intel.lessons,l=>l.title,()=>"go('lessons')","go('lessons')"),
-    mkIntelLine('Assets',intel.assets,a=>a.title,a=>"go('assetDetail','"+a.id+"')","go('assets')")
-  ].filter(Boolean);
-  return '<div class="dsec"><div class="dsec-h"><h2>Today\u2019s Intelligence</h2><span class="count" style="font-style:italic;text-transform:none;letter-spacing:0">from "'+esc(topTitle.slice(0,34))+(topTitle.length>34?'\u2026':'')+'"</span></div><div class="dcard dintel-compact">'+lines.join('')+'</div></div>';
 }
 
 /* ---- Continue where you left off ----
