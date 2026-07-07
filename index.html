@@ -1124,7 +1124,7 @@ let route={view:'dashboard',id:null,companyView:'cards',
   ask:{query:'',results:null,loading:false,showTemplates:false},
   ws:{task:'research',company:'',text:''},
   mk:{showCompleted:false,view:'today',calMonth:mkThisMonthFirst()},
-  fu:{calMonth:null}};
+  fuFilter:{q:'',selected:[]}};
 const NAV=[
   {id:'dashboard',label:'Today',icon:'home'},
   {id:'companies',label:'Companies',icon:'list'},
@@ -1386,6 +1386,10 @@ function vDash(){
     '<div class="page-title">Today</div></div></div>'+
     summaryRow+
 
+    '<div class="dsec"><div class="dsec-h"><h2>Calendar</h2><span class="count faint">Every follow-up, meeting, marketing task and reminder — one calendar</span></div>'+
+      '<div class="dcard" style="padding:16px 16px 4px">'+mkCalendarHtml()+'</div>'+
+    '</div>'+
+
     '<div class="dash-grid">'+
       '<div>'+
         '<div class="dsec dsec-primary"><div class="dsec-h"><h2>Upcoming</h2><span class="count">'+upcomingAll.length+'</span></div>'+
@@ -1394,7 +1398,6 @@ function vDash(){
         '</div>'+
       '</div>'+
       '<div>'+
-        mkMiniCalendarHtml()+
         '<div class="dsec"><div class="dsec-h"><h2>This week</h2></div><div class="dcard">'+mkWeeklyAgendaHtml()+'</div></div>'+
         mkContinueHtml()+
         dsec('Recently updated',recent,o=>'<div class="drow" onclick="go(\'detail\',\''+o.id+'\')">'+
@@ -1522,10 +1525,42 @@ function vPeople(){
 }
 
 /* Follow-ups */
-function fuRow(f){const u=fuUrgencyOf(f);
+
+/* ============ FOLLOW-UP MANAGER ============
+   This page manages follow-ups (search, filter, bulk actions) — it does
+   NOT own a calendar. The one calendar in the app lives on the Today
+   dashboard and reads the exact same fuAllOpen()/fuAllCompleted() data
+   this page groups below, so the two views can never disagree. */
+function fuAllCompleted(){const out=[];state.opps.forEach(o=>{fuCompleted(o).forEach(f=>out.push(Object.assign({oppId:o.id,company:o.company,category:o.category},f)));});return out;}
+function fuSelKey(f){return f.oppId+'::'+f.id;}
+function fuToggleSel(key){const i=route.fuFilter.selected.indexOf(key);if(i===-1)route.fuFilter.selected.push(key);else route.fuFilter.selected.splice(i,1);renderFollow();}
+function fuClearSel(){route.fuFilter.selected=[];renderFollow();}
+function fuBulkComplete(){
+  const sel=route.fuFilter.selected.slice();if(!sel.length)return;
+  if(!confirm('Mark '+sel.length+' follow-up(s) as complete?'))return;
+  sel.forEach(key=>{const [oppId,fuId]=key.split('::');const o=byId(oppId);if(!o)return;ensureFollowups(o);
+    const f=o.followups.find(x=>x.id===fuId);if(!f||f.status==='completed')return;
+    f.status='completed';f.completedDate=today();f.completedBy=userName();
+    addActivity(oppId,'Follow-up',o.company+' follow-up marked complete (bulk).');
+    syncOppFollowState(o);persistOpp(o);
+  });
+  route.fuFilter.selected=[];render();toast('Completed '+sel.length+' follow-up(s)');
+}
+function fuBulkReschedule(){
+  const sel=route.fuFilter.selected.slice();if(!sel.length)return;
+  const due=prompt('New due date for '+sel.length+' selected follow-up(s) (YYYY-MM-DD):',today());
+  if(!due)return;
+  sel.forEach(key=>{const [oppId,fuId]=key.split('::');const o=byId(oppId);if(!o)return;ensureFollowups(o);
+    const f=o.followups.find(x=>x.id===fuId);if(!f||f.status==='completed')return;
+    f.dueDate=due;syncOppFollowState(o);persistOpp(o);
+  });
+  route.fuFilter.selected=[];render();toast('Rescheduled '+sel.length+' follow-up(s) to '+fmtDate(due));
+}
+function fuMgmtRow(f){const u=fuUrgencyOf(f);const key=fuSelKey(f);const checked=route.fuFilter.selected.indexOf(key)>=0;
   return '<div class="row-item'+(u.cls==='overdue'?' alert':'')+'">'+
+    '<input type="checkbox" style="flex:none;width:15px;height:15px" '+(checked?'checked':'')+' onclick="event.stopPropagation();fuToggleSel(\''+key+'\')">'+
     '<span class="udot" style="background:'+u.color+'"></span>'+
-    '<div class="row-main" style="cursor:pointer" onclick="go(\'detail\',\''+f.oppId+'\')">'+
+    '<div class="row-main" style="cursor:pointer" onclick="calItemDetail(\''+f.oppId+'\',\''+f.id+'\')">'+
       '<div class="row-title">'+esc(f.company)+'</div>'+
       '<div class="row-meta">'+esc(f.description||'Follow-up')+(f.personName?' · '+esc(f.personName):'')+'</div>'+
     '</div>'+
@@ -1535,86 +1570,53 @@ function fuRow(f){const u=fuUrgencyOf(f);
       '<button class="btn sm gold" onclick="event.stopPropagation();fuCompleteForm(\''+f.oppId+'\',\''+f.id+'\')">Complete</button>'+
     '</div></div>';
 }
-function vFollow(){
-  const all=fuAllOpen();
+function fuCompletedRow(f){
+  return '<div class="row-item" style="cursor:pointer" onclick="calItemDetail(\''+f.oppId+'\',\''+f.id+'\')">'+
+    '<span class="udot" style="background:var(--faint)"></span>'+
+    '<div class="row-main"><div class="row-title">'+esc(f.company)+'</div>'+
+    '<div class="row-meta">'+esc(f.description||'Follow-up')+(f.outcome?' · '+esc(f.outcome):'')+'</div></div>'+
+    '<div class="row-right muted">'+fmtDate(f.completedDate)+'</div></div>';
+}
+function renderFollow(){const b=document.getElementById('followBox');if(b)b.innerHTML=followBodyHtml();const bar=document.getElementById('followBulkBar');if(bar)bar.outerHTML=fuBulkBarHtml();}
+function fuBulkBarHtml(){
+  const n=route.fuFilter.selected.length;
+  if(!n)return '<div id="followBulkBar"></div>';
+  return '<div id="followBulkBar" class="card" style="display:flex;align-items:center;gap:10px;padding:12px 16px;margin-bottom:16px;border-color:var(--gold)">'+
+    '<strong>'+n+' selected</strong>'+
+    '<button class="btn sm gold" onclick="fuBulkComplete()">\u2713 Mark complete</button>'+
+    '<button class="btn sm" onclick="fuBulkReschedule()">\ud83d\udcc5 Reschedule</button>'+
+    '<button class="btn sm ghost" style="margin-left:auto" onclick="fuClearSel()">Clear selection</button>'+
+  '</div>';
+}
+function followBodyHtml(){
+  const q=(route.fuFilter.q||'').toLowerCase();
+  const matches=f=>!q||(f.company+' '+(f.description||'')+' '+(f.personName||'')).toLowerCase().includes(q);
+  const all=fuAllOpen().filter(matches);
   const grp={overdue:[],today:[],week:[],later:[]};
   all.forEach(f=>{const cls=fuUrgencyOf(f).cls;(grp[cls]=grp[cls]||[]).push(f);});
   grp.overdue.sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
   grp.week.sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
   grp.later.sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
-  const noFollow=state.opps.filter(o=>isActive(o)&&!fuOpen(o).length);
+  const completed=fuAllCompleted().filter(matches).sort((a,b)=>(b.completedDate||'').localeCompare(a.completedDate||'')).slice(0,25);
+  const noFollow=state.opps.filter(o=>isActive(o)&&!fuOpen(o).length&&(!q||o.company.toLowerCase().includes(q)));
   const sec=(dotc,title,arr,render)=>arr.length?'<div class="sec"><div class="sec-h"><span class="udot" style="background:'+dotc+'"></span><h2>'+title+'</h2><span class="count">'+arr.length+'</span></div>'+arr.map(render).join('')+'</div>':'';
+  if(!all.length&&!completed.length&&!noFollow.length)return '<div class="empty"><div class="em">'+ICON('clock')+'</div><h3>Nothing matches</h3><p>Try a different search.</p></div>';
+  return sec('var(--red)','Overdue',grp.overdue,fuMgmtRow)+sec('var(--amber)','Due today',grp.today,fuMgmtRow)+
+    sec('var(--green)','This week',grp.week,fuMgmtRow)+sec('var(--muted)','Future',grp.later,fuMgmtRow)+
+    sec('var(--faint)','No follow-up set',noFollow,o=>actionRow(o))+
+    (completed.length?'<div class="sec"><div class="sec-h"><h2>Completed</h2><span class="count">'+completed.length+'</span></div>'+completed.map(fuCompletedRow).join('')+'</div>':'');
+}
+function vFollow(){
   const head='<div class="page-head"><div><div class="eyebrow">Cadence</div><div class="page-title">Follow-ups</div>'+
-    '<div class="page-sub">'+grp.overdue.length+' overdue · '+grp.today.length+' due today · '+fuCompletedThisWeek()+' completed this week</div></div>'+
+    '<div class="page-sub">'+fuOverdueList().length+' overdue · '+fuDueTodayList().length+' due today · '+fuCompletedThisWeek()+' completed this week · full calendar lives on Today</div></div>'+
     '<button class="btn gold" onclick="fuForm()">+ Add follow-up</button></div>';
   if(!state.opps.filter(isActive).length)return head+'<div class="empty"><div class="em">'+ICON('clock')+'</div><h3>All clear</h3><p>No active opportunities to follow up.</p></div>';
   return head+
-    '<div class="card" style="margin-bottom:22px">'+fuCalendarHtml()+'</div>'+
-    sec('var(--red)','Overdue',grp.overdue,fuRow)+sec('var(--amber)','Due today',grp.today,fuRow)+
-    sec('var(--green)','This week',grp.week,fuRow)+sec('var(--muted)','Later',grp.later,fuRow)+
-    sec('var(--faint)','No follow-up set',noFollow,o=>actionRow(o));
+    '<div class="toolbar"><input class="input search-in" placeholder="Search follow-ups…" value="'+esc(route.fuFilter.q)+'" oninput="route.fuFilter.q=this.value;renderFollow()"></div>'+
+    fuBulkBarHtml()+
+    '<div id="followBox">'+followBodyHtml()+'</div>';
 }
 
-/* ---- Follow-ups calendar — a real month grid driven directly by the
-   follow-up records (fuAllOpen), so it can never disagree with the
-   Overdue/Due today counts above: both read the exact same list. Reuses
-   the existing .cal-* month-grid classes built for the Marketing calendar
-   — same look, different data source. ---- */
-function fuCalNavMonth(delta){
-  const d=new Date((route.fu.calMonth||mkThisMonthFirst())+'T00:00:00');d.setMonth(d.getMonth()+delta);
-  route.fu.calMonth=iso(new Date(d.getFullYear(),d.getMonth(),1));render();
-}
-function fuCalToday(){route.fu.calMonth=mkThisMonthFirst();render();}
-function fuCalMiniItem(f){const u=fuUrgencyOf(f);
-  return '<div class="cal-mini'+(u.cls==='overdue'?' overdue':'')+'" onclick="event.stopPropagation();fuDayView(\''+f.dueDate+'\')">'+
-    '<span class="cal-mini-text">'+esc(f.company)+(f.description?' — '+esc(f.description):'')+'</span></div>';
-}
-function fuCalDayCell(date,viewMonthNum,byDate){
-  const iso_=iso(date);
-  const items=(byDate[iso_]||[]).slice(0,3);
-  const overflow=(byDate[iso_]||[]).length-items.length;
-  const isToday=iso_===today();
-  const inMonth=date.getMonth()===viewMonthNum;
-  return '<div class="cal-cell'+(isToday?' today':'')+(inMonth?'':' other')+'" onclick="fuDayView(\''+iso_+'\')" title="Click to view '+fmtDate(iso_)+'">'+
-    '<div class="cal-cell-head"><span class="cal-cell-num">'+date.getDate()+'</span>'+
-    '<button class="cal-add-btn" onclick="event.stopPropagation();fuForm(null,null,\''+iso_+'\')" title="Add follow-up">+</button></div>'+
-    items.map(fuCalMiniItem).join('')+
-    (overflow>0?'<div class="cal-cell-more">+'+overflow+' more</div>':'')+
-  '</div>';
-}
-function fuCalendarHtml(){
-  route.fu.calMonth=route.fu.calMonth||mkThisMonthFirst();
-  const viewMonth=route.fu.calMonth;
-  const cells=mkMonthGridDates(viewMonth);
-  const rangeStart=iso(cells[0]),rangeEnd=iso(cells[cells.length-1]);
-  const byDate={};
-  fuAllOpen().forEach(f=>{if(f.dueDate>=rangeStart&&f.dueDate<=rangeEnd)(byDate[f.dueDate]=byDate[f.dueDate]||[]).push(f);});
-  const viewMonthNum=new Date(viewMonth+'T00:00:00').getMonth();
-  const toolbar='<div class="cal-toolbar"><button class="btn" onclick="fuCalNavMonth(-1)">\u2190</button>'+
-    '<div class="cal-label">'+mkCalMonthLabel(viewMonth)+'</div>'+
-    '<button class="btn" onclick="fuCalNavMonth(1)">\u2192</button>'+
-    '<button class="btn ghost" onclick="fuCalToday()">This month</button></div>';
-  const head='<div class="cal-head-row">'+['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d=>'<div class="cal-head-cell">'+d+'</div>').join('')+'</div>';
-  const grid='<div class="cal-grid">'+cells.map(d=>fuCalDayCell(d,viewMonthNum,byDate)).join('')+'</div>';
-  return toolbar+head+'<div class="cal-grid-wrap">'+grid+'</div>'+
-    '<div class="faint" style="font-size:11px;margin:10px 2px 0">Click any day to see every follow-up due then — use the + to schedule one directly on that date.</div>';
-}
-function fuDayView(dateISO){
-  const items=fuOnDate(dateISO);
-  const d=new Date(dateISO+'T00:00:00');
-  const label=MK_DAY_NAMES[d.getDay()]+' '+d.getDate()+' '+MK_MONTHS[d.getMonth()]+' '+d.getFullYear();
-  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+esc(label)+'</h2><button class="x" onclick="closeModal()">\u00d7</button></div>'+
-    (items.length?'<div style="display:flex;flex-direction:column;gap:9px;margin-bottom:4px">'+items.map(f=>{const u=fuUrgencyOf(f);
-      return '<div class="row-item" style="margin-bottom:0" onclick="closeModal();go(\'detail\',\''+f.oppId+'\')">'+
-        '<span class="udot" style="background:'+u.color+'"></span>'+
-        '<div class="row-main"><div class="row-title">'+esc(f.company)+'</div><div class="row-meta">'+esc(f.description||'Follow-up')+'</div></div>'+
-        '<div style="display:flex;gap:6px;flex:none">'+
-          '<button class="btn sm" onclick="event.stopPropagation();closeModal();go(\'detail\',\''+f.oppId+'\')">Open</button>'+
-          '<button class="btn sm gold" onclick="event.stopPropagation();fuCompleteForm(\''+f.oppId+'\',\''+f.id+'\')">Complete</button>'+
-        '</div></div>';}).join('')+'</div>'
-      :'<div class="card muted" style="padding:16px;margin-bottom:4px">No follow-ups due this day.</div>')+
-    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Close</button><button class="btn gold" onclick="fuForm(null,null,\''+dateISO+'\')">+ Add follow-up</button></div></div></div>';
-}
 
 /* Lessons */
 function vLessons(){
@@ -1709,9 +1711,9 @@ function vDetail(){const o=byId(route.id);if(!o)return vCompanies();
       '<div class="card" style="margin-top:16px"><div class="sec-h"><h2>Open Follow-ups</h2><button class="btn sm right" onclick="fuForm(\''+o.id+'\')">+ Add</button></div>'+
         (fuOpen(o).length?fuOpen(o).sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999')).map(f=>{const u=fuUrgencyOf(f);
           return '<div class="row-item" style="margin-bottom:8px"><span class="udot" style="background:'+u.color+'"></span>'+
-            '<div class="row-main"><div class="row-title" style="font-size:13.5px">'+esc(f.description||'Follow-up')+(f.personName?' · '+esc(f.personName):'')+'</div>'+
+            '<div class="row-main" style="cursor:pointer" onclick="calItemDetail(\''+o.id+'\',\''+f.id+'\')"><div class="row-title" style="font-size:13.5px">'+esc(f.description||'Follow-up')+(f.personName?' · '+esc(f.personName):'')+'</div>'+
             '<div class="row-meta" style="color:'+u.color+'">'+u.label+'</div></div>'+
-            '<button class="btn sm gold" onclick="fuCompleteForm(\''+o.id+'\',\''+f.id+'\')">Complete</button></div>';}).join(''):
+            '<button class="btn sm gold" onclick="event.stopPropagation();fuCompleteForm(\''+o.id+'\',\''+f.id+'\')">Complete</button></div>';}).join(''):
           '<div class="muted" style="font-size:13px">No open follow-ups.</div>')+'</div>'+
       (fuCompleted(o).length?'<div class="card" style="margin-top:16px"><div class="sec-h"><h2>Completed Follow-ups</h2></div>'+
         [...fuCompleted(o)].sort((a,b)=>(b.completedDate||'').localeCompare(a.completedDate||'')).map(f=>
@@ -2603,6 +2605,81 @@ function fuSaveComplete(oppId,fuId){
   closeModal();render();toast('Follow-up completed');
 }
 
+/* ---- Reschedule (date only — doesn't touch outcome/notes/status) ---- */
+function fuRescheduleForm(oppId,fuId){
+  const o=byId(oppId);if(!o)return;ensureFollowups(o);
+  const f=o.followups.find(x=>x.id===fuId);if(!f)return;
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>Reschedule — '+esc(o.company)+'</h2><button class="x" onclick="closeModal()">×</button></div>'+
+    '<div class="field"><label class="fl">New due date</label><input class="input" id="fu_reschedule_date" type="date" value="'+esc(f.dueDate||today())+'"></div>'+
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="fuRescheduleSave(\''+oppId+'\',\''+fuId+'\')">Save</button></div></div></div>';
+}
+function fuRescheduleSave(oppId,fuId){
+  const o=byId(oppId);if(!o)return;ensureFollowups(o);
+  const f=o.followups.find(x=>x.id===fuId);if(!f)return;
+  const due=document.getElementById('fu_reschedule_date').value;if(!due){toast('Pick a date');return;}
+  const old=f.dueDate;f.dueDate=due;
+  addActivity(oppId,'Follow-up',o.company+' follow-up rescheduled from '+(old?fmtDate(old):'—')+' to '+fmtDate(due)+'.');
+  syncOppFollowState(o);persistOpp(o);
+  closeModal();render();toast('Rescheduled to '+fmtDate(due));
+}
+/* ---- Add meeting notes — jot notes on an OPEN follow-up without
+   completing it (e.g. an interim call before the real deadline). ---- */
+function fuNotesForm(oppId,fuId){
+  const o=byId(oppId);if(!o)return;ensureFollowups(o);
+  const f=o.followups.find(x=>x.id===fuId);if(!f)return;
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>Meeting notes — '+esc(o.company)+'</h2><button class="x" onclick="closeModal()">×</button></div>'+
+    '<div class="field"><label class="fl">Notes</label><textarea class="input" id="fu_extra_notes" rows="5">'+esc(f.meetingNotes||'')+'</textarea></div>'+
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="fuNotesSave(\''+oppId+'\',\''+fuId+'\')">Save</button></div></div></div>';
+}
+function fuNotesSave(oppId,fuId){
+  const o=byId(oppId);if(!o)return;ensureFollowups(o);
+  const f=o.followups.find(x=>x.id===fuId);if(!f)return;
+  const notes=(document.getElementById('fu_extra_notes').value||'').trim();
+  f.meetingNotes=notes;
+  if(notes)addActivity(oppId,'Note',o.company+' — meeting notes: '+notes);
+  persistOpp(o);
+  closeModal();render();toast('Notes saved');
+}
+/* Assets have no explicit company link column (no schema change allowed),
+   so this is a best-effort text match against title/collection/tags —
+   good enough to surface "probably relevant" assets on the detail panel. */
+function getCompanyAssets(o){if(!o)return [];const n=normalizeName(o.company);if(!n)return [];
+  return (state.assets||[]).filter(a=>normalizeText(a.title+' '+(a.collection||'')+' '+(a.tags||[]).join(' ')).indexOf(n)>=0);}
+
+/* ============ UNIFIED CALENDAR-ITEM DETAIL PANEL ============
+   The one modal every follow-up/meeting click opens, whether the click
+   came from the Today calendar, the Follow-up manager, or anywhere else —
+   there is exactly one implementation of "here's a follow-up, here's what
+   you can do with it" in the app. */
+function calItemDetail(oppId,fuId){
+  const o=byId(oppId);if(!o)return;
+  ensureFollowups(o);
+  const f=o.followups.find(x=>x.id===fuId);if(!f)return;
+  const u=fuUrgencyOf(f);
+  const contact=f.personName||o.contactName||'';
+  const ppl=getCompanyPeople(o);
+  const assets=getCompanyAssets(o);
+  const lessons=getCompanyLessons(o);
+  const tl=[...(o.timeline||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,5);
+  const kv=(k,v)=>'<div class="kv"><span class="k">'+k+'</span><span class="v">'+(v?esc(v):'<span class="faint">—</span>')+'</span></div>';
+  const isMeeting=o.stage==='Meeting booked';
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal lg"><div class="modal-h"><h2>'+(isMeeting?'\ud83d\udcc5 ':'')+esc(o.company)+'</h2><button class="x" onclick="closeModal()">×</button></div>'+
+    '<div class="muted" style="font-size:12px;margin:-10px 0 14px;color:'+u.color+'">'+u.label+'</div>'+
+    kv('Company',o.company)+kv('Contact',contact)+kv('Due date',fmtDate(f.dueDate))+kv('Notes',f.description)+
+    (f.meetingNotes?kv('Meeting notes',f.meetingNotes):'')+
+    (tl.length?'<div class="field"><label class="fl">Previous interactions</label><ul class="timeline" style="margin-top:6px">'+tl.map(t=>'<li><span class="t-meta"><span class="t-type">'+esc(t.type||'Note')+'</span> · '+fmtDate(t.date)+'</span><div class="t-text">'+esc(t.text)+'</div></li>').join('')+'</ul></div>':'')+
+    (ppl.length?'<div class="field"><label class="fl">Linked people</label>'+ppl.map(p=>'<div class="kv" style="cursor:pointer" onclick="closeModal();personForm(\''+p.id+'\')"><span class="v">'+esc(p.name)+'</span><span class="k">'+esc(p.role||'')+'</span></div>').join('')+'</div>':'')+
+    (assets.length?'<div class="field"><label class="fl">Linked assets</label>'+assets.map(a=>'<div class="kv"><span class="v">'+esc(a.title)+'</span><span class="k">'+esc(a.assetType||'')+'</span></div>').join('')+'</div>':'')+
+    (lessons.length?'<div class="field"><label class="fl">Linked lessons</label>'+lessons.map(l=>'<div class="kv" style="cursor:pointer" onclick="closeModal();lessonForm(\''+l.id+'\')"><span class="v">'+esc(l.title)+'</span><span class="k">'+esc(l.category||'')+'</span></div>').join('')+'</div>':'')+
+    '<div class="modal-foot" style="flex-wrap:wrap">'+
+      '<button class="btn gold" onclick="fuCompleteForm(\''+oppId+'\',\''+fuId+'\')">\u2713 Complete</button>'+
+      '<button class="btn" onclick="fuRescheduleForm(\''+oppId+'\',\''+fuId+'\')">\ud83d\udcc5 Reschedule</button>'+
+      '<button class="btn" onclick="fuNotesForm(\''+oppId+'\',\''+fuId+'\')">\ud83d\udcdd Add meeting notes</button>'+
+      '<button class="btn" onclick="closeModal();fuForm(\''+oppId+'\')">\u2795 Create follow-up</button>'+
+      '<button class="btn ghost" style="margin-left:auto" onclick="closeModal();go(\'detail\',\''+oppId+'\')">Open company</button>'+
+    '</div></div></div>';
+}
+
 /* People form */
 function personForm(id,companyId){const p=id?state.people.find(x=>x.id===id):{companyId:companyId||'',company:companyId?((byId(companyId)||{}).company||''):''};
   const F=(l,k,t,ph)=>'<div class="field"><label class="fl">'+l+'</label><input class="input" id="pf_'+k+'" type="'+(t||'text')+'" value="'+esc(p[k]||'')+'" placeholder="'+(ph||'')+'"></div>';
@@ -3069,34 +3146,26 @@ function denseRow(o,rightText){const u=urgency(o);
     '<div class="drow-right" style="color:'+u.color+'">'+(rightText||u.label)+'</div></div>';
 }
 
-/* ---- Compact calendar widget for the main Today dashboard ----
-   Shows the current month only, today highlighted, a dot on any day with
-   scheduled work (automatic or manual). Clicking a day jumps straight into
-   the full Marketing Calendar's Day View for that date — same underlying
-   data as the full calendar, just a smaller lens onto it. */
-function mkGoToCalendarDate(dateISO){
-  const d=new Date(dateISO+'T00:00:00');
-  route.mk.calMonth=iso(new Date(d.getFullYear(),d.getMonth(),1));
-  route.mk.view='calendar';
-  go('marketing');
-  mkDayView(dateISO);
-}
-function mkMiniCalendarHtml(){
-  const monthFirst=mkThisMonthFirst();
-  const cells=mkMonthGridDates(monthFirst);
-  const rangeStart=iso(cells[0]),rangeEnd=iso(cells[cells.length-1]);
-  const hasWork={};
-  mkOccurrencesInRange(rangeStart,rangeEnd).forEach(o=>{hasWork[o.date]=true;});
-  mk.custom.forEach(r=>{if(!r.completed&&r.dueDate>=rangeStart&&r.dueDate<=rangeEnd)hasWork[r.dueDate]=true;});
-  const viewMonthNum=new Date(monthFirst+'T00:00:00').getMonth();
-  const head='<div class="mini-cal-head">'+['M','T','W','T','F','S','S'].map(d=>'<span>'+d+'</span>').join('')+'</div>';
-  const grid='<div class="mini-cal-grid">'+cells.map(d=>{
-    const iso_=iso(d);const inMonth=d.getMonth()===viewMonthNum;const isToday=iso_===today();
-    return '<div class="mini-cal-cell'+(isToday?' today':'')+(inMonth?'':' other')+'"'+(inMonth?' onclick="mkGoToCalendarDate(\''+iso_+'\')"':'')+'>'+
-      d.getDate()+'<span class="mini-cal-dot"'+(hasWork[iso_]?'':' style="visibility:hidden"')+'></span></div>';
-  }).join('')+'</div>';
-  return '<div class="dsec"><div class="dsec-h"><h2>'+MK_MONTHS[viewMonthNum]+'</h2><span class="count" style="cursor:pointer;color:var(--gold)" onclick="route.mk.view=\'calendar\';go(\'marketing\')">Open \u2192</span></div>'+
-    '<div class="dcard">'+head+grid+'</div></div>';
+/* ============ UNIFIED EVENT MODEL ============
+   Single source of truth for every dated item in the app. The Today
+   calendar, the dashboard's Upcoming list/counters, and the Follow-up
+   manager all ultimately trace back to these same three underlying stores
+   (state.opps follow-ups, the Marketing engine, and manual reminders) —
+   this function is just the one place they get merged for calendar
+   display, so nothing schedules independently of it. A future event type
+   (a fourth store) is added here once, not as a second calendar. */
+function allEventsInRange(startISO,endISO){
+  const out=[];
+  fuAllOpen().forEach(f=>{
+    if(!f.dueDate||f.dueDate<startISO||f.dueDate>endISO)return;
+    const o=byId(f.oppId);
+    out.push({uid:'fu:'+f.id,kind:(o&&o.stage==='Meeting booked')?'meeting':'followup',
+      date:f.dueDate,title:f.company,sub:f.description||'',oppId:f.oppId,fuId:f.id,overdue:f.dueDate<today()});
+  });
+  mkOccurrencesInRange(startISO,endISO).forEach(o=>out.push(Object.assign({uid:'mk:'+o.key+':'+o.index,kind:'marketing'},o)));
+  mk.custom.forEach(r=>{if(!r.completed&&r.dueDate>=startISO&&r.dueDate<=endISO)out.push({uid:'rem:'+r.id,kind:'reminder',date:r.dueDate,title:r.title,raw:r,overdue:daysUntil(r.dueDate)<0});});
+  mk.completions.forEach(c=>{if(c.date>=startISO&&c.date<=endISO&&!mkIsLiveCompletion(c))out.push({uid:'done:'+(c.refKey||'')+':'+c.date+':'+c.title,kind:'done',date:c.date,title:c.title});});
+  return out;
 }
 
 /* ---- Continue where you left off ----
@@ -3243,8 +3312,13 @@ function mkIsLiveCompletion(entry){
   return !!(slot&&slot.status==='done'&&slot.dueDate===entry.date);
 }
 function mkCalMiniItem(it){
-  if(it.custom)return mkCalMiniCustom(it);
-  if(it.done)return '<div class="cal-mini done" onclick="event.stopPropagation()"><span class="cal-mini-text">\u2713 '+esc(it.title)+'</span></div>';
+  if(it.kind==='followup'||it.kind==='meeting'){
+    const isMeeting=it.kind==='meeting';
+    return '<div class="cal-mini'+(it.overdue?' overdue':'')+'" style="border-left-color:'+(isMeeting?'var(--gold)':'var(--green)')+'" onclick="event.stopPropagation();calItemDetail(\''+it.oppId+'\',\''+it.fuId+'\')">'+
+      '<span class="cal-mini-text">'+(isMeeting?'\ud83d\udcc5 ':'\ud83d\udd14 ')+esc(it.title)+(it.sub?' — '+esc(it.sub):'')+'</span></div>';
+  }
+  if(it.kind==='reminder')return mkCalMiniCustom(it.raw);
+  if(it.kind==='done'||it.custom)return it.custom?mkCalMiniCustom(it):'<div class="cal-mini done" onclick="event.stopPropagation()"><span class="cal-mini-text">\u2713 '+esc(it.title)+'</span></div>';
   const isCompleted=it.isFirst&&it.status==='done';
   return '<div class="cal-mini'+(it.overdue&&!isCompleted?' overdue':'')+(isCompleted?' done':'')+'" onclick="event.stopPropagation();mkOccurrenceModal(\''+it.key+'\','+it.index+',\''+it.date+'\','+it.isFirst+')">'+
     (it.isFirst&&!isCompleted?'<input type="checkbox" class="cal-mini-chk" onclick="event.stopPropagation();mkSetStatus(\''+it.key+'\',\'done\')">':'')+
@@ -3258,18 +3332,23 @@ function mkCalMiniCustom(r){
     (!r.completed?'<input type="checkbox" class="cal-mini-chk" onclick="event.stopPropagation();mkToggleCustomComplete(\''+r.id+'\')">':'')+
     '<span class="cal-mini-text">'+(r.completed?'\u2713 ':'')+esc(r.title)+'</span></div>';
 }
-function mkCalAddForDate(dateISO){mkReminderForm(null,dateISO);}
+/* + on a day opens a tiny chooser rather than assuming "reminder" — the
+   calendar schedules more than one kind of thing now. */
+function mkCalAddForDate(dateISO){
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>Add to '+esc(fmtDate(dateISO))+'</h2><button class="x" onclick="closeModal()">\u00d7</button></div>'+
+    '<div style="display:flex;flex-direction:column;gap:8px">'+
+      '<button class="btn" style="justify-content:flex-start" onclick="closeModal();fuForm(null,null,\''+dateISO+'\')">+ Follow-up</button>'+
+      '<button class="btn" style="justify-content:flex-start" onclick="closeModal();mkReminderForm(null,\''+dateISO+'\')">+ Reminder</button>'+
+    '</div><div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button></div></div></div>';
+}
 function mkDayView(dateISO){
-  const items=[];
-  mkOccurrencesInRange(dateISO,dateISO).forEach(o=>items.push(o));
-  mk.custom.forEach(r=>{if(r.dueDate===dateISO)items.push(Object.assign({custom:true},r));});
-  mk.completions.forEach(c=>{if(c.date===dateISO&&!mkIsLiveCompletion(c))items.push({done:true,title:c.title,date:c.date});});
+  const items=allEventsInRange(dateISO,dateISO);
   const d=new Date(dateISO+'T00:00:00');
   const label=MK_DAY_NAMES[d.getDay()]+' '+d.getDate()+' '+MK_MONTHS[d.getMonth()]+' '+d.getFullYear();
   document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+esc(label)+'</h2><button class="x" onclick="closeModal()">\u00d7</button></div>'+
     (items.length?'<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:4px">'+items.map(mkCalMiniItem).join('')+'</div>'
       :'<div class="card muted" style="padding:16px;margin-bottom:4px">Nothing scheduled for this day.</div>')+
-    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Close</button><button class="btn gold" onclick="mkCalAddForDate(\''+dateISO+'\')">+ Add action</button></div></div></div>';
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Close</button><button class="btn gold" onclick="mkCalAddForDate(\''+dateISO+'\')">+ Add</button></div></div></div>';
 }
 function mkCalDayCell(date,viewMonthNum,byDate){
   const iso_=iso(date);
@@ -3279,7 +3358,7 @@ function mkCalDayCell(date,viewMonthNum,byDate){
   const inMonth=date.getMonth()===viewMonthNum;
   return '<div class="cal-cell'+(isToday?' today':'')+(inMonth?'':' other')+'" onclick="mkDayView(\''+iso_+'\')" title="Click to view '+fmtDate(iso_)+'">'+
     '<div class="cal-cell-head"><span class="cal-cell-num">'+date.getDate()+'</span>'+
-    '<button class="cal-add-btn" onclick="event.stopPropagation();mkCalAddForDate(\''+iso_+'\')" title="Add action">+</button></div>'+
+    '<button class="cal-add-btn" onclick="event.stopPropagation();mkCalAddForDate(\''+iso_+'\')" title="Add">+</button></div>'+
     items.map(mkCalMiniItem).join('')+
     (overflow>0?'<div class="cal-cell-more">+'+overflow+' more</div>':'')+
   '</div>';
@@ -3290,12 +3369,7 @@ function mkCalendarHtml(){
   const cells=mkMonthGridDates(viewMonth);
   const rangeStart=iso(cells[0]),rangeEnd=iso(cells[cells.length-1]);
   const byDate={};
-  mkOccurrencesInRange(rangeStart,rangeEnd).forEach(o=>{(byDate[o.date]=byDate[o.date]||[]).push(o);});
-  mk.custom.forEach(r=>{if(r.dueDate>=rangeStart&&r.dueDate<=rangeEnd)(byDate[r.dueDate]=byDate[r.dueDate]||[]).push(Object.assign({custom:true},r));});
-  // Historical completion-log entries are lowest priority for cell display — a busy day's
-  // live tasks (automatic + manual) should never be crowded out by past completions when
-  // a cell hits its display cap; the full history is always visible in "Recently completed" below.
-  mk.completions.forEach(c=>{if(c.date>=rangeStart&&c.date<=rangeEnd&&!mkIsLiveCompletion(c))(byDate[c.date]=byDate[c.date]||[]).push({done:true,title:c.title,date:c.date});});
+  allEventsInRange(rangeStart,rangeEnd).forEach(it=>{(byDate[it.date]=byDate[it.date]||[]).push(it);});
   const viewMonthNum=new Date(viewMonth+'T00:00:00').getMonth();
   const toolbar='<div class="cal-toolbar"><button class="btn" onclick="mkCalNavMonth(-1)">\u2190</button>'+
     '<div class="cal-label">'+mkCalMonthLabel(viewMonth)+'</div>'+
@@ -3304,7 +3378,7 @@ function mkCalendarHtml(){
   const head='<div class="cal-head-row">'+['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d=>'<div class="cal-head-cell">'+d+'</div>').join('')+'</div>';
   const grid='<div class="cal-grid">'+cells.map(d=>mkCalDayCell(d,viewMonthNum,byDate)).join('')+'</div>';
   return toolbar+head+'<div class="cal-grid-wrap">'+grid+'</div>'+
-    '<div class="faint" style="font-size:11px;margin:10px 2px 0">Click any day to see its agenda \u2014 use the + to add an action directly. Automatic plan items show with a gold edge, yours show with a green edge.</div>'+
+    '<div class="faint" style="font-size:11px;margin:10px 2px 0">Click any day to see its agenda, or click an item directly. \ud83d\udd14 follow-up · \ud83d\udcc5 meeting · gold edge = marketing plan · green edge = your reminder.</div>'+
     mkCompletedHtml();
 }
 function mkOccurrenceModal(key,idx,date,isFirst){
