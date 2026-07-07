@@ -2903,8 +2903,28 @@ function teamBoardBadgeCount(){
   const mine=open.filter(m=>normalizeName(m.assignedTo)===normalizeName(userName()));
   return mine.length||open.length;
 }
-function tbStatusClass(s){return s==='Done'?'status-done':(s==='In Progress'?'status-progress':'status-todo');}
-function tbStatusPinColor(s){return s==='Done'?'var(--green)':(s==='In Progress'?'var(--amber)':'var(--red)');}
+/* Note colour = importance/completion, NOT workflow status.
+   Yellow (status-progress class) is the default. Red only for Urgent
+   priority. Green only once Done. "In Progress" etc. never change colour —
+   that's what the Status field/text is for. */
+function tbNoteColorClass(m){
+  if(m.status==='Done')return 'status-done';
+  if(m.priority==='Urgent')return 'status-todo';
+  return 'status-progress';
+}
+function tbNoteColor(m){
+  if(m.status==='Done')return 'var(--green)';
+  if(m.priority==='Urgent')return 'var(--red)';
+  return 'var(--amber)';
+}
+/* Separate colour for the workflow STATUS text/dot shown in the detail
+   panel and History — independent of the note's yellow/red/green colour. */
+function tbWorkflowColor(status){
+  if(status==='Done')return 'var(--green)';
+  if(status==='In Progress')return 'var(--purple)';
+  if(status==='Waiting'||status==='Waiting for Response')return 'var(--blue)';
+  return 'var(--amber)';
+}
 /* Deterministic "random" rotation/position per note id, so layout is
    stable across renders even before a note has ever been dragged. */
 function tbHash(id){let h=0;for(let i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))&0xffff;return h;}
@@ -2954,9 +2974,9 @@ function tbBoardHtml(){
 function tbStickyHtml(m){
   const pos=m.pos||{x:20,y:20};
   const who=m.assignedTo||m.author||'Team';
-  return '<div class="sticky '+tbStatusClass(m.status)+'" data-id="'+m.id+'" style="left:'+pos.x+'px;top:'+pos.y+'px;transform:rotate('+tbRot(m.id)+')" '+
+  return '<div class="sticky '+tbNoteColorClass(m)+'" data-id="'+m.id+'" style="left:'+pos.x+'px;top:'+pos.y+'px;transform:rotate('+tbRot(m.id)+')" '+
     'onmousedown="tbDragStart(event,\''+m.id+'\')" onclick="tbStickyClick(event,\''+m.id+'\')">'+
-    '<div class="sticky-pin" style="background:radial-gradient(circle at 35% 30%,#fff,'+tbStatusPinColor(m.status)+' 55%,#00000055)"></div>'+
+    '<div class="sticky-pin" style="background:radial-gradient(circle at 35% 30%,#fff,'+tbNoteColor(m)+' 55%,#00000055)"></div>'+
     (tbIsUnread(m)?'<div class="tb-unread-dot"></div>':'')+
     '<div class="sticky-fold"></div>'+
     '<div class="sticky-who">@'+esc(who)+'</div>'+
@@ -3012,7 +3032,7 @@ function tbOpenDetail(id){
     '<div class="kv"><span class="k">To</span><span class="v">'+esc(m.assignedTo||'—')+'</span></div>'+
     (m.companyName?'<div class="kv"><span class="k">Company</span><span class="v" style="cursor:pointer;color:var(--gold)" onclick="'+(co?"renderTeamBoard();go('detail','"+co.id+"')":'')+'">'+esc(m.companyName)+'</span></div>':'')+
     '<div class="kv"><span class="k">Date</span><span class="v">'+fmtDate((m.createdAt||'').slice(0,10))+'</span></div>'+
-    '<div class="kv"><span class="k">Status</span><span class="v" style="color:'+tbStatusPinColor(m.status)+'">'+esc(m.status)+'</span></div>'+
+    '<div class="kv"><span class="k">Status</span><span class="v" style="color:'+tbWorkflowColor(m.status)+'">'+esc(m.status)+'</span></div>'+
     (m.message?'<div class="field"><label class="fl">Message</label><div class="prose" style="font-size:13.5px">'+esc(m.message)+'</div></div>':'')+
     '<div class="field"><label class="fl">Attachments</label><div class="faint" style="font-size:12px">Coming soon.</div></div>'+
     '<div class="field"><label class="fl">Replies</label><div style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px">'+
@@ -3043,7 +3063,7 @@ function tbHistoryHtml(){
   all.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
   return '<div class="toolbar" style="margin-bottom:12px"><input class="input search-in" placeholder="Search history…" value="'+esc(route.team.q||'')+'" oninput="route.team.q=this.value;renderTeamBoard()"></div>'+
     (all.length?all.map(m=>'<div class="tb-history-row" style="cursor:pointer" onclick="tbOpenDetail(\''+m.id+'\')">'+
-      '<span class="udot" style="background:'+tbStatusPinColor(m.status)+'"></span>'+
+      '<span class="udot" style="background:'+tbWorkflowColor(m.status)+'"></span>'+
       '<div style="flex:1;min-width:0">'+
         '<div style="font-weight:600">'+esc(m.title)+(m.isPinned?'':' <span class="faint" style="font-weight:400">(unpinned)</span>')+'</div>'+
         (m.message?'<div class="muted" style="font-size:12px;margin:2px 0">'+esc(m.message.slice(0,140))+'</div>':'')+
