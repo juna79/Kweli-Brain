@@ -10,7 +10,7 @@
     --line:rgba(255,255,255,.07); --line-s:rgba(255,255,255,.12);
     --txt:#EAF1F4; --muted:#90A6B2; --faint:#5E7785;
     --gold:#C9A24B; --gold-d:#A6822F; --gold-soft:rgba(201,162,75,.13);
-    --green:#46B98A; --amber:#E0A340; --red:#E0654B;
+    --green:#46B98A; --amber:#E0A340; --red:#E0654B; --blue:#4FA3D1; --purple:#9B7FD4;
     --r:14px;
   }
   *{box-sizing:border-box}
@@ -832,7 +832,35 @@ function D(v){return v?v:null;}
    `notes` column, and stripped back out on read. The visible Notes text
    stays clean; o.followups holds the real structured data in memory. */
 const FU_TAG='\n<!--kweli-followups:';
-const FOLLOWUP_OUTCOMES=['Successful','Neutral','No response','Rescheduled','Opportunity closed'];
+/* Relationship states, not task states — a follow-up describes where a
+   relationship currently stands, not a checkbox. Only the last two are
+   "final": everything else is still active, ongoing work. */
+const FU_STATUSES=['To Do','Waiting for Response','Meeting Scheduled','In Progress','Completed','Closed / Lost'];
+const FU_FINAL_STATUSES=['Completed','Closed / Lost'];
+function fuIsFinal(f){return FU_FINAL_STATUSES.indexOf(f.status)>=0;}
+/* "What happened?" outcomes shown on the completion modal, and the
+   relationship state each one rolls the follow-up into automatically.
+   Custom has no fixed mapping — the person picks the resulting status. */
+const FU_OUTCOMES=[
+  {label:'Email sent',next:'Waiting for Response'},
+  {label:'Call completed',next:'Waiting for Response'},
+  {label:'Meeting held',next:'In Progress'},
+  {label:'Proposal sent',next:'Waiting for Response'},
+  {label:'Waiting for customer',next:'Waiting for Response'},
+  {label:'Pilot started',next:'In Progress'},
+  {label:'Contract signed',next:'Completed'},
+  {label:'No response',next:'Waiting for Response'},
+  {label:'Opportunity lost',next:'Closed / Lost'},
+  {label:'Custom',next:null}
+];
+function fuStatusColor(status){return ({
+  'To Do':'var(--amber)','Waiting for Response':'var(--blue)','Meeting Scheduled':'var(--green)',
+  'In Progress':'var(--purple)','Completed':'var(--faint)','Closed / Lost':'var(--red)'
+})[status]||'var(--muted)';}
+function fuStatusEmoji(status){return ({
+  'To Do':'\ud83d\udfe1','Waiting for Response':'\ud83d\udd35','Meeting Scheduled':'\ud83d\udfe2',
+  'In Progress':'\ud83d\udfe3','Completed':'\u26aa','Closed / Lost':'\ud83d\udd34'
+})[status]||'';}
 function packOppNotes(o){
   const base=o.notes||'';
   const fu=(o.followups||[]).filter(f=>f&&f.dueDate);
@@ -848,24 +876,34 @@ function unpackOppNotes(raw){
   if(jsonPart.endsWith('-->'))jsonPart=jsonPart.slice(0,-3);
   let followups=[];
   try{followups=JSON.parse(jsonPart)||[];}catch(e){followups=[];}
+  followups.forEach(fuNormalizeStatus);
   return {notes,followups};
+}
+/* Old records only ever had status 'open' or 'completed' — map those onto
+   the new relationship states once, in place, without touching anything
+   else about the record (including its history). */
+function fuNormalizeStatus(f){
+  if(!f.status||f.status==='open')f.status='To Do';
+  else if(f.status==='completed')f.status='Completed';
+  return f;
 }
 /* Keeps the legacy single followUp/nextAction fields (which every existing
    sort/filter/urgency/dashboard function already reads) in sync with the
-   earliest still-open follow-up record, so none of that code needed to
+   earliest still-active follow-up record, so none of that code needed to
    change. Also lazily migrates an old-style single follow-up into the new
    array the first time a record is touched. */
 function ensureFollowups(o){
   if(o.followups===undefined)o.followups=[];
+  o.followups.forEach(fuNormalizeStatus);
   if(!o.followups.length&&o.followUp&&!o._fuMigrated){
     o._fuMigrated=true;
-    o.followups.push({id:uid('f'),dueDate:o.followUp,description:o.nextAction||'',priority:+o.priority||50,personId:'',personName:'',status:'open',createdDate:o.lastInteraction||today(),createdBy:o.createdBy||userName()});
+    o.followups.push({id:uid('f'),dueDate:o.followUp,description:o.nextAction||'',priority:+o.priority||50,personId:'',personName:'',status:'To Do',createdDate:o.lastInteraction||today(),createdBy:o.createdBy||userName()});
     persistOpp(o);
   }
   return o.followups;
 }
 function syncOppFollowState(o){
-  const open=(o.followups||[]).filter(f=>f.status!=='completed').sort((a,b)=>(a.dueDate||'9999-99-99').localeCompare(b.dueDate||'9999-99-99'));
+  const open=(o.followups||[]).filter(f=>!fuIsFinal(f)).sort((a,b)=>(a.dueDate||'9999-99-99').localeCompare(b.dueDate||'9999-99-99'));
   o.followUp=open.length?(open[0].dueDate||''):'';
   if(open.length&&open[0].description)o.nextAction=open[0].description;
 }
@@ -1205,13 +1243,19 @@ function stageChip(s){return '<span class="chip"><span class="dot" style="backgr
 function peopleOf(oppId){return state.people.filter(p=>p.companyId===oppId)}
 
 /* ============ FOLLOW-UP LIFECYCLE ============
-   One company can now have several open follow-ups at once, plus a full
-   completed history. Everything below works off the flattened per-record
-   list so the Follow-ups page and its calendar always agree with each
-   other and with the underlying data — there is only one source of truth. */
-function fuOpen(o){ensureFollowups(o);return o.followups.filter(f=>f.status!=='completed');}
-function fuCompleted(o){ensureFollowups(o);return o.followups.filter(f=>f.status==='completed');}
+   One company can now have several active follow-ups at once, plus a full
+   history of finished ones. "Open" means not-yet-final (To Do / Waiting /
+   Meeting Scheduled / In Progress) — a follow-up only leaves this set once
+   it reaches Completed or Closed / Lost. Nothing is ever deleted: final
+   records stay on the company forever via fuCompleted(), and stay on the
+   calendar (faded) via fuAllRecords(). */
+function fuOpen(o){ensureFollowups(o);return o.followups.filter(f=>!fuIsFinal(f));}
+function fuCompleted(o){ensureFollowups(o);return o.followups.filter(fuIsFinal);}
 function fuAllOpen(){const out=[];state.opps.forEach(o=>{if(!isActive(o))return;fuOpen(o).forEach(f=>out.push(Object.assign({oppId:o.id,company:o.company,category:o.category},f)));});return out;}
+/* Every follow-up record regardless of status — the calendar's source,
+   since final items must stay visible (faded), never disappear. */
+function fuAllRecords(){const out=[];state.opps.forEach(o=>{if(!isActive(o))return;ensureFollowups(o);o.followups.forEach(f=>out.push(Object.assign({oppId:o.id,company:o.company,category:o.category},f)));});return out;}
+function fuWaitingList(){return fuAllOpen().filter(f=>f.status==='Waiting for Response').sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999'));}
 function personFollowups(personId,personName){
   const out=[];const key=normalizeName(personName);
   state.opps.forEach(o=>{ensureFollowups(o);o.followups.forEach(f=>{
@@ -1234,6 +1278,20 @@ function fuUrgencyOf(f){const d=daysUntil(f.dueDate);
   if(d===0)return{cls:'today',label:'Due today',color:'var(--amber)'};
   if(d<=7)return{cls:'week',label:'In '+d+'d',color:'var(--green)'};
   return{cls:'later',label:fmtDate(f.dueDate),color:'var(--muted)'};}
+/* One company's current relationship snapshot — the "at a glance" facts
+   the company profile and person profile both want to surface. */
+function companyRelationshipSummary(o){
+  const openF=[...fuOpen(o)].sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999'))[0];
+  const lastTl=[...(o.timeline||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+  let status=openF?openF.status:'No follow-up';
+  if(!openF){const lastFinal=[...fuCompleted(o)].sort((a,b)=>(b.completedDate||'').localeCompare(a.completedDate||''))[0];if(lastFinal)status=lastFinal.status;}
+  return {
+    status,
+    lastAction:lastTl?(lastTl.text+' — '+fmtDate(lastTl.date)):'',
+    waitingSince:(openF&&openF.status==='Waiting for Response')?fmtDate(openF.waitingSince||openF.dueDate):'',
+    nextFollowUp:o.followUp?fmtDate(o.followUp):''
+  };
+}
 
 /* ============ CONNECTED DATA MODEL ============
    Enter once, reference everywhere, never duplicate.
@@ -1328,33 +1386,36 @@ function vDash(){
   const mkBrief=mkTodayBrief();
   if(!state.opps.length&&!mkBrief.todayItems.length&&!mkBrief.upcomingItems.length)return emptyDash();
   const active=state.opps.filter(isActive);
-  const od=overdue().sort((a,b)=>a.followUp.localeCompare(b.followUp));
-  const dt=dueToday();
-  const meetings=active.filter(o=>o.stage==='Meeting booked');
 
-  // Every item gets one stable identity, so the same record can never be
-  // claimed by two sections — this is the single source of the whole page's
-  // deduplication.
-  const keyOf=item=>item.kind?(item.kind+':'+(item.key||item.id)):('opp:'+item.id);
-  const claimed=new Set();
-  const claim=item=>{claimed.add(keyOf(item));return item;};
+  // Five status-shaped views over the exact same follow-up records the
+  // calendar and Follow-up manager use — nothing here is a separate query,
+  // just a different grouping of fuAllOpen()/fuAllRecords().
+  const fuOverdue=fuOverdueList();
+  const fuToday=fuDueTodayList();
+  const fuWaiting=fuWaitingList();
+  const weekStart=iso(mkThisWeekMonday());
+  const weekEndD=mkThisWeekMonday();weekEndD.setDate(weekEndD.getDate()+6);
+  const weekEnd=iso(weekEndD);
 
-  // Upcoming is now the one primary working list — overdue first, then due
-  // today, then genuinely upcoming work. No separate "recommended" section:
-  // this single, honestly-sorted list already answers "what do I work on."
-  const realToday=[...od,...mkBrief.overdueItems,...dt,...mkBrief.dueTodayItems].map(claim);
-  const suggest=active.filter(o=>o.nextAction&&!dt.includes(o)&&!od.includes(o));
-  const upcomingPool=[...new Set([...suggest,...meetings])];
-  const udays=x=>x.kind?daysUntil(x.dueDate):(daysUntil(x.followUp)==null?999:daysUntil(x.followUp));
-  const futureItems=[...upcomingPool,...mkBrief.upcomingItems]
-    .filter(i=>!claimed.has(keyOf(i)))
-    .sort((a,b)=>udays(a)-udays(b));
-  futureItems.forEach(claim);
-  const upcomingAll=[...realToday,...futureItems].slice(0,16);
-  const upcomingRow=item=>item.kind?mkDashRow(item):denseRow(item);
+  // Meetings — either the company's stage says so, or a follow-up has been
+  // explicitly set to "Meeting Scheduled". De-duplicated per company.
+  const meetingMap={};
+  fuAllOpen().filter(f=>f.status==='Meeting Scheduled').forEach(f=>{meetingMap[f.oppId]=meetingMap[f.oppId]||f;});
+  active.filter(o=>o.stage==='Meeting booked').forEach(o=>{if(!meetingMap[o.id])meetingMap[o.id]={oppId:o.id,company:o.company,dueDate:o.followUp,description:o.nextAction,status:'Meeting Scheduled',id:'company-'+o.id};});
+  const meetingsList=Object.values(meetingMap).sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999'));
+  const meetingsThisWeek=meetingsList.filter(f=>f.dueDate&&f.dueDate>=weekStart&&f.dueDate<=weekEnd).length;
 
-  // Recently updated — excludes anything already shown as an active task above.
-  const recent=[...state.opps].filter(o=>!claimed.has(keyOf(o)))
+  const todaysTasks=[...fuToday,...(mkBrief.dueTodayItems||[])];
+  const shownKeys=new Set([...fuOverdue,...fuToday].map(f=>f.oppId+'::'+f.id));
+  const thisWeekFu=fuAllOpen().filter(f=>f.dueDate&&f.dueDate>today()&&f.dueDate<=weekEnd&&!shownKeys.has(f.oppId+'::'+f.id))
+    .sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const thisWeekMk=(mkBrief.upcomingItems||[]).filter(i=>i.dueDate&&i.dueDate<=weekEnd);
+  const thisWeekAll=[...thisWeekFu,...thisWeekMk].sort((a,b)=>(a.dueDate||'').localeCompare(b.dueDate||''));
+
+  // Recently updated — companies not already surfaced by one of the
+  // sections above.
+  const claimedCo=new Set([...fuOverdue,...fuToday,...fuWaiting,...thisWeekFu].map(f=>f.oppId));
+  const recent=[...state.opps].filter(o=>!claimedCo.has(o.id))
     .sort((a,b)=>lastTouch(b).localeCompare(lastTouch(a))).slice(0,3);
 
   const dsec=(title,arr,render,opts)=>{
@@ -1363,20 +1424,18 @@ function vDash(){
     const body=arr.length?'<div class="dlist"'+(opts.maxH?' style="max-height:'+opts.maxH+'"':'')+'>'+arr.map(render).join('')+'</div>':'<div class="dempty">'+opts.note+'</div>';
     return '<div class="dsec"><div class="dsec-h"><h2>'+title+'</h2><span class="count">'+arr.length+'</span></div>'+body+'</div>';
   };
+  const mixedRow=item=>item.kind?mkDashRow(item):fuDashRow(item);
 
   // Compact single-row summary — real counts, nothing invented.
-  const weekStart=iso(mkThisWeekMonday());
-  const weekEndD=mkThisWeekMonday();weekEndD.setDate(weekEndD.getDate()+6);
-  const weekEnd=iso(weekEndD);
-  const meetingsThisWeek=meetings.filter(o=>o.followUp&&o.followUp>=weekStart&&o.followUp<=weekEnd).length;
-  const overdueCount=od.length+mkBrief.overdueItems.length;
-  const dueTodayCount=dt.length+mkBrief.dueTodayItems.length;
-  const estMinutes=upcomingAll.reduce((s,i)=>s+(i.kind?(i.est||20):20),0);
+  const overdueCount=fuOverdue.length+(mkBrief.overdueItems||[]).length;
+  const dueTodayCount=todaysTasks.length;
+  const estMinutes=[...todaysTasks,...thisWeekAll].reduce((s,i)=>s+(i.kind?(i.est||20):20),0);
   const stat=(val,label,color)=>'<div class="dstat"><span class="dstat-val"'+(color?' style="color:'+color+'"':'')+'>'+val+'</span><span class="dstat-lbl">'+label+'</span></div>';
   const summaryRow='<div class="dstat-row">'+
     stat(active.length,'Active')+
     stat(dueTodayCount,'Due Today',dueTodayCount?'var(--amber)':null)+
     stat(overdueCount,'Overdue',overdueCount?'var(--red)':null)+
+    stat(fuWaiting.length,'Waiting',fuWaiting.length?'var(--blue)':null)+
     stat(meetingsThisWeek,'Meetings This Week')+
     stat(fuCompletedThisWeek(),'Completed This Week')+
     stat(mkEstLabelCompact(estMinutes),'Est. Work')+
@@ -1392,13 +1451,14 @@ function vDash(){
 
     '<div class="dash-grid">'+
       '<div>'+
-        '<div class="dsec dsec-primary"><div class="dsec-h"><h2>Upcoming</h2><span class="count">'+upcomingAll.length+'</span></div>'+
-          (upcomingAll.length?'<div class="dlist dlist-primary" style="max-height:64vh">'+upcomingAll.map(upcomingRow).join('')+'</div>'
-            :'<div class="dempty">Nothing on the horizon.</div>')+
-        '</div>'+
+        dsec('Overdue Follow-ups',fuOverdue,fuDashRow)+
+        dsec('Today\u2019s Tasks',todaysTasks,mixedRow,{note:'Nothing due today.'})+
+        dsec('Waiting for Responses',fuWaiting,fuDashRow)+
+        dsec('Meetings',meetingsList,fuDashRow)+
+        dsec('This Week',thisWeekAll,mixedRow)+
       '</div>'+
       '<div>'+
-        '<div class="dsec"><div class="dsec-h"><h2>This week</h2></div><div class="dcard">'+mkWeeklyAgendaHtml()+'</div></div>'+
+        '<div class="dsec"><div class="dsec-h"><h2>Marketing this week</h2></div><div class="dcard">'+mkWeeklyAgendaHtml()+'</div></div>'+
         mkContinueHtml()+
         dsec('Recently updated',recent,o=>'<div class="drow" onclick="go(\'detail\',\''+o.id+'\')">'+
           '<div class="drow-main"><div class="drow-title">'+esc(o.company)+'</div></div>'+
@@ -1537,11 +1597,11 @@ function fuToggleSel(key){const i=route.fuFilter.selected.indexOf(key);if(i===-1
 function fuClearSel(){route.fuFilter.selected=[];renderFollow();}
 function fuBulkComplete(){
   const sel=route.fuFilter.selected.slice();if(!sel.length)return;
-  if(!confirm('Mark '+sel.length+' follow-up(s) as complete?'))return;
+  if(!confirm('Mark '+sel.length+' follow-up(s) as Completed?'))return;
   sel.forEach(key=>{const [oppId,fuId]=key.split('::');const o=byId(oppId);if(!o)return;ensureFollowups(o);
-    const f=o.followups.find(x=>x.id===fuId);if(!f||f.status==='completed')return;
-    f.status='completed';f.completedDate=today();f.completedBy=userName();
-    addActivity(oppId,'Follow-up',o.company+' follow-up marked complete (bulk).');
+    const f=o.followups.find(x=>x.id===fuId);if(!f||fuIsFinal(f))return;
+    f.status='Completed';f.completedDate=today();f.completedBy=userName();
+    addActivity(oppId,'Follow-up',o.company+' follow-up marked Completed (bulk).');
     syncOppFollowState(o);persistOpp(o);
   });
   route.fuFilter.selected=[];render();toast('Completed '+sel.length+' follow-up(s)');
@@ -1551,30 +1611,30 @@ function fuBulkReschedule(){
   const due=prompt('New due date for '+sel.length+' selected follow-up(s) (YYYY-MM-DD):',today());
   if(!due)return;
   sel.forEach(key=>{const [oppId,fuId]=key.split('::');const o=byId(oppId);if(!o)return;ensureFollowups(o);
-    const f=o.followups.find(x=>x.id===fuId);if(!f||f.status==='completed')return;
+    const f=o.followups.find(x=>x.id===fuId);if(!f||fuIsFinal(f))return;
     f.dueDate=due;syncOppFollowState(o);persistOpp(o);
   });
   route.fuFilter.selected=[];render();toast('Rescheduled '+sel.length+' follow-up(s) to '+fmtDate(due));
 }
-function fuMgmtRow(f){const u=fuUrgencyOf(f);const key=fuSelKey(f);const checked=route.fuFilter.selected.indexOf(key)>=0;
+function fuMgmtRow(f){const u=fuUrgencyOf(f);const key=fuSelKey(f);const checked=route.fuFilter.selected.indexOf(key)>=0;const sc=fuStatusColor(f.status);
   return '<div class="row-item'+(u.cls==='overdue'?' alert':'')+'">'+
     '<input type="checkbox" style="flex:none;width:15px;height:15px" '+(checked?'checked':'')+' onclick="event.stopPropagation();fuToggleSel(\''+key+'\')">'+
-    '<span class="udot" style="background:'+u.color+'"></span>'+
+    '<span class="udot" style="background:'+sc+'"></span>'+
     '<div class="row-main" style="cursor:pointer" onclick="calItemDetail(\''+f.oppId+'\',\''+f.id+'\')">'+
       '<div class="row-title">'+esc(f.company)+'</div>'+
-      '<div class="row-meta">'+esc(f.description||'Follow-up')+(f.personName?' · '+esc(f.personName):'')+'</div>'+
+      '<div class="row-meta">'+esc(f.description||'Follow-up')+(f.personName?' · '+esc(f.personName):'')+' · <span style="color:'+sc+'">'+fuStatusEmoji(f.status)+' '+esc(f.status)+'</span></div>'+
     '</div>'+
     '<div class="row-right" style="color:'+u.color+';margin-right:10px">'+u.label+'</div>'+
     '<div style="display:flex;gap:6px;flex:none">'+
       '<button class="btn sm" onclick="event.stopPropagation();go(\'detail\',\''+f.oppId+'\')">Open</button>'+
-      '<button class="btn sm gold" onclick="event.stopPropagation();fuCompleteForm(\''+f.oppId+'\',\''+f.id+'\')">Complete</button>'+
+      '<button class="btn sm gold" onclick="event.stopPropagation();fuCompleteForm(\''+f.oppId+'\',\''+f.id+'\')">Log outcome</button>'+
     '</div></div>';
 }
-function fuCompletedRow(f){
+function fuCompletedRow(f){const sc=fuStatusColor(f.status);
   return '<div class="row-item" style="cursor:pointer" onclick="calItemDetail(\''+f.oppId+'\',\''+f.id+'\')">'+
-    '<span class="udot" style="background:var(--faint)"></span>'+
+    '<span class="udot" style="background:'+sc+'"></span>'+
     '<div class="row-main"><div class="row-title">'+esc(f.company)+'</div>'+
-    '<div class="row-meta">'+esc(f.description||'Follow-up')+(f.outcome?' · '+esc(f.outcome):'')+'</div></div>'+
+    '<div class="row-meta">'+esc(f.description||'Follow-up')+(f.outcome?' · '+esc(f.outcome):'')+' · <span style="color:'+sc+'">'+fuStatusEmoji(f.status)+' '+esc(f.status)+'</span></div></div>'+
     '<div class="row-right muted">'+fmtDate(f.completedDate)+'</div></div>';
 }
 function renderFollow(){const b=document.getElementById('followBox');if(b)b.innerHTML=followBodyHtml();const bar=document.getElementById('followBulkBar');if(bar)bar.outerHTML=fuBulkBarHtml();}
@@ -1583,7 +1643,7 @@ function fuBulkBarHtml(){
   if(!n)return '<div id="followBulkBar"></div>';
   return '<div id="followBulkBar" class="card" style="display:flex;align-items:center;gap:10px;padding:12px 16px;margin-bottom:16px;border-color:var(--gold)">'+
     '<strong>'+n+' selected</strong>'+
-    '<button class="btn sm gold" onclick="fuBulkComplete()">\u2713 Mark complete</button>'+
+    '<button class="btn sm gold" onclick="fuBulkComplete()">\u2713 Mark Completed</button>'+
     '<button class="btn sm" onclick="fuBulkReschedule()">\ud83d\udcc5 Reschedule</button>'+
     '<button class="btn sm ghost" style="margin-left:auto" onclick="fuClearSel()">Clear selection</button>'+
   '</div>';
@@ -1604,11 +1664,11 @@ function followBodyHtml(){
   return sec('var(--red)','Overdue',grp.overdue,fuMgmtRow)+sec('var(--amber)','Due today',grp.today,fuMgmtRow)+
     sec('var(--green)','This week',grp.week,fuMgmtRow)+sec('var(--muted)','Future',grp.later,fuMgmtRow)+
     sec('var(--faint)','No follow-up set',noFollow,o=>actionRow(o))+
-    (completed.length?'<div class="sec"><div class="sec-h"><h2>Completed</h2><span class="count">'+completed.length+'</span></div>'+completed.map(fuCompletedRow).join('')+'</div>':'');
+    (completed.length?'<div class="sec"><div class="sec-h"><h2>Completed / Closed</h2><span class="count">'+completed.length+'</span></div>'+completed.map(fuCompletedRow).join('')+'</div>':'');
 }
 function vFollow(){
   const head='<div class="page-head"><div><div class="eyebrow">Cadence</div><div class="page-title">Follow-ups</div>'+
-    '<div class="page-sub">'+fuOverdueList().length+' overdue · '+fuDueTodayList().length+' due today · '+fuCompletedThisWeek()+' completed this week · full calendar lives on Today</div></div>'+
+    '<div class="page-sub">'+fuOverdueList().length+' overdue · '+fuDueTodayList().length+' due today · '+fuWaitingList().length+' waiting for response · full calendar lives on Today</div></div>'+
     '<button class="btn gold" onclick="fuForm()">+ Add follow-up</button></div>';
   if(!state.opps.filter(isActive).length)return head+'<div class="empty"><div class="em">'+ICON('clock')+'</div><h3>All clear</h3><p>No active opportunities to follow up.</p></div>';
   return head+
@@ -1692,8 +1752,9 @@ function vDetail(){const o=byId(route.id);if(!o)return vCompanies();
   const link=(u,t)=>u?'<a href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(t||u)+'</a>':'<span class="faint">—</span>';
   const tl=[...(o.timeline||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const ppl=getCompanyPeople(o);const les=getCompanyLessons(o);const u=urgency(o);
+  const rel=companyRelationshipSummary(o);
   return '<div class="page-head"><div><div class="eyebrow" style="cursor:pointer" onclick="go(\''+(isInv(o)?'investors':'companies')+'\')">← '+(isInv(o)?'Investors':'Companies')+'</div>'+
-    '<div class="page-title">'+esc(o.company)+'</div><div class="page-sub">'+esc(o.category)+' · '+esc(o.stage)+' · priority '+(+o.priority||0)+' · <span style="color:'+u.color+'">'+u.label+'</span></div></div>'+
+    '<div class="page-title">'+esc(o.company)+'</div><div class="page-sub">'+esc(o.category)+' · '+esc(o.stage)+' · priority '+(+o.priority||0)+' · <span style="color:'+fuStatusColor(rel.status)+'">'+fuStatusEmoji(rel.status)+' '+esc(rel.status)+'</span></div></div>'+
     '<div style="display:flex;gap:9px"><button class="btn" onclick="openForm(\''+o.id+'\')">Edit</button><button class="btn" onclick="route.ws.company=\''+o.id+'\';go(\'workspace\')">AI Workspace</button><button class="btn danger" onclick="delOpp(\''+o.id+'\')">Delete</button></div></div>'+
     '<div class="detail-grid"><div>'+
       '<div class="card">'+
@@ -1709,21 +1770,22 @@ function vDetail(){const o=byId(route.id);if(!o)return vCompanies();
         (tl.length?'<ul class="timeline">'+tl.map(t=>'<li><span class="t-meta"><span class="t-type">'+esc(t.type||'Note')+'</span> · '+fmtDate(t.date)+'</span><div class="t-text">'+esc(t.text)+'</div></li>').join('')+'</ul>':'<div class="muted">No activity yet.</div>')+
       '</div>'+
       '<div class="card" style="margin-top:16px"><div class="sec-h"><h2>Open Follow-ups</h2><button class="btn sm right" onclick="fuForm(\''+o.id+'\')">+ Add</button></div>'+
-        (fuOpen(o).length?fuOpen(o).sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999')).map(f=>{const u=fuUrgencyOf(f);
-          return '<div class="row-item" style="margin-bottom:8px"><span class="udot" style="background:'+u.color+'"></span>'+
+        (fuOpen(o).length?fuOpen(o).sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999')).map(f=>{const u=fuUrgencyOf(f);const sc=fuStatusColor(f.status);
+          return '<div class="row-item" style="margin-bottom:8px"><span class="udot" style="background:'+sc+'"></span>'+
             '<div class="row-main" style="cursor:pointer" onclick="calItemDetail(\''+o.id+'\',\''+f.id+'\')"><div class="row-title" style="font-size:13.5px">'+esc(f.description||'Follow-up')+(f.personName?' · '+esc(f.personName):'')+'</div>'+
-            '<div class="row-meta" style="color:'+u.color+'">'+u.label+'</div></div>'+
-            '<button class="btn sm gold" onclick="event.stopPropagation();fuCompleteForm(\''+o.id+'\',\''+f.id+'\')">Complete</button></div>';}).join(''):
+            '<div class="row-meta"><span style="color:'+sc+'">'+fuStatusEmoji(f.status)+' '+esc(f.status)+'</span> · <span style="color:'+u.color+'">'+u.label+'</span></div></div>'+
+            '<button class="btn sm gold" onclick="event.stopPropagation();fuCompleteForm(\''+o.id+'\',\''+f.id+'\')">Log outcome</button></div>';}).join(''):
           '<div class="muted" style="font-size:13px">No open follow-ups.</div>')+'</div>'+
       (fuCompleted(o).length?'<div class="card" style="margin-top:16px"><div class="sec-h"><h2>Completed Follow-ups</h2></div>'+
         [...fuCompleted(o)].sort((a,b)=>(b.completedDate||'').localeCompare(a.completedDate||'')).map(f=>
-          '<div class="kv" style="align-items:flex-start"><span class="v" style="max-width:60%">'+esc(f.description||'Follow-up')+(f.outcome?'<br><span class="faint" style="font-size:11.5px">Outcome: '+esc(f.outcome)+'</span>':'')+'</span><span class="k">'+fmtDate(f.completedDate)+'</span></div>').join('')+
+          '<div class="kv" style="align-items:flex-start;cursor:pointer" onclick="calItemDetail(\''+o.id+'\',\''+f.id+'\')"><span class="v" style="max-width:60%">'+esc(f.description||'Follow-up')+(f.outcome?'<br><span class="faint" style="font-size:11.5px">Outcome: '+esc(f.outcome)+'</span>':'')+'<br><span class="faint" style="font-size:11.5px;color:'+fuStatusColor(f.status)+'">'+fuStatusEmoji(f.status)+' '+esc(f.status)+'</span></span><span class="k">'+fmtDate(f.completedDate)+'</span></div>').join('')+
       '</div>':'')+
     '</div>'+
     '<div><div class="card"><div class="sec-h"><h2>Record</h2></div>'+
+      kv('Current status',fuStatusEmoji(rel.status)+' '+rel.status,true)+kv('Last action',rel.lastAction)+kv('Waiting since',rel.waitingSince)+kv('Next follow-up',rel.nextFollowUp)+
       kv('Website',link(o.website),true)+kv('Role',o.contactRole)+kv('Email',o.email?esc(o.email):'<span class="faint">verify before sending</span>',true)+
       kv('LinkedIn',link(o.linkedin,'profile'),true)+kv('Status',o.status)+(isInv(o)?kv('Investment status',o.investmentStatus):'')+
-      kv('Last interaction',fmtDate(o.lastInteraction))+kv('Follow-up',o.followUp?fmtDate(o.followUp):'',true)+kv('Next action',o.nextAction)+'</div>'+
+      kv('Last interaction',fmtDate(o.lastInteraction))+kv('Next action',o.nextAction)+'</div>'+
       '<div class="card" style="margin-top:16px"><div class="sec-h"><h2>People</h2><button class="btn sm right" onclick="personForm(null,\''+o.id+'\')">+ Add</button></div>'+
         (ppl.length?ppl.map(p=>'<div class="kv" style="cursor:pointer" onclick="personForm(\''+p.id+'\')"><span class="v">'+esc(p.name)+'</span><span class="k">'+esc(p.role||'')+' · '+esc(p.warmth||'')+'</span></div>').join(''):'<div class="muted" style="font-size:13px">No people linked yet.</div>')+'</div>'+
       '<div class="card" style="margin-top:16px"><div class="sec-h"><h2>Lessons</h2><button class="btn sm right" onclick="lessonForm(\'\',\''+o.id+'\')">+ Add</button></div>'+
@@ -2545,64 +2607,99 @@ function fuSaveNew(){
   let person=null;
   if(personName)person=findOrCreatePerson(personName,{companyId:o.id,company:o.company,relationship:'Company contact',warmth:'Warm'});
   ensureFollowups(o);
-  o.followups.push({id:uid('f'),dueDate:due,description:desc,priority,personId:person?person.id:'',personName:person?person.name:personName,status:'open',createdDate:today(),createdBy:userName()});
+  o.followups.push({id:uid('f'),dueDate:due,description:desc,priority,personId:person?person.id:'',personName:person?person.name:personName,status:'To Do',createdDate:today(),createdBy:userName()});
   syncOppFollowState(o);persistOpp(o);
   closeModal();render();toast('Follow-up scheduled for '+esc(o.company));
 }
 /* ---- Follow-up completion form — outcome, meeting notes, and the two
    automations (Lesson Learned + next follow-up) the spec calls for. ---- */
+/* ---- "What happened?" — logging an outcome never silently archives the
+   follow-up. It rolls the relationship into whatever state that outcome
+   implies (see FU_OUTCOMES), and if that state is Waiting for Response it
+   immediately offers to schedule the next check-in. This is the ONE place
+   a follow-up's status changes via an outcome — reused from the calendar,
+   the manager, and the company page alike. */
 function fuCompleteForm(oppId,fuId){
   const o=byId(oppId);if(!o)return;
   ensureFollowups(o);
   const f=o.followups.find(x=>x.id===fuId);if(!f)return;
-  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal lg"><div class="modal-h"><h2>Complete follow-up — '+esc(o.company)+'</h2><button class="x" onclick="closeModal()">×</button></div>'+
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal lg"><div class="modal-h"><h2>What happened? — '+esc(o.company)+'</h2><button class="x" onclick="closeModal()">×</button></div>'+
     (f.description?'<div class="muted" style="font-size:13px;margin-bottom:14px">'+esc(f.description)+'</div>':'')+
-    '<div class="field"><label class="fl">Outcome</label><div style="display:flex;flex-direction:column;gap:7px">'+
-      FOLLOWUP_OUTCOMES.map((op,i)=>'<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer"><input type="radio" name="fu_outcome" value="'+esc(op)+'" '+(i===0?'checked':'')+'> '+esc(op)+'</label>').join('')+
+    '<div class="field"><label class="fl">Notes (optional)</label><textarea class="input" id="fu_outcome_notes" rows="3" placeholder="What was discussed…"></textarea></div>'+
+    '<div class="field"><label class="fl">Outcome</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'+
+      FU_OUTCOMES.map(op=>op.label==='Custom'?
+        '<button class="btn ghost" style="justify-content:flex-start" onclick="event.preventDefault();document.getElementById(\'fu_custom_block\').style.display=\'block\'">Custom…</button>'
+        :'<button class="btn ghost" style="justify-content:flex-start" onclick="fuApplyOutcome(\''+oppId+'\',\''+fuId+'\',\''+esc(op.label)+'\')">'+esc(op.label)+'</button>').join('')+
     '</div></div>'+
-    '<div class="field"><label class="fl">Meeting notes</label><textarea class="input" id="fu_meetingNotes" rows="5" placeholder="What happened, what was discussed…"></textarea></div>'+
-    '<div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px"><input type="checkbox" id="fu_createLesson"> Create Lesson Learned from these notes</label></div>'+
-    '<div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px"><input type="checkbox" id="fu_createNext" onchange="document.getElementById(\'fu_nextBlock\').style.display=this.checked?\'block\':\'none\'"> Create another follow-up</label></div>'+
-    '<div id="fu_nextBlock" style="display:none;padding:12px;border:1px solid var(--line);border-radius:10px;margin-bottom:15px">'+
-      '<div class="field" style="margin-bottom:10px"><label class="fl">Company</label><div class="muted" style="font-size:13.5px">'+esc(o.company)+' (same company)</div></div>'+
-      '<div class="field"><label class="fl">Person</label><input class="input" id="fu_next_person" list="fu_next_personList" value="'+esc(f.personName||'')+'"><datalist id="fu_next_personList">'+state.people.map(p=>'<option value="'+esc(p.name)+'">').join('')+'</datalist></div>'+
-      '<div class="field-row"><div class="field"><label class="fl">Due date</label><input class="input" id="fu_next_due" type="date"></div>'+
-      '<div class="field"><label class="fl">Priority (0–100)</label><input class="input" id="fu_next_priority" type="number" value="'+(+f.priority||+o.priority||50)+'"></div></div>'+
-      '<div class="field" style="margin-bottom:0"><label class="fl">Description</label><input class="input" id="fu_next_desc" placeholder="What needs to happen next"></div>'+
+    '<div id="fu_custom_block" style="display:none;margin-top:4px;padding:12px;border:1px solid var(--line);border-radius:10px">'+
+      '<div class="field"><label class="fl">What happened?</label><input class="input" id="fu_custom_text" placeholder="Describe it"></div>'+
+      '<div class="field" style="margin-bottom:10px"><label class="fl">New status</label><select class="select" id="fu_custom_status">'+FU_STATUSES.map(s=>'<option>'+s+'</option>').join('')+'</select></div>'+
+      '<button class="btn gold sm" onclick="fuApplyCustomOutcome(\''+oppId+'\',\''+fuId+'\')">Save</button>'+
     '</div>'+
-    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="fuSaveComplete(\''+oppId+'\',\''+fuId+'\')">Save</button></div></div></div>';
+    (f.description?'<div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px"><input type="checkbox" id="fu_createLesson"> Create Lesson Learned from these notes</label></div>':'')+
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button></div></div></div>';
 }
-function fuSaveComplete(oppId,fuId){
+function fuApplyOutcome(oppId,fuId,outcomeLabel,customStatus){
   const o=byId(oppId);if(!o)return;
   ensureFollowups(o);
   const f=o.followups.find(x=>x.id===fuId);if(!f)return;
-  const outEl=document.querySelector('input[name="fu_outcome"]:checked');
-  const outcome=outEl?outEl.value:'';
-  const notes=(document.getElementById('fu_meetingNotes').value||'').trim();
-  f.status='completed';f.outcome=outcome;f.meetingNotes=notes;f.completedDate=today();f.completedBy=userName();
-  // 5 — automatic timeline event, every time, no exceptions
-  addActivity(oppId,'Follow-up',o.company+' follow-up completed. Outcome: '+(outcome||'—')+(notes?'. Notes: '+notes:''));
-  // 6 — automatic Lesson Learned, only if ticked
-  if(document.getElementById('fu_createLesson').checked&&notes){
-    findOrCreateLesson({title:o.company+' — '+(outcome||'follow-up outcome'),description:notes,category:o.category,date:today()},o.company);
-  }
-  // 7 — automatic next follow-up, only if ticked and a due date was given
-  if(document.getElementById('fu_createNext').checked){
-    const due=document.getElementById('fu_next_due').value;
-    if(due){
-      const desc=document.getElementById('fu_next_desc').value.trim();
-      const personName=document.getElementById('fu_next_person').value.trim();
-      const priority=Math.max(0,Math.min(100,+document.getElementById('fu_next_priority').value||(+f.priority||+o.priority||50)));
-      let person=null;
-      if(personName)person=findOrCreatePerson(personName,{companyId:o.id,company:o.company,relationship:'Company contact',warmth:'Warm'});
-      o.followups.push({id:uid('f'),dueDate:due,description:desc,priority,personId:person?person.id:(f.personId||''),personName:person?person.name:(personName||f.personName||''),status:'open',createdDate:today(),createdBy:userName()});
-    }else{
-      toast('Outcome saved — next follow-up needs a due date, so it wasn\'t created');
-    }
+  const notesEl=document.getElementById('fu_outcome_notes');
+  const notes=notesEl?notesEl.value.trim():'';
+  const lessonWanted=document.getElementById('fu_createLesson')&&document.getElementById('fu_createLesson').checked;
+  const mapped=FU_OUTCOMES.find(x=>x.label===outcomeLabel);
+  const nextStatus=customStatus||(mapped&&mapped.next)||f.status;
+  const prevStatus=f.status;
+  f.outcome=outcomeLabel;f.status=nextStatus;
+  if(notes)f.meetingNotes=notes;
+  if(nextStatus==='Waiting for Response')f.waitingSince=today();
+  if(FU_FINAL_STATUSES.indexOf(nextStatus)>=0){f.completedDate=today();f.completedBy=userName();}
+  // automatic timeline event — every outcome, no exceptions
+  addActivity(oppId,'Follow-up',o.company+' — '+outcomeLabel+(notes?': '+notes:'')+'. Status: '+prevStatus+' \u2192 '+nextStatus+'.');
+  if(lessonWanted&&notes){
+    findOrCreateLesson({title:o.company+' — '+outcomeLabel,description:notes,category:o.category,date:today()},o.company);
   }
   syncOppFollowState(o);
   persistOpp(o);
-  closeModal();render();toast('Follow-up completed');
+  if(nextStatus==='Waiting for Response')fuWaitingPrompt(oppId,fuId);
+  else{closeModal();render();toast('Updated: '+nextStatus);}
+}
+function fuApplyCustomOutcome(oppId,fuId){
+  const text=(document.getElementById('fu_custom_text').value||'').trim()||'Custom update';
+  const status=document.getElementById('fu_custom_status').value;
+  fuApplyOutcome(oppId,fuId,text,status);
+}
+/* A follow-up landing on Waiting for Response is exactly the moment a
+   founder is most likely to forget to check back — so ask right away,
+   defaulting to a week out, rather than relying on memory. */
+function fuWaitingPrompt(oppId,fuId){
+  const o=byId(oppId);if(!o)return;
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>Follow up again?</h2><button class="x" onclick="closeModal()">×</button></div>'+
+    '<div class="muted" style="font-size:13px;margin-bottom:14px">'+esc(o.company)+' is now Waiting for Response. Schedule a reminder to check back in.</div>'+
+    '<div class="field"><label class="fl">Follow up on</label><input class="input" id="fu_wait_date" type="date" value="'+addDays(7)+'"></div>'+
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal();render();toast(\'Status updated\')">Not now</button><button class="btn gold" onclick="fuScheduleWaitingReminder(\''+oppId+'\',\''+fuId+'\')">Schedule reminder</button></div></div></div>';
+}
+function fuScheduleWaitingReminder(oppId,fuId){
+  const o=byId(oppId);if(!o)return;ensureFollowups(o);
+  const f=o.followups.find(x=>x.id===fuId);if(!f)return;
+  const due=document.getElementById('fu_wait_date').value||addDays(7);
+  const old=f.dueDate;f.dueDate=due;
+  addActivity(oppId,'Follow-up',o.company+' — reminder set for '+fmtDate(due)+' to check back on response.');
+  syncOppFollowState(o);persistOpp(o);
+  closeModal();render();toast('Reminder set for '+fmtDate(due));
+}
+/* Direct status change — for the cases an outcome funnel doesn't cover
+   (e.g. manually marking Meeting Scheduled once a date is confirmed). */
+function fuSetStatusDirect(oppId,fuId,status){
+  const o=byId(oppId);if(!o)return;ensureFollowups(o);
+  const f=o.followups.find(x=>x.id===fuId);if(!f)return;
+  const prev=f.status;if(prev===status)return;
+  f.status=status;
+  if(status==='Waiting for Response')f.waitingSince=today();
+  if(FU_FINAL_STATUSES.indexOf(status)>=0){f.completedDate=today();f.completedBy=userName();}
+  addActivity(oppId,'Follow-up',o.company+' status changed: '+prev+' \u2192 '+status+'.');
+  syncOppFollowState(o);persistOpp(o);
+  render();
+  if(document.getElementById('modal-root').innerHTML)calItemDetail(oppId,fuId);
 }
 
 /* ---- Reschedule (date only — doesn't touch outcome/notes/status) ---- */
@@ -2662,17 +2759,21 @@ function calItemDetail(oppId,fuId){
   const lessons=getCompanyLessons(o);
   const tl=[...(o.timeline||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,5);
   const kv=(k,v)=>'<div class="kv"><span class="k">'+k+'</span><span class="v">'+(v?esc(v):'<span class="faint">—</span>')+'</span></div>';
-  const isMeeting=o.stage==='Meeting booked';
-  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal lg"><div class="modal-h"><h2>'+(isMeeting?'\ud83d\udcc5 ':'')+esc(o.company)+'</h2><button class="x" onclick="closeModal()">×</button></div>'+
-    '<div class="muted" style="font-size:12px;margin:-10px 0 14px;color:'+u.color+'">'+u.label+'</div>'+
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal lg"><div class="modal-h"><h2>'+esc(o.company)+'</h2><button class="x" onclick="closeModal()">×</button></div>'+
+    '<div style="display:flex;align-items:center;gap:10px;margin:-10px 0 14px">'+
+      '<span style="font-size:13px;color:'+fuStatusColor(f.status)+'">'+fuStatusEmoji(f.status)+' '+esc(f.status)+'</span>'+
+      '<span class="faint" style="font-size:12px;color:'+u.color+'">'+u.label+'</span>'+
+      '<select class="select" style="margin-left:auto;font-size:12px;padding:5px 8px" onchange="fuSetStatusDirect(\''+oppId+'\',\''+fuId+'\',this.value)">'+FU_STATUSES.map(s=>'<option '+(f.status===s?'selected':'')+'>'+s+'</option>').join('')+'</select>'+
+    '</div>'+
     kv('Company',o.company)+kv('Contact',contact)+kv('Due date',fmtDate(f.dueDate))+kv('Notes',f.description)+
+    (f.waitingSince&&f.status==='Waiting for Response'?kv('Waiting since',fmtDate(f.waitingSince)):'')+
     (f.meetingNotes?kv('Meeting notes',f.meetingNotes):'')+
     (tl.length?'<div class="field"><label class="fl">Previous interactions</label><ul class="timeline" style="margin-top:6px">'+tl.map(t=>'<li><span class="t-meta"><span class="t-type">'+esc(t.type||'Note')+'</span> · '+fmtDate(t.date)+'</span><div class="t-text">'+esc(t.text)+'</div></li>').join('')+'</ul></div>':'')+
     (ppl.length?'<div class="field"><label class="fl">Linked people</label>'+ppl.map(p=>'<div class="kv" style="cursor:pointer" onclick="closeModal();personForm(\''+p.id+'\')"><span class="v">'+esc(p.name)+'</span><span class="k">'+esc(p.role||'')+'</span></div>').join('')+'</div>':'')+
     (assets.length?'<div class="field"><label class="fl">Linked assets</label>'+assets.map(a=>'<div class="kv"><span class="v">'+esc(a.title)+'</span><span class="k">'+esc(a.assetType||'')+'</span></div>').join('')+'</div>':'')+
     (lessons.length?'<div class="field"><label class="fl">Linked lessons</label>'+lessons.map(l=>'<div class="kv" style="cursor:pointer" onclick="closeModal();lessonForm(\''+l.id+'\')"><span class="v">'+esc(l.title)+'</span><span class="k">'+esc(l.category||'')+'</span></div>').join('')+'</div>':'')+
     '<div class="modal-foot" style="flex-wrap:wrap">'+
-      '<button class="btn gold" onclick="fuCompleteForm(\''+oppId+'\',\''+fuId+'\')">\u2713 Complete</button>'+
+      '<button class="btn gold" onclick="fuCompleteForm(\''+oppId+'\',\''+fuId+'\')">\u2713 Log outcome</button>'+
       '<button class="btn" onclick="fuRescheduleForm(\''+oppId+'\',\''+fuId+'\')">\ud83d\udcc5 Reschedule</button>'+
       '<button class="btn" onclick="fuNotesForm(\''+oppId+'\',\''+fuId+'\')">\ud83d\udcdd Add meeting notes</button>'+
       '<button class="btn" onclick="closeModal();fuForm(\''+oppId+'\')">\u2795 Create follow-up</button>'+
@@ -2714,7 +2815,7 @@ function personForm(id,companyId){const p=id?state.people.find(x=>x.id===id):{co
       '</div></details>'+
     (id?(function(){const hist=personFollowups(id,p.name);if(!hist.length)return '';
       return '<div style="margin:16px 0 4px;border-top:1px solid var(--line);padding-top:14px"><div class="fl" style="margin-bottom:8px">Previous follow-ups · Meeting history</div>'+
-        hist.slice(0,8).map(f=>'<div class="kv" style="align-items:flex-start;cursor:pointer" onclick="closeModal();go(\'detail\',\''+f.oppId+'\')"><span class="v" style="max-width:65%">'+esc(f.company)+' — '+esc(f.description||'Follow-up')+(f.outcome?'<br><span class="faint" style="font-size:11.5px">Outcome: '+esc(f.outcome)+'</span>':'')+'</span><span class="k">'+(f.status==='completed'?fmtDate(f.completedDate):'Due '+fmtDate(f.dueDate))+'</span></div>').join('')+
+        hist.slice(0,8).map(f=>'<div class="kv" style="align-items:flex-start;cursor:pointer" onclick="closeModal();go(\'detail\',\''+f.oppId+'\')"><span class="v" style="max-width:65%">'+esc(f.company)+' — '+esc(f.description||'Follow-up')+'<br><span class="faint" style="font-size:11.5px;color:'+fuStatusColor(f.status)+'">'+fuStatusEmoji(f.status)+' '+esc(f.status)+(f.outcome?' · '+esc(f.outcome):'')+'</span></span><span class="k">'+(fuIsFinal(f)?fmtDate(f.completedDate):'Due '+fmtDate(f.dueDate))+'</span></div>').join('')+
       '</div>';})():'')+
     '<div class="modal-foot">'+(id?'<button class="btn danger" style="margin-right:auto" onclick="delPerson(\''+id+'\')">Delete</button>':'')+'<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="savePerson(\''+(id||'')+'\')">'+(id?'Save':'Add')+'</button></div></div></div>';
 }
@@ -3145,6 +3246,19 @@ function denseRow(o,rightText){const u=urgency(o);
     '<div class="drow-main"><div class="drow-title">'+esc(o.company)+'</div><div class="drow-meta">'+esc(o.nextAction||o.stage)+'</div></div>'+
     '<div class="drow-right" style="color:'+u.color+'">'+(rightText||u.label)+'</div></div>';
 }
+/* Dense row for a follow-up RECORD (not a company) — used across the
+   Today dashboard's status-grouped sections. Colored by relationship
+   status, not urgency, since status is the primary signal here. */
+function fuDashRow(f){
+  const isCompanyOnly=typeof f.id==='string'&&f.id.indexOf('company-')===0;
+  const sc=fuStatusColor(f.status);
+  const dueLabel=f.dueDate?(f.dueDate<today()?'Overdue':(f.dueDate===today()?'Today':fmtDate(f.dueDate))):'';
+  const onclick=isCompanyOnly?"go('detail','"+f.oppId+"')":"calItemDetail('"+f.oppId+"','"+f.id+"')";
+  return '<div class="drow" onclick="'+onclick+'">'+
+    '<span class="drow-dot" style="background:'+sc+'"></span>'+
+    '<div class="drow-main"><div class="drow-title">'+esc(f.company)+'</div><div class="drow-meta">'+esc(f.description||f.status||'')+'</div></div>'+
+    '<div class="drow-right" style="color:'+(f.dueDate&&f.dueDate<today()?'var(--red)':'inherit')+'">'+dueLabel+'</div></div>';
+}
 
 /* ============ UNIFIED EVENT MODEL ============
    Single source of truth for every dated item in the app. The Today
@@ -3156,11 +3270,12 @@ function denseRow(o,rightText){const u=urgency(o);
    (a fourth store) is added here once, not as a second calendar. */
 function allEventsInRange(startISO,endISO){
   const out=[];
-  fuAllOpen().forEach(f=>{
+  fuAllRecords().forEach(f=>{
     if(!f.dueDate||f.dueDate<startISO||f.dueDate>endISO)return;
     const o=byId(f.oppId);
-    out.push({uid:'fu:'+f.id,kind:(o&&o.stage==='Meeting booked')?'meeting':'followup',
-      date:f.dueDate,title:f.company,sub:f.description||'',oppId:f.oppId,fuId:f.id,overdue:f.dueDate<today()});
+    out.push({uid:'fu:'+f.id,kind:(o&&o.stage==='Meeting booked'&&!fuIsFinal(f))?'meeting':'followup',
+      date:f.dueDate,title:f.company,sub:f.description||'',oppId:f.oppId,fuId:f.id,
+      status:f.status,final:fuIsFinal(f),overdue:!fuIsFinal(f)&&f.dueDate<today()});
   });
   mkOccurrencesInRange(startISO,endISO).forEach(o=>out.push(Object.assign({uid:'mk:'+o.key+':'+o.index,kind:'marketing'},o)));
   mk.custom.forEach(r=>{if(!r.completed&&r.dueDate>=startISO&&r.dueDate<=endISO)out.push({uid:'rem:'+r.id,kind:'reminder',date:r.dueDate,title:r.title,raw:r,overdue:daysUntil(r.dueDate)<0});});
@@ -3314,8 +3429,9 @@ function mkIsLiveCompletion(entry){
 function mkCalMiniItem(it){
   if(it.kind==='followup'||it.kind==='meeting'){
     const isMeeting=it.kind==='meeting';
-    return '<div class="cal-mini'+(it.overdue?' overdue':'')+'" style="border-left-color:'+(isMeeting?'var(--gold)':'var(--green)')+'" onclick="event.stopPropagation();calItemDetail(\''+it.oppId+'\',\''+it.fuId+'\')">'+
-      '<span class="cal-mini-text">'+(isMeeting?'\ud83d\udcc5 ':'\ud83d\udd14 ')+esc(it.title)+(it.sub?' — '+esc(it.sub):'')+'</span></div>';
+    const sc=fuStatusColor(it.status);
+    return '<div class="cal-mini'+(it.overdue?' overdue':'')+(it.final?' done':'')+'" style="border-left-color:'+sc+'" onclick="event.stopPropagation();calItemDetail(\''+it.oppId+'\',\''+it.fuId+'\')">'+
+      '<span class="cal-mini-text">'+fuStatusEmoji(it.status)+' '+esc(it.title)+(it.sub?' — '+esc(it.sub):'')+'</span></div>';
   }
   if(it.kind==='reminder')return mkCalMiniCustom(it.raw);
   if(it.kind==='done'||it.custom)return it.custom?mkCalMiniCustom(it):'<div class="cal-mini done" onclick="event.stopPropagation()"><span class="cal-mini-text">\u2713 '+esc(it.title)+'</span></div>';
@@ -3378,7 +3494,7 @@ function mkCalendarHtml(){
   const head='<div class="cal-head-row">'+['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d=>'<div class="cal-head-cell">'+d+'</div>').join('')+'</div>';
   const grid='<div class="cal-grid">'+cells.map(d=>mkCalDayCell(d,viewMonthNum,byDate)).join('')+'</div>';
   return toolbar+head+'<div class="cal-grid-wrap">'+grid+'</div>'+
-    '<div class="faint" style="font-size:11px;margin:10px 2px 0">Click any day to see its agenda, or click an item directly. \ud83d\udd14 follow-up · \ud83d\udcc5 meeting · gold edge = marketing plan · green edge = your reminder.</div>'+
+    '<div class="faint" style="font-size:11px;margin:10px 2px 0">Click any day to see its agenda, or click an item directly. \ud83d\udfe1 To Do · \ud83d\udd35 Waiting · \ud83d\udfe2 Meeting · \ud83d\udfe3 In Progress · \u26aa Completed · \ud83d\udd34 Closed/Lost · gold edge = marketing plan · green edge = your reminder.</div>'+
     mkCompletedHtml();
 }
 function mkOccurrenceModal(key,idx,date,isFirst){
