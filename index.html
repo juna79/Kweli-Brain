@@ -811,7 +811,7 @@ function migrateBrain(b){const nb=defaultBrain();if(!b)return nb;
 function legacyLoad(){
   try{const raw=localStorage.getItem(STORE);if(raw){const s=JSON.parse(raw);
     s.brain=migrateBrain(s.brain);s.people=s.people||[];s.lessons=s.lessons||[];s.opps=s.opps||[];s.assets=s.assets||[];
-    s.opps.forEach(o=>{o.timeline=o.timeline||[]});return s;}}catch(e){}
+    s.opps.forEach(o=>{o.timeline=o.timeline||[];ensureFollowups(o);});return s;}}catch(e){}
   try{const v1=localStorage.getItem('kweli_mc_v1');if(v1){const s=JSON.parse(v1);
     const ns={opps:(s.opps||[]).map(o=>Object.assign({timeline:[]},o)),people:[],lessons:[],brain:migrateBrain(s.brain),assets:[],version:2};
     localStorage.setItem(STORE,JSON.stringify(ns));return ns;}}catch(e){}
@@ -824,8 +824,53 @@ function userName(){if(!currentUser)return 'You';const m=currentUser.user_metada
 
 /* ---- row mappers (snake_case DB <-> camelCase app) ---- */
 function D(v){return v?v:null;}
-function oppRow(o){return {id:o.id,company:o.company,category:o.category||null,website:o.website||null,linkedin:o.linkedin||null,email:o.email||null,contact_name:o.contactName||null,contact_role:o.contactRole||null,stage:o.stage||null,priority:+o.priority||0,status:o.status||null,investment_status:o.investmentStatus||null,angle:o.angle||null,pilot:o.pilot||null,notes:o.notes||null,meeting_notes:o.meetingNotes||null,objections:o.objections||null,next_action:o.nextAction||null,last_interaction:D(o.lastInteraction),follow_up:D(o.followUp),created_by:o.createdBy||userName(),updated_by:userName()};}
-function rowToOpp(r){return {id:r.id,company:r.company,category:r.category||'Other',website:r.website||'',linkedin:r.linkedin||'',email:r.email||'',contactName:r.contact_name||'',contactRole:r.contact_role||'',stage:r.stage||'Identified',priority:r.priority||0,status:r.status||'Active',investmentStatus:r.investment_status||'',angle:r.angle||'',pilot:r.pilot||'',notes:r.notes||'',meetingNotes:r.meeting_notes||'',objections:r.objections||'',nextAction:r.next_action||'',lastInteraction:r.last_interaction||'',followUp:r.follow_up||'',createdBy:r.created_by||'',timeline:[]};}
+/* Follow-ups — same pack/unpack-into-notes trick used for People metadata
+   above (see packPersonNotes). The opportunities table has no column for
+   the full follow-up history (multiple due dates, outcomes, completion
+   records), and we must not change the Supabase schema — so the array is
+   serialized as a hidden JSON block appended to the existing, always-present
+   `notes` column, and stripped back out on read. The visible Notes text
+   stays clean; o.followups holds the real structured data in memory. */
+const FU_TAG='\n<!--kweli-followups:';
+const FOLLOWUP_OUTCOMES=['Successful','Neutral','No response','Rescheduled','Opportunity closed'];
+function packOppNotes(o){
+  const base=o.notes||'';
+  const fu=(o.followups||[]).filter(f=>f&&f.dueDate);
+  if(!fu.length)return base||null;
+  return base+FU_TAG+JSON.stringify(fu)+'-->';
+}
+function unpackOppNotes(raw){
+  const s=raw||'';
+  const i=s.indexOf(FU_TAG);
+  if(i===-1)return {notes:s,followups:[]};
+  const notes=s.slice(0,i);
+  let jsonPart=s.slice(i+FU_TAG.length);
+  if(jsonPart.endsWith('-->'))jsonPart=jsonPart.slice(0,-3);
+  let followups=[];
+  try{followups=JSON.parse(jsonPart)||[];}catch(e){followups=[];}
+  return {notes,followups};
+}
+/* Keeps the legacy single followUp/nextAction fields (which every existing
+   sort/filter/urgency/dashboard function already reads) in sync with the
+   earliest still-open follow-up record, so none of that code needed to
+   change. Also lazily migrates an old-style single follow-up into the new
+   array the first time a record is touched. */
+function ensureFollowups(o){
+  if(o.followups===undefined)o.followups=[];
+  if(!o.followups.length&&o.followUp&&!o._fuMigrated){
+    o._fuMigrated=true;
+    o.followups.push({id:uid('f'),dueDate:o.followUp,description:o.nextAction||'',priority:+o.priority||50,personId:'',personName:'',status:'open',createdDate:o.lastInteraction||today(),createdBy:o.createdBy||userName()});
+    persistOpp(o);
+  }
+  return o.followups;
+}
+function syncOppFollowState(o){
+  const open=(o.followups||[]).filter(f=>f.status!=='completed').sort((a,b)=>(a.dueDate||'9999-99-99').localeCompare(b.dueDate||'9999-99-99'));
+  o.followUp=open.length?(open[0].dueDate||''):'';
+  if(open.length&&open[0].description)o.nextAction=open[0].description;
+}
+function oppRow(o){return {id:o.id,company:o.company,category:o.category||null,website:o.website||null,linkedin:o.linkedin||null,email:o.email||null,contact_name:o.contactName||null,contact_role:o.contactRole||null,stage:o.stage||null,priority:+o.priority||0,status:o.status||null,investment_status:o.investmentStatus||null,angle:o.angle||null,pilot:o.pilot||null,notes:packOppNotes(o),meeting_notes:o.meetingNotes||null,objections:o.objections||null,next_action:o.nextAction||null,last_interaction:D(o.lastInteraction),follow_up:D(o.followUp),created_by:o.createdBy||userName(),updated_by:userName()};}
+function rowToOpp(r){const un=unpackOppNotes(r.notes);return {id:r.id,company:r.company,category:r.category||'Other',website:r.website||'',linkedin:r.linkedin||'',email:r.email||'',contactName:r.contact_name||'',contactRole:r.contact_role||'',stage:r.stage||'Identified',priority:r.priority||0,status:r.status||'Active',investmentStatus:r.investment_status||'',angle:r.angle||'',pilot:r.pilot||'',notes:un.notes||'',meetingNotes:r.meeting_notes||'',objections:r.objections||'',nextAction:r.next_action||'',lastInteraction:r.last_interaction||'',followUp:r.follow_up||'',createdBy:r.created_by||'',timeline:[],followups:un.followups||[]};}
 /* The people table in Supabase does not yet have columns for relationshipToKweli,
    introducedBy, expertise, or whyMatters (UI-only fields added recently). Sending
    them as top-level columns causes Supabase to reject the write ("column does not
@@ -969,7 +1014,7 @@ async function fetchAll(){
     // A genuine connectivity problem — fall back to the last known-good cached
     // snapshot, exactly as before, and mark the app Offline.
     online=false;updateStatus();
-    try{const c=JSON.parse(localStorage.getItem(CACHE));if(c){state=c;state.brain=migrateBrain(state.brain);state.opps.forEach(op=>op.timeline=op.timeline||[]);state.assets=state.assets||[];}}catch(_){}
+    try{const c=JSON.parse(localStorage.getItem(CACHE));if(c){state=c;state.brain=migrateBrain(state.brain);state.opps.forEach(op=>{op.timeline=op.timeline||[];ensureFollowups(op);});state.assets=state.assets||[];}}catch(_){}
     return false;
   }
   // We reached the server for every table — connectivity is fine. Any individual
@@ -1078,7 +1123,8 @@ let route={view:'dashboard',id:null,companyView:'cards',
   assetFilter:{q:'',collection:'',type:'',sort:'updated'},
   ask:{query:'',results:null,loading:false,showTemplates:false},
   ws:{task:'research',company:'',text:''},
-  mk:{showCompleted:false,view:'today',calMonth:mkThisMonthFirst()}};
+  mk:{showCompleted:false,view:'today',calMonth:mkThisMonthFirst()},
+  fu:{calMonth:null}};
 const NAV=[
   {id:'dashboard',label:'Today',icon:'home'},
   {id:'companies',label:'Companies',icon:'list'},
@@ -1158,6 +1204,37 @@ function udot(o){const u=urgency(o);return '<span class="udot" style="background
 function stageChip(s){return '<span class="chip"><span class="dot" style="background:'+(STAGE_COLOR[s]||'var(--muted)')+'"></span>'+esc(s)+'</span>'}
 function peopleOf(oppId){return state.people.filter(p=>p.companyId===oppId)}
 
+/* ============ FOLLOW-UP LIFECYCLE ============
+   One company can now have several open follow-ups at once, plus a full
+   completed history. Everything below works off the flattened per-record
+   list so the Follow-ups page and its calendar always agree with each
+   other and with the underlying data — there is only one source of truth. */
+function fuOpen(o){ensureFollowups(o);return o.followups.filter(f=>f.status!=='completed');}
+function fuCompleted(o){ensureFollowups(o);return o.followups.filter(f=>f.status==='completed');}
+function fuAllOpen(){const out=[];state.opps.forEach(o=>{if(!isActive(o))return;fuOpen(o).forEach(f=>out.push(Object.assign({oppId:o.id,company:o.company,category:o.category},f)));});return out;}
+function personFollowups(personId,personName){
+  const out=[];const key=normalizeName(personName);
+  state.opps.forEach(o=>{ensureFollowups(o);o.followups.forEach(f=>{
+    if((personId&&f.personId===personId)||(key&&normalizeName(f.personName)===key))out.push(Object.assign({oppId:o.id,company:o.company},f));
+  });});
+  return out.sort((a,b)=>(b.completedDate||b.dueDate||'').localeCompare(a.completedDate||a.dueDate||''));
+}
+function fuOnDate(dateISO){return fuAllOpen().filter(f=>f.dueDate===dateISO);}
+function fuOverdueList(){return fuAllOpen().filter(f=>f.dueDate&&f.dueDate<today()).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));}
+function fuDueTodayList(){return fuAllOpen().filter(f=>f.dueDate===today());}
+function fuCompletedThisWeek(){
+  const ws=iso(mkThisWeekMonday());const weD=mkThisWeekMonday();weD.setDate(weD.getDate()+6);const we=iso(weD);
+  let n=0;state.opps.forEach(o=>fuCompleted(o).forEach(f=>{if(f.completedDate>=ws&&f.completedDate<=we)n++;}));
+  return n;
+}
+function fuFindOpp(oppId){return byId(oppId);}
+function fuFindRecord(oppId,fuId){const o=byId(oppId);if(!o)return null;ensureFollowups(o);return o.followups.find(f=>f.id===fuId)||null;}
+function fuUrgencyOf(f){const d=daysUntil(f.dueDate);
+  if(d<0)return{cls:'overdue',label:'Overdue '+Math.abs(d)+'d',color:'var(--red)'};
+  if(d===0)return{cls:'today',label:'Due today',color:'var(--amber)'};
+  if(d<=7)return{cls:'week',label:'In '+d+'d',color:'var(--green)'};
+  return{cls:'later',label:fmtDate(f.dueDate),color:'var(--muted)'};}
+
 /* ============ CONNECTED DATA MODEL ============
    Enter once, reference everywhere, never duplicate.
    People + Lessons are backed by real synced tables, so links use existing
@@ -1234,6 +1311,7 @@ function allObjections(){return state.opps.filter(o=>getCompanyObjections(o));}
 /* ============ RENDER ============ */
 function render(){renderNav();
   mkCheckRollovers();
+  state.opps.forEach(ensureFollowups);
   const v={dashboard:vDash,companies:vCompanies,investors:vInvestors,people:vPeople,followups:vFollow,
     lessons:vLessons,objections:vObjections,workspace:vWorkspace,knowledge:vKnowledge,assets:vAssets,assetDetail:vAssetDetail,settings:vSettings,detail:vDetail,marketing:vMarketing}[route.view]||vDash;
   const contentEl=document.getElementById('content');
@@ -1300,6 +1378,7 @@ function vDash(){
     stat(dueTodayCount,'Due Today',dueTodayCount?'var(--amber)':null)+
     stat(overdueCount,'Overdue',overdueCount?'var(--red)':null)+
     stat(meetingsThisWeek,'Meetings This Week')+
+    stat(fuCompletedThisWeek(),'Completed This Week')+
     stat(mkEstLabelCompact(estMinutes),'Est. Work')+
   '</div>';
 
@@ -1443,16 +1522,98 @@ function vPeople(){
 }
 
 /* Follow-ups */
+function fuRow(f){const u=fuUrgencyOf(f);
+  return '<div class="row-item'+(u.cls==='overdue'?' alert':'')+'">'+
+    '<span class="udot" style="background:'+u.color+'"></span>'+
+    '<div class="row-main" style="cursor:pointer" onclick="go(\'detail\',\''+f.oppId+'\')">'+
+      '<div class="row-title">'+esc(f.company)+'</div>'+
+      '<div class="row-meta">'+esc(f.description||'Follow-up')+(f.personName?' · '+esc(f.personName):'')+'</div>'+
+    '</div>'+
+    '<div class="row-right" style="color:'+u.color+';margin-right:10px">'+u.label+'</div>'+
+    '<div style="display:flex;gap:6px;flex:none">'+
+      '<button class="btn sm" onclick="event.stopPropagation();go(\'detail\',\''+f.oppId+'\')">Open</button>'+
+      '<button class="btn sm gold" onclick="event.stopPropagation();fuCompleteForm(\''+f.oppId+'\',\''+f.id+'\')">Complete</button>'+
+    '</div></div>';
+}
 function vFollow(){
-  const active=state.opps.filter(isActive);
-  const grp={overdue:[],today:[],week:[],none:[]};
-  active.forEach(o=>{const u=urgency(o);if(u.cls==='overdue')grp.overdue.push(o);else if(u.cls==='today')grp.today.push(o);else if(u.cls==='week')grp.week.push(o);else if(u.cls==='none')grp.none.push(o);});
-  const later=active.filter(o=>urgency(o).cls==='later').sort((a,b)=>a.followUp.localeCompare(b.followUp));
-  grp.overdue.sort((a,b)=>a.followUp.localeCompare(b.followUp));grp.week.sort((a,b)=>a.followUp.localeCompare(b.followUp));
-  const sec=(dotc,title,arr)=>arr.length?'<div class="sec"><div class="sec-h"><span class="udot" style="background:'+dotc+'"></span><h2>'+title+'</h2><span class="count">'+arr.length+'</span></div>'+arr.map(o=>actionRow(o)).join('')+'</div>':'';
-  if(!active.length)return '<div class="page-head"><div><div class="page-title">Follow-ups</div></div></div><div class="empty"><div class="em">'+ICON('clock')+'</div><h3>All clear</h3><p>No active opportunities to follow up.</p></div>';
-  return '<div class="page-head"><div><div class="eyebrow">Cadence</div><div class="page-title">Follow-ups</div><div class="page-sub">'+grp.overdue.length+' overdue · '+grp.today.length+' due today</div></div></div>'+
-    sec('var(--red)','Overdue',grp.overdue)+sec('var(--amber)','Due today',grp.today)+sec('var(--green)','This week',grp.week)+sec('var(--muted)','Later',later)+sec('var(--faint)','No follow-up set',grp.none);
+  const all=fuAllOpen();
+  const grp={overdue:[],today:[],week:[],later:[]};
+  all.forEach(f=>{const cls=fuUrgencyOf(f).cls;(grp[cls]=grp[cls]||[]).push(f);});
+  grp.overdue.sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  grp.week.sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  grp.later.sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  const noFollow=state.opps.filter(o=>isActive(o)&&!fuOpen(o).length);
+  const sec=(dotc,title,arr,render)=>arr.length?'<div class="sec"><div class="sec-h"><span class="udot" style="background:'+dotc+'"></span><h2>'+title+'</h2><span class="count">'+arr.length+'</span></div>'+arr.map(render).join('')+'</div>':'';
+  const head='<div class="page-head"><div><div class="eyebrow">Cadence</div><div class="page-title">Follow-ups</div>'+
+    '<div class="page-sub">'+grp.overdue.length+' overdue · '+grp.today.length+' due today · '+fuCompletedThisWeek()+' completed this week</div></div>'+
+    '<button class="btn gold" onclick="fuForm()">+ Add follow-up</button></div>';
+  if(!state.opps.filter(isActive).length)return head+'<div class="empty"><div class="em">'+ICON('clock')+'</div><h3>All clear</h3><p>No active opportunities to follow up.</p></div>';
+  return head+
+    '<div class="card" style="margin-bottom:22px">'+fuCalendarHtml()+'</div>'+
+    sec('var(--red)','Overdue',grp.overdue,fuRow)+sec('var(--amber)','Due today',grp.today,fuRow)+
+    sec('var(--green)','This week',grp.week,fuRow)+sec('var(--muted)','Later',grp.later,fuRow)+
+    sec('var(--faint)','No follow-up set',noFollow,o=>actionRow(o));
+}
+
+/* ---- Follow-ups calendar — a real month grid driven directly by the
+   follow-up records (fuAllOpen), so it can never disagree with the
+   Overdue/Due today counts above: both read the exact same list. Reuses
+   the existing .cal-* month-grid classes built for the Marketing calendar
+   — same look, different data source. ---- */
+function fuCalNavMonth(delta){
+  const d=new Date((route.fu.calMonth||mkThisMonthFirst())+'T00:00:00');d.setMonth(d.getMonth()+delta);
+  route.fu.calMonth=iso(new Date(d.getFullYear(),d.getMonth(),1));render();
+}
+function fuCalToday(){route.fu.calMonth=mkThisMonthFirst();render();}
+function fuCalMiniItem(f){const u=fuUrgencyOf(f);
+  return '<div class="cal-mini'+(u.cls==='overdue'?' overdue':'')+'" onclick="event.stopPropagation();fuDayView(\''+f.dueDate+'\')">'+
+    '<span class="cal-mini-text">'+esc(f.company)+(f.description?' — '+esc(f.description):'')+'</span></div>';
+}
+function fuCalDayCell(date,viewMonthNum,byDate){
+  const iso_=iso(date);
+  const items=(byDate[iso_]||[]).slice(0,3);
+  const overflow=(byDate[iso_]||[]).length-items.length;
+  const isToday=iso_===today();
+  const inMonth=date.getMonth()===viewMonthNum;
+  return '<div class="cal-cell'+(isToday?' today':'')+(inMonth?'':' other')+'" onclick="fuDayView(\''+iso_+'\')" title="Click to view '+fmtDate(iso_)+'">'+
+    '<div class="cal-cell-head"><span class="cal-cell-num">'+date.getDate()+'</span>'+
+    '<button class="cal-add-btn" onclick="event.stopPropagation();fuForm(null,null,\''+iso_+'\')" title="Add follow-up">+</button></div>'+
+    items.map(fuCalMiniItem).join('')+
+    (overflow>0?'<div class="cal-cell-more">+'+overflow+' more</div>':'')+
+  '</div>';
+}
+function fuCalendarHtml(){
+  route.fu.calMonth=route.fu.calMonth||mkThisMonthFirst();
+  const viewMonth=route.fu.calMonth;
+  const cells=mkMonthGridDates(viewMonth);
+  const rangeStart=iso(cells[0]),rangeEnd=iso(cells[cells.length-1]);
+  const byDate={};
+  fuAllOpen().forEach(f=>{if(f.dueDate>=rangeStart&&f.dueDate<=rangeEnd)(byDate[f.dueDate]=byDate[f.dueDate]||[]).push(f);});
+  const viewMonthNum=new Date(viewMonth+'T00:00:00').getMonth();
+  const toolbar='<div class="cal-toolbar"><button class="btn" onclick="fuCalNavMonth(-1)">\u2190</button>'+
+    '<div class="cal-label">'+mkCalMonthLabel(viewMonth)+'</div>'+
+    '<button class="btn" onclick="fuCalNavMonth(1)">\u2192</button>'+
+    '<button class="btn ghost" onclick="fuCalToday()">This month</button></div>';
+  const head='<div class="cal-head-row">'+['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d=>'<div class="cal-head-cell">'+d+'</div>').join('')+'</div>';
+  const grid='<div class="cal-grid">'+cells.map(d=>fuCalDayCell(d,viewMonthNum,byDate)).join('')+'</div>';
+  return toolbar+head+'<div class="cal-grid-wrap">'+grid+'</div>'+
+    '<div class="faint" style="font-size:11px;margin:10px 2px 0">Click any day to see every follow-up due then — use the + to schedule one directly on that date.</div>';
+}
+function fuDayView(dateISO){
+  const items=fuOnDate(dateISO);
+  const d=new Date(dateISO+'T00:00:00');
+  const label=MK_DAY_NAMES[d.getDay()]+' '+d.getDate()+' '+MK_MONTHS[d.getMonth()]+' '+d.getFullYear();
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+esc(label)+'</h2><button class="x" onclick="closeModal()">\u00d7</button></div>'+
+    (items.length?'<div style="display:flex;flex-direction:column;gap:9px;margin-bottom:4px">'+items.map(f=>{const u=fuUrgencyOf(f);
+      return '<div class="row-item" style="margin-bottom:0" onclick="closeModal();go(\'detail\',\''+f.oppId+'\')">'+
+        '<span class="udot" style="background:'+u.color+'"></span>'+
+        '<div class="row-main"><div class="row-title">'+esc(f.company)+'</div><div class="row-meta">'+esc(f.description||'Follow-up')+'</div></div>'+
+        '<div style="display:flex;gap:6px;flex:none">'+
+          '<button class="btn sm" onclick="event.stopPropagation();closeModal();go(\'detail\',\''+f.oppId+'\')">Open</button>'+
+          '<button class="btn sm gold" onclick="event.stopPropagation();fuCompleteForm(\''+f.oppId+'\',\''+f.id+'\')">Complete</button>'+
+        '</div></div>';}).join('')+'</div>'
+      :'<div class="card muted" style="padding:16px;margin-bottom:4px">No follow-ups due this day.</div>')+
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Close</button><button class="btn gold" onclick="fuForm(null,null,\''+dateISO+'\')">+ Add follow-up</button></div></div></div>';
 }
 
 /* Lessons */
@@ -1544,7 +1705,19 @@ function vDetail(){const o=byId(route.id);if(!o)return vCompanies();
         '<div style="display:flex;gap:8px;margin-bottom:16px"><select class="select" id="logType" style="width:130px">'+ACT_TYPES.filter(t=>t!=='Stage').map(t=>'<option>'+t+'</option>').join('')+'</select>'+
         '<input class="input" id="logText" placeholder="Log an interaction…" onkeydown="if(event.key===\'Enter\')logAct(\''+o.id+'\')"><button class="btn sm" onclick="logAct(\''+o.id+'\')">Log</button></div>'+
         (tl.length?'<ul class="timeline">'+tl.map(t=>'<li><span class="t-meta"><span class="t-type">'+esc(t.type||'Note')+'</span> · '+fmtDate(t.date)+'</span><div class="t-text">'+esc(t.text)+'</div></li>').join('')+'</ul>':'<div class="muted">No activity yet.</div>')+
-      '</div></div>'+
+      '</div>'+
+      '<div class="card" style="margin-top:16px"><div class="sec-h"><h2>Open Follow-ups</h2><button class="btn sm right" onclick="fuForm(\''+o.id+'\')">+ Add</button></div>'+
+        (fuOpen(o).length?fuOpen(o).sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999')).map(f=>{const u=fuUrgencyOf(f);
+          return '<div class="row-item" style="margin-bottom:8px"><span class="udot" style="background:'+u.color+'"></span>'+
+            '<div class="row-main"><div class="row-title" style="font-size:13.5px">'+esc(f.description||'Follow-up')+(f.personName?' · '+esc(f.personName):'')+'</div>'+
+            '<div class="row-meta" style="color:'+u.color+'">'+u.label+'</div></div>'+
+            '<button class="btn sm gold" onclick="fuCompleteForm(\''+o.id+'\',\''+f.id+'\')">Complete</button></div>';}).join(''):
+          '<div class="muted" style="font-size:13px">No open follow-ups.</div>')+'</div>'+
+      (fuCompleted(o).length?'<div class="card" style="margin-top:16px"><div class="sec-h"><h2>Completed Follow-ups</h2></div>'+
+        [...fuCompleted(o)].sort((a,b)=>(b.completedDate||'').localeCompare(a.completedDate||'')).map(f=>
+          '<div class="kv" style="align-items:flex-start"><span class="v" style="max-width:60%">'+esc(f.description||'Follow-up')+(f.outcome?'<br><span class="faint" style="font-size:11.5px">Outcome: '+esc(f.outcome)+'</span>':'')+'</span><span class="k">'+fmtDate(f.completedDate)+'</span></div>').join('')+
+      '</div>':'')+
+    '</div>'+
     '<div><div class="card"><div class="sec-h"><h2>Record</h2></div>'+
       kv('Website',link(o.website),true)+kv('Role',o.contactRole)+kv('Email',o.email?esc(o.email):'<span class="faint">verify before sending</span>',true)+
       kv('LinkedIn',link(o.linkedin,'profile'),true)+kv('Status',o.status)+(isInv(o)?kv('Investment status',o.investmentStatus):'')+
@@ -2346,6 +2519,90 @@ function delOpp(id){const o=byId(id);if(!o)return;if(!confirm('Delete '+o.compan
 function logAct(id){const t=document.getElementById('logText').value.trim();if(!t)return;const o=byId(id);
   const ev={date:today(),type:document.getElementById('logType').value,text:t};o.timeline=o.timeline||[];o.timeline.push(ev);o.lastInteraction=today();persistTimeline(Object.assign({oppId:id},ev));persistOpp(o);render();}
 
+/* ---- Follow-up create form ---- */
+function fuForm(oppId,personId,dateISO){
+  const opts=state.opps.filter(isActive).sort((a,b)=>a.company.localeCompare(b.company));
+  const defOpp=oppId||(opts[0]&&opts[0].id)||'';
+  const o=defOpp?byId(defOpp):null;
+  const person=personId?state.people.find(p=>p.id===personId):null;
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>New follow-up</h2><button class="x" onclick="closeModal()">×</button></div>'+
+    '<div class="field"><label class="fl">Company</label><select class="select" id="fu_company">'+opts.map(x=>'<option value="'+x.id+'" '+(x.id===defOpp?'selected':'')+'>'+esc(x.company)+'</option>').join('')+'</select></div>'+
+    '<div class="field"><label class="fl">Person (optional)</label><input class="input" id="fu_person" list="fu_personList" value="'+esc(person?person.name:'')+'" placeholder="Name of the contact this follow-up is with"><datalist id="fu_personList">'+state.people.map(p=>'<option value="'+esc(p.name)+'">').join('')+'</datalist></div>'+
+    '<div class="field-row"><div class="field"><label class="fl">Due date</label><input class="input" id="fu_due" type="date" value="'+esc(dateISO||today())+'"></div>'+
+    '<div class="field"><label class="fl">Priority (0–100)</label><input class="input" id="fu_priority" type="number" value="'+(o?(+o.priority||50):50)+'"></div></div>'+
+    '<div class="field"><label class="fl">Description</label><input class="input" id="fu_desc" placeholder="What needs to happen"></div>'+
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="fuSaveNew()">Add</button></div></div></div>';
+}
+function fuSaveNew(){
+  const oppId=document.getElementById('fu_company').value;
+  const o=byId(oppId);if(!o){toast('Pick a company');return;}
+  const due=document.getElementById('fu_due').value;if(!due){toast('Due date required');return;}
+  const desc=document.getElementById('fu_desc').value.trim();
+  const personName=document.getElementById('fu_person').value.trim();
+  const priority=Math.max(0,Math.min(100,+document.getElementById('fu_priority').value||(+o.priority||50)));
+  let person=null;
+  if(personName)person=findOrCreatePerson(personName,{companyId:o.id,company:o.company,relationship:'Company contact',warmth:'Warm'});
+  ensureFollowups(o);
+  o.followups.push({id:uid('f'),dueDate:due,description:desc,priority,personId:person?person.id:'',personName:person?person.name:personName,status:'open',createdDate:today(),createdBy:userName()});
+  syncOppFollowState(o);persistOpp(o);
+  closeModal();render();toast('Follow-up scheduled for '+esc(o.company));
+}
+/* ---- Follow-up completion form — outcome, meeting notes, and the two
+   automations (Lesson Learned + next follow-up) the spec calls for. ---- */
+function fuCompleteForm(oppId,fuId){
+  const o=byId(oppId);if(!o)return;
+  ensureFollowups(o);
+  const f=o.followups.find(x=>x.id===fuId);if(!f)return;
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal lg"><div class="modal-h"><h2>Complete follow-up — '+esc(o.company)+'</h2><button class="x" onclick="closeModal()">×</button></div>'+
+    (f.description?'<div class="muted" style="font-size:13px;margin-bottom:14px">'+esc(f.description)+'</div>':'')+
+    '<div class="field"><label class="fl">Outcome</label><div style="display:flex;flex-direction:column;gap:7px">'+
+      FOLLOWUP_OUTCOMES.map((op,i)=>'<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;cursor:pointer"><input type="radio" name="fu_outcome" value="'+esc(op)+'" '+(i===0?'checked':'')+'> '+esc(op)+'</label>').join('')+
+    '</div></div>'+
+    '<div class="field"><label class="fl">Meeting notes</label><textarea class="input" id="fu_meetingNotes" rows="5" placeholder="What happened, what was discussed…"></textarea></div>'+
+    '<div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px"><input type="checkbox" id="fu_createLesson"> Create Lesson Learned from these notes</label></div>'+
+    '<div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13.5px"><input type="checkbox" id="fu_createNext" onchange="document.getElementById(\'fu_nextBlock\').style.display=this.checked?\'block\':\'none\'"> Create another follow-up</label></div>'+
+    '<div id="fu_nextBlock" style="display:none;padding:12px;border:1px solid var(--line);border-radius:10px;margin-bottom:15px">'+
+      '<div class="field" style="margin-bottom:10px"><label class="fl">Company</label><div class="muted" style="font-size:13.5px">'+esc(o.company)+' (same company)</div></div>'+
+      '<div class="field"><label class="fl">Person</label><input class="input" id="fu_next_person" list="fu_next_personList" value="'+esc(f.personName||'')+'"><datalist id="fu_next_personList">'+state.people.map(p=>'<option value="'+esc(p.name)+'">').join('')+'</datalist></div>'+
+      '<div class="field-row"><div class="field"><label class="fl">Due date</label><input class="input" id="fu_next_due" type="date"></div>'+
+      '<div class="field"><label class="fl">Priority (0–100)</label><input class="input" id="fu_next_priority" type="number" value="'+(+f.priority||+o.priority||50)+'"></div></div>'+
+      '<div class="field" style="margin-bottom:0"><label class="fl">Description</label><input class="input" id="fu_next_desc" placeholder="What needs to happen next"></div>'+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="fuSaveComplete(\''+oppId+'\',\''+fuId+'\')">Save</button></div></div></div>';
+}
+function fuSaveComplete(oppId,fuId){
+  const o=byId(oppId);if(!o)return;
+  ensureFollowups(o);
+  const f=o.followups.find(x=>x.id===fuId);if(!f)return;
+  const outEl=document.querySelector('input[name="fu_outcome"]:checked');
+  const outcome=outEl?outEl.value:'';
+  const notes=(document.getElementById('fu_meetingNotes').value||'').trim();
+  f.status='completed';f.outcome=outcome;f.meetingNotes=notes;f.completedDate=today();f.completedBy=userName();
+  // 5 — automatic timeline event, every time, no exceptions
+  addActivity(oppId,'Follow-up',o.company+' follow-up completed. Outcome: '+(outcome||'—')+(notes?'. Notes: '+notes:''));
+  // 6 — automatic Lesson Learned, only if ticked
+  if(document.getElementById('fu_createLesson').checked&&notes){
+    findOrCreateLesson({title:o.company+' — '+(outcome||'follow-up outcome'),description:notes,category:o.category,date:today()},o.company);
+  }
+  // 7 — automatic next follow-up, only if ticked and a due date was given
+  if(document.getElementById('fu_createNext').checked){
+    const due=document.getElementById('fu_next_due').value;
+    if(due){
+      const desc=document.getElementById('fu_next_desc').value.trim();
+      const personName=document.getElementById('fu_next_person').value.trim();
+      const priority=Math.max(0,Math.min(100,+document.getElementById('fu_next_priority').value||(+f.priority||+o.priority||50)));
+      let person=null;
+      if(personName)person=findOrCreatePerson(personName,{companyId:o.id,company:o.company,relationship:'Company contact',warmth:'Warm'});
+      o.followups.push({id:uid('f'),dueDate:due,description:desc,priority,personId:person?person.id:(f.personId||''),personName:person?person.name:(personName||f.personName||''),status:'open',createdDate:today(),createdBy:userName()});
+    }else{
+      toast('Outcome saved — next follow-up needs a due date, so it wasn\'t created');
+    }
+  }
+  syncOppFollowState(o);
+  persistOpp(o);
+  closeModal();render();toast('Follow-up completed');
+}
+
 /* People form */
 function personForm(id,companyId){const p=id?state.people.find(x=>x.id===id):{companyId:companyId||'',company:companyId?((byId(companyId)||{}).company||''):''};
   const F=(l,k,t,ph)=>'<div class="field"><label class="fl">'+l+'</label><input class="input" id="pf_'+k+'" type="'+(t||'text')+'" value="'+esc(p[k]||'')+'" placeholder="'+(ph||'')+'"></div>';
@@ -2378,6 +2635,10 @@ function personForm(id,companyId){const p=id?state.people.find(x=>x.id===id):{co
       F('Last interaction','lastInteraction','date')+
       TA('Why they matter','whyMatters','e.g. Deep insurance expertise, can introduce major insurers')+
       '</div></details>'+
+    (id?(function(){const hist=personFollowups(id,p.name);if(!hist.length)return '';
+      return '<div style="margin:16px 0 4px;border-top:1px solid var(--line);padding-top:14px"><div class="fl" style="margin-bottom:8px">Previous follow-ups · Meeting history</div>'+
+        hist.slice(0,8).map(f=>'<div class="kv" style="align-items:flex-start;cursor:pointer" onclick="closeModal();go(\'detail\',\''+f.oppId+'\')"><span class="v" style="max-width:65%">'+esc(f.company)+' — '+esc(f.description||'Follow-up')+(f.outcome?'<br><span class="faint" style="font-size:11.5px">Outcome: '+esc(f.outcome)+'</span>':'')+'</span><span class="k">'+(f.status==='completed'?fmtDate(f.completedDate):'Due '+fmtDate(f.dueDate))+'</span></div>').join('')+
+      '</div>';})():'')+
     '<div class="modal-foot">'+(id?'<button class="btn danger" style="margin-right:auto" onclick="delPerson(\''+id+'\')">Delete</button>':'')+'<button class="btn ghost" onclick="closeModal()">Cancel</button><button class="btn gold" onclick="savePerson(\''+(id||'')+'\')">'+(id?'Save':'Add')+'</button></div></div></div>';
 }
 function pval(k){const el=document.getElementById('pf_'+k);return el?el.value.trim():''}
@@ -2851,13 +3112,35 @@ function mkContinueHtml(){
     }
   });
   recentViews.forEach(v=>{
-    if(v.type==='detail'){const o=byId(v.id);if(o&&isActive(o))items.push({label:'Continue: ',title:o.company,onclick:"go('detail','"+o.id+"')"});}
+    if(v.type==='detail'){
+      const o=byId(v.id);
+      if(o&&isActive(o)){
+        const lastCompleted=[...fuCompleted(o)].sort((a,b)=>(b.completedDate||'').localeCompare(a.completedDate||''))[0];
+        const openFu=[...fuOpen(o)].sort((a,b)=>(a.dueDate||'9999').localeCompare(b.dueDate||'9999'))[0];
+        const rich=lastCompleted?{
+          lastAction:'Follow-up completed '+(lastCompleted.completedDate===today()?'today':lastCompleted.completedDate===addDays(-1)?'yesterday':fmtDate(lastCompleted.completedDate)),
+          outcome:lastCompleted.outcome||'',
+          next:openFu?openFu.description:''
+        }:null;
+        items.push({label:'Continue: ',title:o.company,onclick:"go('detail','"+o.id+"')",oppId:o.id,rich});
+      }
+    }
     else if(v.type==='assetDetail'){const a=(state.assets||[]).find(x=>x.id===v.id);if(a)items.push({label:'Continue editing: ',title:a.title,onclick:"go('assetDetail','"+a.id+"')"});}
   });
   const shown=items.slice(0,4);
   if(!shown.length)return '';
   return '<div class="dsec"><div class="dsec-h"><h2>Continue where you left off</h2></div>'+
-    shown.map(it=>'<div class="drow" onclick="'+it.onclick+'"><div class="drow-main"><div class="drow-title">'+esc(it.label)+esc(it.title)+'</div></div></div>').join('')+
+    shown.map(it=>{
+      if(it.rich){
+        return '<div class="drow" style="flex-direction:column;align-items:stretch;gap:3px;cursor:default">'+
+          '<div class="drow-title" style="cursor:pointer" onclick="'+it.onclick+'">'+esc(it.title)+'</div>'+
+          '<div class="drow-meta">Last action: '+esc(it.rich.lastAction)+(it.rich.outcome?' · Outcome: '+esc(it.rich.outcome):'')+'</div>'+
+          (it.rich.next?'<div class="drow-meta">Next recommended action: '+esc(it.rich.next)+'</div>':'')+
+          '<div style="display:flex;gap:6px;margin-top:3px"><button class="btn sm" onclick="'+it.onclick+'">Open Follow-up</button><button class="btn sm gold" onclick="fuForm(\''+it.oppId+'\')">Create Follow-up</button></div>'+
+        '</div>';
+      }
+      return '<div class="drow" onclick="'+it.onclick+'"><div class="drow-main"><div class="drow-title">'+esc(it.label)+esc(it.title)+'</div></div></div>';
+    }).join('')+
   '</div>';
 }
 
@@ -3133,7 +3416,7 @@ function exportData(){const blob=new Blob([JSON.stringify(Object.assign({},state
 function importData(input){const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.opps&&!d.brain)throw new Error('not a valid backup');if(!confirm(CLOUD?'Upload this backup into the shared cloud? Existing records are kept; this adds the backup\'s records.':'Replace all current data with this backup?'))return;
   if(d.marketing){const m=migrateMk(d.marketing);if(m){mk=m;saveMarketing();}} // Marketing Assistant data restores the same way regardless of cloud/local mode — always local-only for now.
   if(CLOUD){toast('Importing…');uploadDataset(d).then(()=>fetchAll()).then(()=>{render();toast('Backup imported'+(d.assets&&d.assets.length?' — note: asset files must be re-uploaded via Upload Asset, backups don\'t carry files.':'.'));}).catch(e=>toast('Import failed: '+(e.message||e)));}
-  else{state={opps:d.opps||[],people:d.people||[],lessons:d.lessons||[],brain:migrateBrain(d.brain),assets:state.assets||[],version:2};state.opps.forEach(o=>o.timeline=o.timeline||[]);cacheSave();go('dashboard');toast('Backup restored');}
+  else{state={opps:d.opps||[],people:d.people||[],lessons:d.lessons||[],brain:migrateBrain(d.brain),assets:state.assets||[],version:2};state.opps.forEach(o=>{o.timeline=o.timeline||[];ensureFollowups(o);});cacheSave();go('dashboard');toast('Backup restored');}
   }catch(e){toast('Import failed: '+e.message);}};r.readAsText(f);input.value='';}
 function resetDemo(){if(!confirm(CLOUD?'Replace ALL shared cloud data with demo data?':'Reload demo data? This replaces everything currently stored.'))return;
   if(CLOUD){(async()=>{toast('Resetting…');try{await clearCloud();await uploadDataset(seed());await fetchAll();render();toast('Demo data loaded');}catch(e){toast('Failed: '+(e.message||e));}})();}
