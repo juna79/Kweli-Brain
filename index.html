@@ -2904,17 +2904,18 @@ function teamBoardBadgeCount(){
   return mine.length||open.length;
 }
 /* Note colour = importance/completion, NOT workflow status.
-   Yellow (status-progress class) is the default. Red only for Urgent
-   priority. Green only once Done. "In Progress" etc. never change colour —
-   that's what the Status field/text is for. */
+   Yellow (status-progress class) is the default. Red for Important or
+   Urgent priority. Green once Done — Done always overrides priority.
+   "In Progress" etc. never change colour — that's what the Status
+   field/text is for. */
 function tbNoteColorClass(m){
   if(m.status==='Done')return 'status-done';
-  if(m.priority==='Urgent')return 'status-todo';
+  if(m.priority==='Important'||m.priority==='Urgent')return 'status-todo';
   return 'status-progress';
 }
 function tbNoteColor(m){
   if(m.status==='Done')return 'var(--green)';
-  if(m.priority==='Urgent')return 'var(--red)';
+  if(m.priority==='Important'||m.priority==='Urgent')return 'var(--red)';
   return 'var(--amber)';
 }
 /* Separate colour for the workflow STATUS text/dot shown in the detail
