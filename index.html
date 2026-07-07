@@ -398,9 +398,11 @@
     margin-bottom:7px;font-family:ui-monospace,monospace}
   .intel-chips{display:flex;flex-wrap:wrap;gap:7px}
 
-  /* ---- Team Board — a cork board with pinned sticky notes ---- */
-  .modal.xl{max-width:1120px}
+  /* ---- Team Board — a premium physical cork board with pinned sticky notes ---- */
+  .modal.xl.tb-modal{max-width:1180px;padding:24px 24px 26px}
   .tb-topbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+  .tb-unread-pill{background:rgba(79,163,209,.16);color:var(--blue);border:1px solid rgba(79,163,209,.4);
+    border-radius:20px;padding:4px 11px;font-size:12px;cursor:pointer;font-weight:600}
   .tb-filters{display:flex;gap:6px;flex-wrap:wrap}
   .tb-filter{background:var(--panel2);border:1px solid var(--line-s);color:var(--muted);border-radius:20px;
     padding:5px 12px;font-size:12px;cursor:pointer;transition:all .12s}
@@ -409,36 +411,53 @@
   .tb-viewtoggle{display:flex;background:var(--panel2);border-radius:9px;padding:2px;border:1px solid var(--line-s)}
   .tb-viewtoggle button{background:none;border:none;color:var(--muted);font-size:12px;padding:6px 12px;border-radius:7px;cursor:pointer}
   .tb-viewtoggle button.active{background:var(--raise);color:var(--txt)}
-  .corkboard{position:relative;border-radius:14px;padding:26px 22px;min-height:360px;
-    background:
-      radial-gradient(circle at 12% 22%,rgba(255,255,255,.035) 0 1.4px,transparent 1.6px),
-      radial-gradient(circle at 68% 58%,rgba(255,255,255,.028) 0 1.4px,transparent 1.6px),
-      radial-gradient(circle at 38% 82%,rgba(255,255,255,.03) 0 1.4px,transparent 1.6px),
-      linear-gradient(160deg,#2c2015,#1d1610 55%,#160f0a);
-    background-size:26px 26px,31px 31px,23px 23px,100% 100%;
-    box-shadow:inset 0 2px 18px rgba(0,0,0,.5),inset 0 0 60px rgba(0,0,0,.35);
-    border:1px solid rgba(0,0,0,.4);
+
+  /* Wooden frame wrapping the cork panel — layered brown gradients standing
+     in for a mitred wood border, plus an inset bevel so the cork sits
+     "inside" it like a real notice board. */
+  .tb-frame{border-radius:16px;padding:14px;
+    background:linear-gradient(155deg,#4a3320,#2e2013 45%,#1c130b),
+      repeating-linear-gradient(100deg,rgba(0,0,0,.08) 0 2px,transparent 2px 7px);
+    box-shadow:0 24px 50px -18px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.06),inset 0 -2px 6px rgba(0,0,0,.5);
+    border:1px solid rgba(0,0,0,.5);
   }
-  .corkboard-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:22px 18px}
-  .sticky{position:relative;border-radius:2px 2px 9px 9px;padding:16px 14px 12px;color:#2a2318;
-    font-size:12.5px;line-height:1.4;box-shadow:0 12px 22px -8px rgba(0,0,0,.55),0 2px 5px rgba(0,0,0,.3);
-    transition:transform .15s ease,box-shadow .15s ease;cursor:default}
-  .sticky:hover{transform:rotate(0deg) translateY(-3px) scale(1.015);box-shadow:0 18px 32px -10px rgba(0,0,0,.6),0 3px 6px rgba(0,0,0,.35);z-index:2}
-  .sticky.status-todo{background:linear-gradient(175deg,#e9c7bd,#dcafa2)}
-  .sticky.status-progress{background:linear-gradient(175deg,#eddcac,#e2cc93)}
-  .sticky.status-done{background:linear-gradient(175deg,#c9dfca,#b1d0b4)}
-  .sticky-pin{position:absolute;top:-8px;left:50%;transform:translateX(-50%);width:13px;height:13px;border-radius:50%;
-    background:radial-gradient(circle at 35% 30%,#f0c34a,#8a6112);box-shadow:0 2px 5px rgba(0,0,0,.55);z-index:1}
-  .sticky-title{font-weight:700;font-size:13.5px;margin-bottom:5px;word-break:break-word}
-  .sticky-msg{color:#4a4030;margin-bottom:10px;word-break:break-word;white-space:pre-wrap}
-  .sticky-meta{font-size:10.5px;color:#5c5240;display:flex;flex-direction:column;gap:2px;margin-bottom:10px}
-  .sticky-badge{display:inline-block;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;
-    padding:2px 6px;border-radius:4px;background:rgba(0,0,0,.12);margin-right:5px}
-  .sticky-actions{display:flex;gap:5px;flex-wrap:wrap}
-  .sticky-actions button{background:rgba(0,0,0,.1);border:none;border-radius:6px;width:24px;height:24px;
-    font-size:11.5px;cursor:pointer;color:#2a2318;transition:background .12s}
-  .sticky-actions button:hover{background:rgba(0,0,0,.22)}
-  .tb-empty{color:var(--faint);font-size:13px;padding:40px 0;text-align:center;grid-column:1/-1}
+  .corkboard{position:relative;border-radius:8px;min-height:640px;overflow:hidden;
+    background:
+      radial-gradient(circle at 12% 22%,rgba(0,0,0,.16) 0 1.6px,transparent 1.8px),
+      radial-gradient(circle at 68% 58%,rgba(0,0,0,.13) 0 1.5px,transparent 1.7px),
+      radial-gradient(circle at 38% 82%,rgba(0,0,0,.15) 0 1.6px,transparent 1.8px),
+      radial-gradient(circle at 85% 15%,rgba(0,0,0,.12) 0 1.3px,transparent 1.5px),
+      radial-gradient(circle at 22% 65%,rgba(0,0,0,.12) 0 1.4px,transparent 1.6px),
+      radial-gradient(ellipse at 30% 0%,rgba(255,214,150,.05),transparent 55%),
+      radial-gradient(ellipse at 120% 120%,rgba(0,0,0,.55),transparent 60%),
+      linear-gradient(155deg,#a9773f,#8a5f30 45%,#6e4a24 100%);
+    background-size:24px 24px,29px 29px,21px 21px,26px 26px,19px 19px,100% 100%,100% 100%,100% 100%;
+    box-shadow:inset 0 3px 22px rgba(0,0,0,.55),inset 0 0 90px rgba(0,0,0,.3);
+  }
+  .tb-empty{color:rgba(30,20,10,.55);font-size:13px;padding:60px 0;text-align:center;position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center}
+
+  /* Square post-it, folded bottom-right corner, small coloured pin. */
+  .sticky{position:absolute;width:150px;min-height:150px;border-radius:1px;padding:22px 12px 12px;color:#3a3220;
+    font-size:12px;line-height:1.35;box-shadow:0 10px 18px -6px rgba(0,0,0,.5),0 2px 4px rgba(0,0,0,.28);
+    cursor:grab;user-select:none;
+    background-image:repeating-linear-gradient(0deg,rgba(0,0,0,.015) 0 2px,transparent 2px 4px);
+  }
+  .sticky:active{cursor:grabbing}
+  .sticky:hover{box-shadow:0 16px 26px -8px rgba(0,0,0,.55),0 3px 6px rgba(0,0,0,.32);z-index:3}
+  .sticky.status-todo{background-color:#d9a89a;background-image:linear-gradient(165deg,#e0b2a4,#cf9c8d),repeating-linear-gradient(0deg,rgba(0,0,0,.02) 0 2px,transparent 2px 4px);background-blend-mode:normal}
+  .sticky.status-progress{background-color:#dcc386;background-image:linear-gradient(165deg,#e6d09a,#d3ba7d),repeating-linear-gradient(0deg,rgba(0,0,0,.02) 0 2px,transparent 2px 4px)}
+  .sticky.status-done{background-color:#a9c7ab;background-image:linear-gradient(165deg,#b6d1b8,#9dbba0),repeating-linear-gradient(0deg,rgba(0,0,0,.02) 0 2px,transparent 2px 4px)}
+  .sticky-fold{position:absolute;right:0;bottom:0;width:0;height:0;
+    border-style:solid;border-width:0 0 18px 18px;border-color:transparent transparent rgba(0,0,0,.16) transparent;
+    filter:drop-shadow(-1px -1px 1px rgba(255,255,255,.15))}
+  .sticky-pin{position:absolute;top:-7px;left:50%;transform:translateX(-50%);width:12px;height:12px;border-radius:50%;
+    box-shadow:0 3px 5px rgba(0,0,0,.6),inset 0 1px 1px rgba(255,255,255,.5);z-index:2}
+  .tb-unread-dot{position:absolute;top:6px;right:8px;width:8px;height:8px;border-radius:50%;
+    background:var(--blue);box-shadow:0 0 0 2px rgba(255,255,255,.35)}
+  .sticky-who{font-weight:700;font-size:14px;margin-top:6px}
+  .sticky-tag{font-size:11px;color:#5c5240;margin-top:4px}
+
   .tb-history-row{display:flex;align-items:flex-start;gap:12px;padding:10px 12px;border-radius:9px;border-bottom:1px solid var(--line)}
   .tb-history-row:hover{background:var(--panel2)}
   .tb-btn{background:var(--panel2);border:1px solid var(--line-s);color:var(--txt);border-radius:8px;
@@ -997,12 +1016,32 @@ function assetRow(a){return {id:a.id,title:a.title,collection:a.collection||null
 function rowToAsset(r){return {id:r.id,title:r.title,collection:r.collection||'',assetType:r.asset_type||'',description:r.description||'',version:r.version||'',tags:r.tags||[],notes:r.notes||'',fileName:r.file_name||'',filePath:r.file_path||'',fileType:r.file_type||'',fileSize:r.file_size||0,thumbPath:r.thumb_path||'',extractedText:r.extracted_text||'',uploadedDate:(r.created_at||'').slice(0,10),updatedDate:(r.updated_at||'').slice(0,10),createdBy:r.created_by||''};}
 /* ---- Team Board (team_messages) — small internal cork-board coordination
    layer for Juna / Paris / Mason. Same row-mapper/persist/fetchAll/realtime
-   pattern as every other table; additive only. ---- */
+   pattern as every other table; additive only.
+   Threads, read-state and pinned x/y position have no columns of their own
+   (no schema change) — packed as a hidden JSON block appended to the
+   `message` column, same trick as opportunities.notes/followups. */
 const TEAM_MEMBERS=['Juna','Paris','Mason'];
 const TB_STATUSES=['To Do','In Progress','Done'];
 const TB_PRIORITIES=['Normal','Important','Urgent'];
-function teamMessageRow(m){return {id:m.id,title:m.title,message:m.message||null,author:m.author||userName(),assigned_to:m.assignedTo||null,company_id:m.companyId||null,company_name:m.companyName||null,priority:m.priority||'Normal',status:m.status||'To Do',is_pinned:m.isPinned!==false,due_date:D(m.dueDate),completed_at:m.completedAt||null,unpinned_at:m.unpinnedAt||null,created_by:m.createdBy||userName(),updated_by:userName()};}
-function rowToTeamMessage(r){return {id:r.id,title:r.title||'',message:r.message||'',author:r.author||'',assignedTo:r.assigned_to||'',companyId:r.company_id||'',companyName:r.company_name||'',priority:r.priority||'Normal',status:r.status||'To Do',isPinned:r.is_pinned!==false,dueDate:r.due_date||'',completedAt:r.completed_at||'',unpinnedAt:r.unpinned_at||'',createdAt:r.created_at||'',updatedAt:r.updated_at||'',createdBy:r.created_by||'',updatedBy:r.updated_by||''};}
+const TB_TAG='\n<!--kweli-tb-meta:';
+function packTbMessage(m){
+  const base=m.message||'';
+  const meta={replies:m.replies||[],readBy:m.readBy||[],history:m.history||[],pos:m.pos||null};
+  if(!meta.replies.length&&!meta.readBy.length&&!meta.history.length&&!meta.pos)return base||null;
+  return base+TB_TAG+JSON.stringify(meta)+'-->';
+}
+function unpackTbMessage(raw){
+  const s=raw||'';
+  const i=s.indexOf(TB_TAG);
+  if(i===-1)return {message:s,replies:[],readBy:[],history:[],pos:null};
+  const message=s.slice(0,i);
+  let jsonPart=s.slice(i+TB_TAG.length);
+  if(jsonPart.endsWith('-->'))jsonPart=jsonPart.slice(0,-3);
+  let meta={};try{meta=JSON.parse(jsonPart)||{};}catch(e){meta={};}
+  return {message,replies:meta.replies||[],readBy:meta.readBy||[],history:meta.history||[],pos:meta.pos||null};
+}
+function teamMessageRow(m){return {id:m.id,title:m.title,message:packTbMessage(m),author:m.author||userName(),assigned_to:m.assignedTo||null,company_id:m.companyId||null,company_name:m.companyName||null,priority:m.priority||'Normal',status:m.status||'To Do',is_pinned:m.isPinned!==false,due_date:D(m.dueDate),completed_at:m.completedAt||null,unpinned_at:m.unpinnedAt||null,created_by:m.createdBy||userName(),updated_by:userName()};}
+function rowToTeamMessage(r){const un=unpackTbMessage(r.message);return {id:r.id,title:r.title||'',message:un.message||'',replies:un.replies,readBy:un.readBy,history:un.history,pos:un.pos,author:r.author||'',assignedTo:r.assigned_to||'',companyId:r.company_id||'',companyName:r.company_name||'',priority:r.priority||'Normal',status:r.status||'To Do',isPinned:r.is_pinned!==false,dueDate:r.due_date||'',completedAt:r.completed_at||'',unpinnedAt:r.unpinned_at||'',createdAt:r.created_at||'',updatedAt:r.updated_at||'',createdBy:r.created_by||'',updatedBy:r.updated_by||''};}
 function tlRow(ev){return {id:ev.id||uid(),opportunity_id:ev.oppId,date:D(ev.date)||today(),type:ev.type||'Note',text:ev.text||'',created_by:userName()};}
 function brainRow(k){const lbl=(BRAIN_SECTIONS.find(s=>s[0]===k)||[k,k])[1];return {section_key:k,title:lbl,content:state.brain[k]||'',updated_by:userName()};}
 
@@ -2847,56 +2886,155 @@ function calItemDetail(oppId,fuId){
    Small internal cork-board coordination layer for Juna/Paris/Mason.
    Entirely additive: its own state array, its own modal, its own route
    slot — touches nothing else in the app except a single button next to
-   the Today calendar header and one entry in global search. */
-function tbOpenNotes(){return (state.teamMessages||[]).filter(m=>m.isPinned);}
+   the Today calendar header and one entry in global search.
+   Cards on the board show almost nothing (@who + optional tag) — opening
+   one reveals the real detail panel with the full thread. Position is
+   free-drag and persisted (packed into the message column, see the row
+   mappers above), so the board looks the same every time it's reopened. */
+const TB_MAX_VISIBLE=16;
+function tbEnsureMeta(m){if(!m.replies)m.replies=[];if(!m.readBy)m.readBy=[];if(!m.history)m.history=[];return m;}
+function tbOpenNotes(){return (state.teamMessages||[]).filter(m=>m.isPinned).map(tbEnsureMeta);}
+function tbIsUnread(m){return normalizeName(m.author)!==normalizeName(userName())&&!(m.readBy||[]).some(u=>normalizeName(u)===normalizeName(userName()));}
+function tbUnreadForMe(){return tbOpenNotes().filter(tbIsUnread);}
 function teamBoardBadgeCount(){
+  const unread=tbUnreadForMe().length;
+  if(unread)return unread;
   const open=tbOpenNotes().filter(m=>m.status!=='Done');
   const mine=open.filter(m=>normalizeName(m.assignedTo)===normalizeName(userName()));
   return mine.length||open.length;
 }
 function tbStatusClass(s){return s==='Done'?'status-done':(s==='In Progress'?'status-progress':'status-todo');}
-function tbRot(id){let h=0;for(let i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))&0xffff;return ((h%7)-3)+'deg';}
-function openTeamBoard(focusId){route.team.view='board';renderTeamBoard();}
+function tbStatusPinColor(s){return s==='Done'?'var(--green)':(s==='In Progress'?'var(--amber)':'var(--red)');}
+/* Deterministic "random" rotation/position per note id, so layout is
+   stable across renders even before a note has ever been dragged. */
+function tbHash(id){let h=0;for(let i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))&0xffff;return h;}
+function tbRot(id){return ((tbHash(id)%61)/10-3)+'deg';}
+function tbDefaultPos(m,i){
+  const col=i%5,row=Math.floor(i/5);
+  const jitterX=(tbHash(m.id+'x')%26)-13,jitterY=(tbHash(m.id+'y')%20)-10;
+  return {x:26+col*172+jitterX,y:22+row*182+jitterY};
+}
+function openTeamBoard(focusId){route.team.view='board';renderTeamBoard();if(focusId)setTimeout(()=>tbOpenDetail(focusId),0);}
 function closeTeamBoard(){closeModal();}
 function renderTeamBoard(){
   const filters=['All','To Do','In Progress','Done','Assigned to me'];
+  const unread=tbUnreadForMe().length;
   const topbar='<div class="tb-topbar">'+
-    '<h2 style="margin:0;font-size:18px">\ud83d\udccc Team Board</h2>'+
-    '<button class="btn sm gold" onclick="teamNoteForm()">+ Add note</button>'+
-    '<div class="tb-filters">'+filters.map(f=>'<button class="tb-filter'+(route.team.filter===f?' active':'')+'" onclick="route.team.filter=\''+f+'\';renderTeamBoard()">'+f+'</button>').join('')+'</div>'+
+    '<h2 style="margin:0;font-size:18px;letter-spacing:.01em">Team Board</h2>'+
+    (unread&&route.team.view==='board'?'<span class="tb-unread-pill" onclick="route.team.filter=\'Assigned to me\';renderTeamBoard()">\ud83d\udd14 '+unread+' new</span>':'')+
+    '<button class="btn sm gold" onclick="teamNoteForm()">+ New note</button>'+
+    (route.team.view==='board'?'<div class="tb-filters">'+filters.map(f=>'<button class="tb-filter'+(route.team.filter===f?' active':'')+'" onclick="route.team.filter=\''+f+'\';renderTeamBoard()">'+f+'</button>').join('')+'</div>':'')+
     '<div class="tb-viewtoggle"><button class="'+(route.team.view==='board'?'active':'')+'" onclick="route.team.view=\'board\';renderTeamBoard()">Board</button>'+
       '<button class="'+(route.team.view==='history'?'active':'')+'" onclick="route.team.view=\'history\';renderTeamBoard()">History</button></div>'+
     '<button class="x" style="margin-left:auto" onclick="closeTeamBoard()">\u00d7</button>'+
   '</div>';
   const body=route.team.view==='board'?tbBoardHtml():tbHistoryHtml();
-  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeTeamBoard()"><div class="modal xl">'+topbar+body+'</div></div>';
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeTeamBoard()"><div class="modal xl tb-modal">'+topbar+body+'</div></div>';
 }
-function tbBoardHtml(){
+function tbFilteredNotes(){
   let notes=tbOpenNotes();
   const f=route.team.filter;
   if(f==='To Do'||f==='In Progress'||f==='Done')notes=notes.filter(m=>m.status===f);
   else if(f==='Assigned to me')notes=notes.filter(m=>normalizeName(m.assignedTo)===normalizeName(userName()));
-  notes=[...notes].sort((a,b)=>(a.status==='Done')-(b.status==='Done')||(b.createdAt||'').localeCompare(a.createdAt||''));
-  if(!notes.length)return '<div class="corkboard"><div class="corkboard-grid"><div class="tb-empty">Nothing pinned'+(f!=='All'?' for “'+esc(f)+'”':'')+'. Click + Add note to pin one.</div></div></div>';
-  return '<div class="corkboard"><div class="corkboard-grid">'+notes.map(tbStickyHtml).join('')+'</div></div>';
+  return notes;
+}
+function tbBoardHtml(){
+  const all=tbFilteredNotes();
+  // Unread-to-me first, then still-open work, then most recent — this is
+  // what decides which ~16 notes earn a spot on the physical board.
+  const sorted=[...all].sort((a,b)=>tbIsUnread(b)-tbIsUnread(a)||(a.status==='Done')-(b.status==='Done')||(b.createdAt||'').localeCompare(a.createdAt||''));
+  const shown=sorted.slice(0,TB_MAX_VISIBLE);
+  const overflow=sorted.length-shown.length;
+  shown.forEach((m,i)=>{if(!m.pos)m.pos=tbDefaultPos(m,i);});
+  const board='<div class="tb-frame"><div class="corkboard" id="corkboardEl">'+
+    (shown.length?shown.map(tbStickyHtml).join(''):'<div class="tb-empty">Nothing pinned'+(route.team.filter!=='All'?' for “'+esc(route.team.filter)+'”':'')+'. Click + New note to pin one.</div>')+
+    '</div></div>';
+  return board+(overflow>0?'<div class="faint" style="font-size:11.5px;margin-top:10px">Showing '+shown.length+' of '+sorted.length+' pinned notes — the rest are in <a href="javascript:void(0)" onclick="route.team.view=\'history\';renderTeamBoard()" style="color:var(--gold)">History</a> or narrow with a filter.</div>':'');
 }
 function tbStickyHtml(m){
-  return '<div class="sticky '+tbStatusClass(m.status)+'" style="transform:rotate('+tbRot(m.id)+')">'+
-    '<div class="sticky-pin"></div>'+
-    '<div class="sticky-title">'+esc(m.title)+'</div>'+
-    (m.message?'<div class="sticky-msg">'+esc(m.message)+'</div>':'')+
-    '<div class="sticky-meta">'+
-      '<span><span class="sticky-badge">'+esc(m.priority||'Normal')+'</span>'+esc(m.status)+'</span>'+
-      '<span>'+esc(m.author||'—')+(m.assignedTo?' \u2192 '+esc(m.assignedTo):'')+'</span>'+
-      (m.companyName?'<span>'+esc(m.companyName)+'</span>':'')+
-      (m.dueDate?'<span>Due '+fmtDate(m.dueDate)+'</span>':'')+
+  const pos=m.pos||{x:20,y:20};
+  const who=m.assignedTo||m.author||'Team';
+  return '<div class="sticky '+tbStatusClass(m.status)+'" data-id="'+m.id+'" style="left:'+pos.x+'px;top:'+pos.y+'px;transform:rotate('+tbRot(m.id)+')" '+
+    'onmousedown="tbDragStart(event,\''+m.id+'\')" onclick="tbStickyClick(event,\''+m.id+'\')">'+
+    '<div class="sticky-pin" style="background:radial-gradient(circle at 35% 30%,#fff,'+tbStatusPinColor(m.status)+' 55%,#00000055)"></div>'+
+    (tbIsUnread(m)?'<div class="tb-unread-dot"></div>':'')+
+    '<div class="sticky-fold"></div>'+
+    '<div class="sticky-who">@'+esc(who)+'</div>'+
+    (m.companyName?'<div class="sticky-tag">'+esc(m.companyName)+'</div>':(m.title?'<div class="sticky-tag">'+esc(m.title.slice(0,22))+'</div>':''))+
+  '</div>';
+}
+/* ---- Drag to reposition — pointer-based, persists x/y on drop. ---- */
+let tbDrag=null;
+function tbDragStart(ev,id){
+  if(ev.button!==0)return;
+  const el=ev.currentTarget;const board=document.getElementById('corkboardEl');if(!board)return;
+  const br=board.getBoundingClientRect();
+  tbDrag={id,el,startX:ev.clientX,startY:ev.clientY,origLeft:parseFloat(el.style.left)||0,origTop:parseFloat(el.style.top)||0,board:br,moved:false};
+  document.addEventListener('mousemove',tbDragMove);
+  document.addEventListener('mouseup',tbDragEnd);
+}
+function tbDragMove(ev){
+  if(!tbDrag)return;
+  const dx=ev.clientX-tbDrag.startX,dy=ev.clientY-tbDrag.startY;
+  if(Math.abs(dx)>3||Math.abs(dy)>3)tbDrag.moved=true;
+  if(!tbDrag.moved)return;
+  let x=tbDrag.origLeft+dx,y=tbDrag.origTop+dy;
+  x=Math.max(4,Math.min(tbDrag.board.width-150,x));
+  y=Math.max(4,Math.min(tbDrag.board.height-150,y));
+  tbDrag.el.style.left=x+'px';tbDrag.el.style.top=y+'px';
+  tbDrag.el.style.transition='none';tbDrag.el.style.zIndex=5;
+}
+function tbDragEnd(){
+  document.removeEventListener('mousemove',tbDragMove);
+  document.removeEventListener('mouseup',tbDragEnd);
+  if(!tbDrag)return;
+  const {id,el,moved}=tbDrag;
+  if(moved){
+    const m=(state.teamMessages||[]).find(x=>x.id===id);
+    if(m){m.pos={x:parseFloat(el.style.left)||0,y:parseFloat(el.style.top)||0};persistTeamMessage(m);}
+    el.style.zIndex='';el.dataset.justDragged='1';
+  }
+  tbDrag=null;
+}
+function tbStickyClick(ev,id){
+  const el=ev.currentTarget;
+  if(el.dataset.justDragged){delete el.dataset.justDragged;return;}
+  tbOpenDetail(id);
+}
+/* ---- Detail panel — the real content lives here, not on the card. ---- */
+function tbOpenDetail(id){
+  const m=(state.teamMessages||[]).find(x=>x.id===id);if(!m)return;
+  tbEnsureMeta(m);
+  if(tbIsUnread(m)){m.readBy.push(userName());persistTeamMessage(m);}
+  const co=m.companyId?byId(m.companyId):null;
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)renderTeamBoard()"><div class="modal"><div class="modal-h"><h2>'+esc(m.title||'Note')+'</h2><button class="x" onclick="renderTeamBoard()">\u00d7</button></div>'+
+    '<div class="kv"><span class="k">From</span><span class="v">'+esc(m.author||'—')+'</span></div>'+
+    '<div class="kv"><span class="k">To</span><span class="v">'+esc(m.assignedTo||'—')+'</span></div>'+
+    (m.companyName?'<div class="kv"><span class="k">Company</span><span class="v" style="cursor:pointer;color:var(--gold)" onclick="'+(co?"renderTeamBoard();go('detail','"+co.id+"')":'')+'">'+esc(m.companyName)+'</span></div>':'')+
+    '<div class="kv"><span class="k">Date</span><span class="v">'+fmtDate((m.createdAt||'').slice(0,10))+'</span></div>'+
+    '<div class="kv"><span class="k">Status</span><span class="v" style="color:'+tbStatusPinColor(m.status)+'">'+esc(m.status)+'</span></div>'+
+    (m.message?'<div class="field"><label class="fl">Message</label><div class="prose" style="font-size:13.5px">'+esc(m.message)+'</div></div>':'')+
+    '<div class="field"><label class="fl">Attachments</label><div class="faint" style="font-size:12px">Coming soon.</div></div>'+
+    '<div class="field"><label class="fl">Replies</label><div style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px">'+
+      (m.replies&&m.replies.length?m.replies.map(r=>'<div style="background:var(--panel2);border-radius:9px;padding:8px 10px"><div style="font-size:11.5px;font-weight:640;margin-bottom:2px">'+esc(r.author)+' <span class="faint" style="font-weight:400">· '+fmtDate((r.createdAt||'').slice(0,10))+'</span></div><div style="font-size:13px">'+esc(r.text)+'</div></div>').join(''):'<div class="faint" style="font-size:12px">No replies yet.</div>')+
     '</div>'+
-    '<div class="sticky-actions">'+
-      '<button title="Edit" onclick="teamNoteForm(\''+m.id+'\')">\u270e</button>'+
-      (m.status!=='Done'?'<button title="Mark done" onclick="tbMarkDone(\''+m.id+'\')">\u2713</button>':'')+
-      '<button title="Unpin" onclick="tbUnpin(\''+m.id+'\')">\ud83d\udccc</button>'+
-      '<button title="Delete" onclick="tbDelete(\''+m.id+'\')">\ud83d\uddd1</button>'+
-    '</div></div>';
+    '<div style="display:flex;gap:8px;margin-bottom:14px"><input class="input" id="tb_reply_text" placeholder="Write a reply…" onkeydown="if(event.key===\'Enter\')tbReply(\''+id+'\')"><button class="btn sm" onclick="tbReply(\''+id+'\')">Reply</button></div>'+
+    (m.history&&m.history.length?'<details style="margin-bottom:14px"><summary class="fl" style="cursor:pointer">History</summary><div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">'+m.history.map(h=>'<div class="faint" style="font-size:11.5px">'+fmtDate((h.at||'').slice(0,10))+' — '+esc(h.text)+'</div>').join('')+'</div></details>':'')+
+    '<div class="modal-foot" style="flex-wrap:wrap">'+
+      '<button class="btn" onclick="teamNoteForm(\''+id+'\')">Edit</button>'+
+      (m.status!=='Done'?'<button class="btn gold" onclick="tbMarkDone(\''+id+'\')">\u2713 Done</button>':'')+
+      '<button class="btn" onclick="tbUnpin(\''+id+'\')">Unpin</button>'+
+      '<button class="btn danger" onclick="tbDelete(\''+id+'\')">Delete</button>'+
+      '<button class="btn ghost" style="margin-left:auto" onclick="renderTeamBoard()">Back to board</button>'+
+    '</div></div></div>';
+}
+function tbReply(id){
+  const m=(state.teamMessages||[]).find(x=>x.id===id);if(!m)return;tbEnsureMeta(m);
+  const text=(document.getElementById('tb_reply_text').value||'').trim();if(!text)return;
+  m.replies.push({author:userName(),text,createdAt:new Date().toISOString()});
+  m.history.push({at:new Date().toISOString(),text:userName()+' replied'});
+  m.readBy=[userName()];m.updatedAt=new Date().toISOString();m.updatedBy=userName();
+  persistTeamMessage(m);tbOpenDetail(id);render();
 }
 function tbHistoryHtml(){
   const q=(route.team.q||'').toLowerCase();
@@ -2904,8 +3042,8 @@ function tbHistoryHtml(){
   let all=[...(state.teamMessages||[])].filter(m=>!q||hit(m.title)||hit(m.message)||hit(m.author)||hit(m.assignedTo)||hit(m.companyName));
   all.sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
   return '<div class="toolbar" style="margin-bottom:12px"><input class="input search-in" placeholder="Search history…" value="'+esc(route.team.q||'')+'" oninput="route.team.q=this.value;renderTeamBoard()"></div>'+
-    (all.length?all.map(m=>'<div class="tb-history-row">'+
-      '<span class="udot" style="background:'+fuStatusColor(m.status==='Done'?'Completed':(m.status==='In Progress'?'In Progress':'To Do'))+'"></span>'+
+    (all.length?all.map(m=>'<div class="tb-history-row" style="cursor:pointer" onclick="tbOpenDetail(\''+m.id+'\')">'+
+      '<span class="udot" style="background:'+tbStatusPinColor(m.status)+'"></span>'+
       '<div style="flex:1;min-width:0">'+
         '<div style="font-weight:600">'+esc(m.title)+(m.isPinned?'':' <span class="faint" style="font-weight:400">(unpinned)</span>')+'</div>'+
         (m.message?'<div class="muted" style="font-size:12px;margin:2px 0">'+esc(m.message.slice(0,140))+'</div>':'')+
@@ -2916,15 +3054,14 @@ function tbHistoryHtml(){
         '</div>'+
       '</div>'+
       '<div style="display:flex;gap:6px;flex:none">'+
-        (!m.isPinned?'<button class="tb-btn" title="Re-pin" onclick="tbRepin(\''+m.id+'\')">\ud83d\udccc</button>':'')+
-        '<button class="tb-btn" title="Edit" onclick="teamNoteForm(\''+m.id+'\')">\u270e</button>'+
+        (!m.isPinned?'<button class="tb-btn" title="Re-pin" onclick="event.stopPropagation();tbRepin(\''+m.id+'\')">\ud83d\udccc</button>':'')+
       '</div></div>').join(''):'<div class="tb-empty">No notes yet.</div>');
 }
 function teamNoteForm(id){
   const m=id?(state.teamMessages||[]).find(x=>x.id===id):{title:'',message:'',assignedTo:'',companyId:'',companyName:'',priority:'Normal',status:'To Do',dueDate:''};
   if(!m)return;
   const companies=[...state.opps].sort((a,b)=>a.company.localeCompare(b.company));
-  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+(id?'Edit note':'New note')+'</h2><button class="x" onclick="renderTeamBoard()">\u00d7</button></div>'+
+  document.getElementById('modal-root').innerHTML='<div class="modal-scrim" onclick="if(event.target===this)closeModal()"><div class="modal"><div class="modal-h"><h2>'+(id?'Edit note':'New note')+'</h2><button class="x" onclick="'+(id?"tbOpenDetail('"+id+"')":'renderTeamBoard()')+'">\u00d7</button></div>'+
     '<div class="field"><label class="fl">Title</label><input class="input" id="tb_title" value="'+esc(m.title)+'" placeholder="Short heading"></div>'+
     '<div class="field"><label class="fl">Message</label><textarea class="input" id="tb_message" rows="3">'+esc(m.message)+'</textarea></div>'+
     '<div class="field-row"><div class="field"><label class="fl">Assigned to</label><select class="select" id="tb_assigned"><option value="">—</option>'+TEAM_MEMBERS.map(n=>'<option '+(m.assignedTo===n?'selected':'')+'>'+n+'</option>').join('')+'</select></div>'+
@@ -2932,7 +3069,7 @@ function teamNoteForm(id){
     '<div class="field-row"><div class="field"><label class="fl">Status</label><select class="select" id="tb_status">'+TB_STATUSES.map(s=>'<option '+(m.status===s?'selected':'')+'>'+s+'</option>').join('')+'</select></div>'+
     '<div class="field"><label class="fl">Due date</label><input class="input" id="tb_due" type="date" value="'+esc(m.dueDate||'')+'"></div></div>'+
     '<div class="field"><label class="fl">Company tag (optional)</label><select class="select" id="tb_company"><option value="">—</option>'+companies.map(c=>'<option value="'+c.id+'" '+(m.companyId===c.id?'selected':'')+'>'+esc(c.company)+'</option>').join('')+'</select></div>'+
-    '<div class="modal-foot">'+(id?'<button class="btn danger" style="margin-right:auto" onclick="tbDelete(\''+id+'\')">Delete</button>':'')+'<button class="btn ghost" onclick="renderTeamBoard()">Cancel</button><button class="btn gold" onclick="tbSaveNote(\''+(id||'')+'\')">Save</button></div></div></div>';
+    '<div class="modal-foot">'+(id?'<button class="btn danger" style="margin-right:auto" onclick="tbDelete(\''+id+'\')">Delete</button>':'')+'<button class="btn ghost" onclick="'+(id?"tbOpenDetail('"+id+"')":'renderTeamBoard()')+'">Cancel</button><button class="btn gold" onclick="tbSaveNote(\''+(id||'')+'\')">Save</button></div></div></div>';
 }
 function tbSaveNote(id){
   const title=(document.getElementById('tb_title').value||'').trim();
@@ -2940,9 +3077,10 @@ function tbSaveNote(id){
   const companyId=document.getElementById('tb_company').value;
   const co=companyId?byId(companyId):null;
   const isNew=!id;
-  const m=isNew?{id:uid(),author:userName(),isPinned:true,createdAt:new Date().toISOString(),createdBy:userName()}
-                :(state.teamMessages||[]).find(x=>x.id===id);
+  const m=isNew?tbEnsureMeta({id:uid(),author:userName(),isPinned:true,createdAt:new Date().toISOString(),createdBy:userName()})
+                :tbEnsureMeta((state.teamMessages||[]).find(x=>x.id===id));
   if(!m)return;
+  const prevStatus=m.status;
   m.title=title;
   m.message=(document.getElementById('tb_message').value||'').trim();
   m.assignedTo=document.getElementById('tb_assigned').value;
@@ -2954,18 +3092,23 @@ function tbSaveNote(id){
   m.updatedAt=new Date().toISOString();m.updatedBy=userName();
   if(m.status==='Done'&&!m.completedAt)m.completedAt=new Date().toISOString();
   if(m.status!=='Done')m.completedAt='';
-  if(isNew){state.teamMessages=state.teamMessages||[];state.teamMessages.push(m);}
+  if(!isNew&&prevStatus!==m.status)m.history.push({at:m.updatedAt,text:userName()+' changed status to '+m.status});
+  if(isNew){m.history.push({at:m.createdAt,text:userName()+' created this note'});state.teamMessages=state.teamMessages||[];state.teamMessages.push(m);}
+  else{m.readBy=[userName()];}
   persistTeamMessage(m);
   renderTeamBoard();render();toast(isNew?'Note pinned':'Note updated');
 }
-function tbMarkDone(id){const m=(state.teamMessages||[]).find(x=>x.id===id);if(!m)return;
+function tbMarkDone(id){const m=(state.teamMessages||[]).find(x=>x.id===id);if(!m)return;tbEnsureMeta(m);
   m.status='Done';m.completedAt=new Date().toISOString();m.updatedAt=m.completedAt;m.updatedBy=userName();
+  m.history.push({at:m.updatedAt,text:userName()+' marked this Done'});
   persistTeamMessage(m);renderTeamBoard();render();toast('Marked done');}
-function tbUnpin(id){const m=(state.teamMessages||[]).find(x=>x.id===id);if(!m)return;
+function tbUnpin(id){const m=(state.teamMessages||[]).find(x=>x.id===id);if(!m)return;tbEnsureMeta(m);
   m.isPinned=false;m.unpinnedAt=new Date().toISOString();m.updatedAt=m.unpinnedAt;m.updatedBy=userName();
+  m.history.push({at:m.updatedAt,text:userName()+' unpinned this note'});
   persistTeamMessage(m);renderTeamBoard();render();toast('Unpinned — still in History');}
-function tbRepin(id){const m=(state.teamMessages||[]).find(x=>x.id===id);if(!m)return;
-  m.isPinned=true;m.unpinnedAt='';m.updatedAt=new Date().toISOString();m.updatedBy=userName();
+function tbRepin(id){const m=(state.teamMessages||[]).find(x=>x.id===id);if(!m)return;tbEnsureMeta(m);
+  m.isPinned=true;m.unpinnedAt='';m.pos=null;m.updatedAt=new Date().toISOString();m.updatedBy=userName();
+  m.history.push({at:m.updatedAt,text:userName()+' re-pinned this note'});
   persistTeamMessage(m);renderTeamBoard();render();toast('Re-pinned to board');}
 function tbDelete(id){
   if(!confirm('Delete this note permanently? This cannot be undone.'))return;
