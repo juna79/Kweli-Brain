@@ -3766,11 +3766,13 @@ function mkCalMonthLabel(viewMonthFirstISO){const d=new Date(viewMonthFirstISO+'
 function mkCalNavMonth(delta){
   const d=new Date(route.mk.calMonth+'T00:00:00');d.setMonth(d.getMonth()+delta);
   route.mk.calMonth=iso(new Date(d.getFullYear(),d.getMonth(),1));
-  renderMk();
+  if(route.view==='dashboard') render();
+  else renderMk();
 }
 function mkCalToday(){
   route.mk.calMonth=mkThisMonthFirst();
-  renderMk();
+  if(route.view==='dashboard') render();
+  else renderMk();
 }
 /* A completion log entry duplicates the LIVE occurrence when that slot is
    still sitting completed (hasn't rolled over yet) on the same date — in
