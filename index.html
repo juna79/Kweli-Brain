@@ -1544,7 +1544,8 @@ function vDash(){
     summaryRow+
 
     '<div class="dsec"><div class="dsec-h"><h2>Calendar</h2><span class="count faint">Every follow-up, meeting, marketing task and reminder — one calendar</span>'+
-      '<button class="btn sm" style="margin-left:auto" onclick="openTeamBoard()">\ud83d\udccc Team Board'+(teamBoardBadgeCount()?' ('+teamBoardBadgeCount()+')':'')+'</button></div>'+
+      '<button class="btn sm" style="margin-left:auto" onclick="exportForClaude()">\ud83e\udde0 Export for Claude</button>'+
+      '<button class="btn sm" onclick="openTeamBoard()">\ud83d\udccc Team Board'+(teamBoardBadgeCount()?' ('+teamBoardBadgeCount()+')':'')+'</button></div>'+
       '<div class="dcard" style="padding:16px 16px 4px">'+mkCalendarHtml()+'</div>'+
     '</div>'+
 
@@ -2558,7 +2559,9 @@ function vSettings(){
       (SUPA_READY&&CLOUD?'<button class="btn gold" onclick="migrateLocal()">Migrate local data</button>':'')+
       '<button class="btn" onclick="exportData()">Export JSON</button>'+
       '<button class="btn" onclick="document.getElementById(\'imp\').click()">Import JSON</button>'+
-      '<input type="file" id="imp" accept="application/json" style="display:none" onchange="importData(this)"></div></div>'+
+      '<input type="file" id="imp" accept="application/json" style="display:none" onchange="importData(this)"></div>'+
+      '<p class="faint" style="font-size:11.5px;line-height:1.6;margin:12px 0 0">Need a clean operational summary to hand to Claude (not a data backup)? Use <span class="mono">Export for Claude</span> below.</p>'+
+      '<div style="margin-top:8px"><button class="btn gold" onclick="exportForClaude()">\ud83e\udde0 Export for Claude</button></div></div>'+
   '<div class="card"><div class="sec-h"><h2>Demo &amp; danger zone</h2></div><p class="muted" style="margin-top:0">'+(CLOUD?'These affect the SHARED data everyone sees.':'Reload the sample pipeline, or wipe and start clean.')+'</p>'+
     '<div style="display:flex;gap:11px;flex-wrap:wrap"><button class="btn" onclick="resetDemo()">Reset demo data</button><button class="btn danger" onclick="clearAll()">Delete all data</button></div></div>'+
   '<div class="card"><div class="sec-h"><h2>Storage</h2></div>'+
@@ -3962,6 +3965,248 @@ function closeModal(){document.getElementById('modal-root').innerHTML=''}
 /* data actions */
 function resetBrain(){if(confirm('Reset the Knowledge Base to defaults? Your edits will be lost.')){state.brain=defaultBrain();cacheSave();if(CLOUD){BRAIN_SECTIONS.forEach(([k,label])=>sync('brain_sections','upsert',{section_key:k,title:label,content:state.brain[k]}));}render();toast('Knowledge Base reset');}}
 function exportData(){const blob=new Blob([JSON.stringify(Object.assign({},state,{marketing:mk}),null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='kweli-brain-'+today()+'.json';a.click();URL.revokeObjectURL(a.href);toast('Backup downloaded');}
+
+/* ============ EXPORT FOR CLAUDE ============
+   Produces a plain-Markdown snapshot of the company's *current operational
+   state* — not a data backup (that's Export JSON above) and not the
+   permanent playbook (that's the Knowledge Base / Brain, meant to live
+   inside the Claude Project itself). This file is meant to be re-uploaded
+   into a Claude Project on every refresh so Claude always has an
+   up-to-date picture of what's happening right now.
+
+   Design rules for every section builder below:
+   - Read directly from `state` / `mk` — the exact same data the dashboard
+     renders from. Never invent counts or duplicate a value that's computed
+     elsewhere; call the existing helper (fuAllOpen, investorEntries, etc.)
+     instead of re-deriving it.
+   - No HTML/CSS/JS, no IDs, no internal app state — plain Markdown only.
+   - Every section falls back to a bare "None currently." line when there's
+     nothing to show, so the file never has a broken heading with no body.
+   - Each section is its own function (mdSection*) purely so new sections
+     can be added later by writing one function and adding one line to
+     buildClaudeSnapshotMarkdown() — nothing else needs to change. */
+
+function mdNone(){return '_None currently._';}
+/* Markdown table cells can't contain literal pipes or newlines — sanitize
+   any free-text field before it goes into a table row. */
+function mdCell(s){return (s===undefined||s===null||s===''?'—':String(s)).replace(/\|/g,'\\|').replace(/\r?\n+/g,' ').trim()||'—';}
+function mdTable(headers,rows){
+  if(!rows.length)return mdNone();
+  const head='| '+headers.join(' | ')+' |\n| '+headers.map(()=>'---').join(' | ')+' |';
+  const body=rows.map(r=>'| '+r.map(mdCell).join(' | ')+' |').join('\n');
+  return head+'\n'+body;
+}
+/* "8 July 2026 16:42" — day month year, 24h time, no comma. */
+function mdTimestamp(d){
+  const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const hh=String(d.getHours()).padStart(2,'0'),mm=String(d.getMinutes()).padStart(2,'0');
+  return d.getDate()+' '+months[d.getMonth()]+' '+d.getFullYear()+' '+hh+':'+mm;
+}
+
+/* ---- Current Priorities — the same signals the Today dashboard leads
+   with (overdue follow-ups + everything due today), just as flat bullets. */
+function mdSectionPriorities(){
+  const items=[...fuOverdueList(),...fuDueTodayList()]
+    .sort((a,b)=>(a.dueDate||'').localeCompare(b.dueDate||''));
+  if(!items.length)return mdNone();
+  return items.slice(0,10).map(f=>{
+    const when=f.dueDate&&f.dueDate<today()?'overdue since '+fmtDate(f.dueDate):'due today';
+    return '- **'+f.company+'** — '+(f.description||'Follow-up')+' ('+when+')';
+  }).join('\n');
+}
+
+/* ---- Active Opportunities — live pipeline, investors excluded (they get
+   their own section below). */
+function mdSectionOpportunities(){
+  const list=state.opps.filter(o=>isActive(o)&&!isInv(o)).sort((a,b)=>(+b.priority||0)-(+a.priority||0));
+  if(!list.length)return mdNone();
+  return list.map(o=>'### '+o.company+'\n\n'+
+    'Stage: '+(o.stage||'—')+'  \n'+
+    'Next Action: '+(o.nextAction||'—')+'  \n'+
+    'Owner: '+(o.createdBy||'—')+'  \n'+
+    'Last Updated: '+(lastTouch(o)?fmtDate(lastTouch(o)):'—')
+  ).join('\n\n');
+}
+
+/* ---- Current Investors — the same merged, de-duplicated list the
+   Investors page renders (standalone investor records + people tagged
+   Investor), so this can never drift from what's shown in the app. */
+function mdSectionInvestors(){
+  const list=investorEntries();
+  if(!list.length)return mdNone();
+  return list.map(e=>{
+    const isOpp=e.source==='opp';
+    const stage=isOpp?(e.data.stage||'—'):(e.data.relationshipToKweli||'Contact');
+    const next=isOpp?(e.data.nextAction||'—'):(e.data.nextAction||'—');
+    const notes=isOpp?(e.data.notes||'—'):(e.data.notes||'—');
+    return '### '+invName(e)+'\n\n'+
+      'Stage: '+stage+'  \n'+
+      'Next Action: '+next+'  \n'+
+      'Notes: '+notes;
+  }).join('\n\n');
+}
+
+/* ---- Current Fundraising — status/milestone are computed live from the
+   investor pipeline (never hand-maintained); round/target are read from
+   the Brain's Investors playbook text since that's the one place those
+   figures already live, rather than duplicating them into new fields. */
+function mdSectionFundraising(){
+  const list=state.opps.filter(isInv);
+  const brainText=(state.brain&&state.brain.investors)||'';
+  const roundMatch=brainText.match(/pre-seed|seed round|series\s+[a-z]/i);
+  const targetMatch=brainText.match(/\$[\d,.]+\s?[kKmM]/);
+  const byStage={};list.forEach(o=>{byStage[o.stage]=(byStage[o.stage]||0)+1;});
+  const statusParts=Object.keys(byStage).map(s=>byStage[s]+' '+s).join(', ');
+  const nextUp=[...list].filter(o=>o.followUp&&o.followUp>=today()).sort((a,b)=>a.followUp.localeCompare(b.followUp))[0];
+  return 'Current Round: '+(roundMatch?roundMatch[0]:'Not specified — see Knowledge Base > Investors')+'\n\n'+
+    'Raise Target: '+(targetMatch?targetMatch[0]:'Not specified — see Knowledge Base > Investors')+'\n\n'+
+    'Current Status: '+(list.length?list.length+' investors in pipeline ('+(statusParts||'no stage data')+')':'No investors in pipeline yet.')+'\n\n'+
+    'Next Milestone: '+(nextUp?nextUp.company+' — '+(nextUp.nextAction||'Follow-up')+' ('+fmtDate(nextUp.followUp)+')':'None currently.');
+}
+
+/* ---- Product — pulled from the Knowledge Base (single source of truth
+   for product description). Version/roadmap/completed/upcoming aren't
+   tracked as discrete fields anywhere in the app yet, so they honestly
+   report "None currently." rather than guessing — future ideas is the one
+   closest existing analogue, used for Upcoming Features. */
+function mdSectionProduct(){
+  const b=state.brain||{};
+  return 'Current Product\n\n'+(b.product||mdNone())+'\n\n'+
+    'Current Version\n\n'+mdNone()+'\n\n'+
+    'Roadmap\n\n'+mdNone()+'\n\n'+
+    'Completed Recently\n\n'+mdNone()+'\n\n'+
+    'Upcoming Features\n\n'+(b.futureIdeas||mdNone());
+}
+
+/* ---- Current Pilots — opportunities in an active pilot stage. */
+function mdSectionPilots(){
+  const list=state.opps.filter(o=>isActive(o)&&/^Pilot/.test(o.stage||''));
+  return mdTable(['Customer','Status','Workflow','Next Action'],
+    list.map(o=>[o.company,o.stage,o.pilot,o.nextAction]));
+}
+
+/* ---- Recent Meetings — completed follow-ups that carry meeting notes or
+   a logged outcome, most recent first. */
+function mdSectionRecentMeetings(){
+  const rows=[];
+  state.opps.forEach(o=>{fuCompleted(o).forEach(f=>{
+    if(f.meetingNotes||f.outcome)rows.push({date:f.completedDate,company:o.company,outcome:f.meetingNotes||f.outcome,next:o.nextAction});
+  });});
+  rows.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  return mdTable(['Date','Organisation','Key Outcomes','Actions'],
+    rows.slice(0,15).map(r=>[r.date?fmtDate(r.date):'—',r.company,r.outcome,r.next]));
+}
+
+/* ---- Upcoming Meetings — same source as the dashboard's Meetings card
+   (open follow-ups marked "Meeting Scheduled" + companies at the
+   "Meeting booked" stage), restricted to today-or-later. */
+function mdSectionUpcomingMeetings(){
+  const meetingMap={};
+  fuAllOpen().filter(f=>f.status==='Meeting Scheduled').forEach(f=>{meetingMap[f.oppId]=meetingMap[f.oppId]||f;});
+  state.opps.filter(o=>isActive(o)&&o.stage==='Meeting booked').forEach(o=>{if(!meetingMap[o.id])meetingMap[o.id]={company:o.company,dueDate:o.followUp,description:o.nextAction};});
+  const list=Object.values(meetingMap).filter(f=>f.dueDate&&f.dueDate>=today()).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  return mdTable(['Date','Organisation','Purpose'],
+    list.map(f=>[fmtDate(f.dueDate),f.company,f.description]));
+}
+
+/* ---- Recent Decisions — reuses Lessons Learned, the closest existing
+   analogue to a decision log (each entry already carries a date, what was
+   learned/decided, why, and its downstream impact). */
+function mdSectionDecisions(){
+  const list=[...(state.lessons||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  return mdTable(['Date','Decision','Reason','Status'],
+    list.slice(0,15).map(l=>[l.date?fmtDate(l.date):'—',l.title,l.description,l.impact]));
+}
+
+/* ---- Current Risks — stalled/at-risk signals already visible elsewhere
+   in the app: overdue follow-ups, and open deals sitting on an unresolved
+   objection. */
+function mdSectionRisks(){
+  const bullets=[];
+  const overdueList=fuOverdueList();
+  if(overdueList.length)bullets.push('- '+overdueList.length+' overdue follow-up(s): '+overdueList.slice(0,5).map(f=>f.company).join(', ')+(overdueList.length>5?', …':''));
+  const objectionOpps=state.opps.filter(o=>isActive(o)&&o.objections);
+  if(objectionOpps.length)bullets.push('- Unresolved objections logged for: '+objectionOpps.map(o=>o.company).join(', '));
+  return bullets.length?bullets.join('\n'):mdNone();
+}
+
+/* ---- Current Opportunities — highest-priority companies not yet
+   contacted; a strategic shortlist rather than the full pipeline table
+   above. */
+function mdSectionStrategicOpportunities(){
+  const list=state.opps.filter(o=>isActive(o)&&!isInv(o)&&['Identified','Researched'].includes(o.stage))
+    .sort((a,b)=>(+b.priority||0)-(+a.priority||0)).slice(0,5);
+  if(!list.length)return mdNone();
+  return list.map(o=>'- **'+o.company+'** (priority '+(o.priority||0)+') — '+(o.angle||o.nextAction||'No angle logged yet.')).join('\n');
+}
+
+/* ---- Current Metrics — identical counts to the Today dashboard's
+   summary row, recomputed the same way so the two never disagree. */
+function mdSectionMetrics(){
+  const active=state.opps.filter(isActive);
+  const pilots=active.filter(o=>/^Pilot/.test(o.stage||'')).length;
+  const proposals=active.filter(o=>o.stage==='Proposal sent').length;
+  const weekStart=iso(mkThisWeekMonday());
+  const weekEndD=mkThisWeekMonday();weekEndD.setDate(weekEndD.getDate()+6);
+  const weekEnd=iso(weekEndD);
+  const meetingMap={};
+  fuAllOpen().filter(f=>f.status==='Meeting Scheduled').forEach(f=>{meetingMap[f.oppId]=meetingMap[f.oppId]||f;});
+  active.filter(o=>o.stage==='Meeting booked').forEach(o=>{if(!meetingMap[o.id])meetingMap[o.id]={dueDate:o.followUp};});
+  const meetingsThisWeek=Object.values(meetingMap).filter(f=>f.dueDate&&f.dueDate>=weekStart&&f.dueDate<=weekEnd).length;
+  return mdTable(['Metric','Value'],[
+    ['Open Opportunities',active.length],
+    ['Active Pilots',pilots],
+    ['Investors',investorEntries().length],
+    ['Proposals',proposals],
+    ['Meetings This Week',meetingsThisWeek],
+    ['Completed Tasks (This Week)',fuCompletedThisWeek()]
+  ]);
+}
+
+/* ---- Next 30 Days — every open follow-up due within the next 30 days,
+   soonest first (same underlying records as the calendar). */
+function mdSectionNext30(){
+  const end=addDays(30);
+  const items=fuAllOpen().filter(f=>f.dueDate&&f.dueDate>=today()&&f.dueDate<=end).sort((a,b)=>a.dueDate.localeCompare(b.dueDate));
+  if(!items.length)return mdNone();
+  return items.map(f=>'- **'+f.company+'** — '+(f.description||'Follow-up')+' (due '+fmtDate(f.dueDate)+')').join('\n');
+}
+
+/* ---- Assembly — add a new section by writing one mdSection* function
+   above and one [heading,fn] entry below. Nothing else needs to change. */
+function buildClaudeSnapshotMarkdown(){
+  const sections=[
+    ['Current Priorities',mdSectionPriorities],
+    ['Active Opportunities',mdSectionOpportunities],
+    ['Current Investors',mdSectionInvestors],
+    ['Current Fundraising',mdSectionFundraising],
+    ['Product',mdSectionProduct],
+    ['Current Pilots',mdSectionPilots],
+    ['Recent Meetings',mdSectionRecentMeetings],
+    ['Upcoming Meetings',mdSectionUpcomingMeetings],
+    ['Recent Decisions',mdSectionDecisions],
+    ['Current Risks',mdSectionRisks],
+    ['Current Opportunities',mdSectionStrategicOpportunities],
+    ['Current Metrics',mdSectionMetrics],
+    ['Next 30 Days',mdSectionNext30]
+  ];
+  let out='# Kweli Brain Snapshot\n\nGenerated:\n'+mdTimestamp(new Date())+'\n\n---\n\n';
+  out+=sections.map(([heading,fn])=>'## '+heading+'\n\n'+fn()).join('\n\n---\n\n');
+  return out;
+}
+
+/* Single-click entry point — wired to the "Export for Claude" button. */
+function exportForClaude(){
+  state.opps.forEach(ensureFollowups); // guarantee follow-up lists exist before reading them, same as render() does
+  const md=buildClaudeSnapshotMarkdown();
+  const blob=new Blob([md],{type:'text/markdown'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='Kweli_Brain_Snapshot.md';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Snapshot downloaded');
+}
 function importData(input){const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.opps&&!d.brain)throw new Error('not a valid backup');if(!confirm(CLOUD?'Upload this backup into the shared cloud? Existing records are kept; this adds the backup\'s records.':'Replace all current data with this backup?'))return;
   if(d.marketing){const m=migrateMk(d.marketing);if(m){mk=m;saveMarketing();}} // Marketing Assistant data restores the same way regardless of cloud/local mode — always local-only for now.
   if(CLOUD){toast('Importing…');uploadDataset(d).then(()=>fetchAll()).then(()=>{render();toast('Backup imported'+(d.assets&&d.assets.length?' — note: asset files must be re-uploaded via Upload Asset, backups don\'t carry files.':'.'));}).catch(e=>toast('Import failed: '+(e.message||e)));}
