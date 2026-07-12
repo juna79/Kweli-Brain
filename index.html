@@ -3282,33 +3282,70 @@ async function seedInsurancePlanBatched(){
   return {created, backfilled:backfillKeyOnly.length, alreadyComplete:false, expected:allRows.length, existing:existingKeys.size};
 }
 
-/* One-time cleanup pass for rows that were already duplicated before this
-   guard existed. Groups every marketing_item (not just this campaign — a
-   generic content-identity problem deserves a generic fix) by
-   title+scheduled_at+item_type, keeps the OLDEST row in each group
-   (by created_at), and deletes the rest. marketing_items has no
-   archived_at column (confirmed against the schema), and it does have a
-   real delete RLS policy (unlike lessons_v2/objections/decisions), so
-   delete — not archive — is the correct and only available mechanism
-   here. Cheap to run every sign-in: after the first real cleanup it's
-   just an in-memory grouping over already-loaded state with nothing left
-   to delete. */
+/* One-time cleanup pass, SCOPED STRICTLY to the automatic insurance
+   campaign — never touches a manually created marketing_item, even if its
+   title/date/type happens to coincidentally match a seeded one. A row is
+   only eligible if it carries either:
+     - a seed_key already starting with the campaign prefix, or
+     - the legacy description tag '[[campaign:insurance-verification-6mo-v2]]'
+       (rows created before seed_key existed).
+   Within a group of eligible duplicates (same title+date+type, all
+   already confirmed in-scope):
+     1. a row that already has a valid campaign seed_key is always kept —
+        deleting it would just force the seeder to recreate it.
+     2. otherwise, prefer a row with real progress: Published status, or
+        edited after creation (updated_at meaningfully later than
+        created_at — a >5s gap rules out the near-simultaneous stamps a
+        single insert produces).
+     3. otherwise, the oldest by created_at.
+   The retained row in every eligible group (duplicate or not) then gets
+   its deterministic seed_key backfilled if it's missing one, computed
+   from the same buildInsurancePlanRows() the seeder itself uses — so a
+   legacy tagged row that was never a duplicate still becomes properly
+   seed_key-recognised, and a real duplicate group collapses to exactly
+   one row with the correct key, before the completeness check ever runs. */
 async function dedupeMarketingItemsOnce(){
+  const campaignPrefix = MARKETING_CAMPAIGN_KEY+'-week-';
+  const campaignTag = '[[campaign:'+MARKETING_CAMPAIGN_KEY+']]';
+  const inScope = (mi) => (mi.seed_key && mi.seed_key.startsWith(campaignPrefix)) || (mi.description||'').includes(campaignTag);
+  const scoped = state.marketing_items.filter(inScope);
+  if(!scoped.length) return {removed:0, backfilled:0};
+
+  const expectedRows = buildInsurancePlanRows();
+  const seedKeyLookup = new Map();
+  expectedRows.forEach(r=>seedKeyLookup.set(r.title+'|'+r.scheduled_at+'|'+r.item_type, r.seed_key));
+
   const groups=new Map();
-  state.marketing_items.forEach(mi=>{
+  scoped.forEach(mi=>{
     const key=mi.title+'|'+(mi.scheduled_at||'')+'|'+mi.item_type;
     if(!groups.has(key)) groups.set(key,[]);
     groups.get(key).push(mi);
   });
-  const toDelete=[];
-  groups.forEach(rows=>{
-    if(rows.length<2) return;
-    rows.sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
-    toDelete.push(...rows.slice(1)); // keep the oldest, mark the rest for removal
+
+  const toDelete=[]; const toBackfill=[];
+  groups.forEach((rows,key)=>{
+    let keep;
+    const alreadyKeyed = rows.find(r=>r.seed_key && r.seed_key.startsWith(campaignPrefix));
+    if(alreadyKeyed){
+      keep = alreadyKeyed;
+    } else {
+      const scored = rows.map(r=>{
+        const edited = r.updated_at && r.created_at && (new Date(r.updated_at)-new Date(r.created_at) > 5000);
+        return {r, score:(r.status==='Published'?2:0)+(edited?1:0)};
+      });
+      scored.sort((a,b)=> b.score-a.score || new Date(a.r.created_at)-new Date(b.r.created_at));
+      keep = scored[0].r;
+    }
+    if(!keep.seed_key){
+      const deterministicKey = seedKeyLookup.get(key);
+      if(deterministicKey) toBackfill.push({id:keep.id, seed_key:deterministicKey});
+    }
+    if(rows.length>1) rows.forEach(r=>{ if(r.id!==keep.id) toDelete.push(r); });
   });
-  if(!toDelete.length) return {removed:0};
+
+  for(const b of toBackfill){ await dbUpdate('marketing_items', b.id, {seed_key:b.seed_key}); }
   for(const row of toDelete){ await dbDelete('marketing_items', row.id); }
-  return {removed:toDelete.length};
+  return {removed:toDelete.length, backfilled:toBackfill.length};
 }
 
 /* Called automatically from onSignedIn(), after loadAll(), before Today
@@ -3319,7 +3356,12 @@ async function dedupeMarketingItemsOnce(){
 async function autoSeedMarketingPlanIfNeeded(){
   try{
     const dedupResult=await dedupeMarketingItemsOnce();
-    if(dedupResult.removed) toast('Removed '+dedupResult.removed+' duplicate marketing item(s)');
+    if(dedupResult.removed || dedupResult.backfilled){
+      const parts=[];
+      if(dedupResult.removed) parts.push(dedupResult.removed+' duplicate(s) removed');
+      if(dedupResult.backfilled) parts.push(dedupResult.backfilled+' seed key(s) backfilled');
+      toast('Marketing plan cleanup: '+parts.join(', '));
+    }
     const existingKeys = await fetchExistingCampaignSeedKeys();
     const expected = expectedSeedKeys();
     const missingCount = expected.filter(k=>!existingKeys.has(k)).length;
