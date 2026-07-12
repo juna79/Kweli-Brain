@@ -1713,7 +1713,7 @@ async function saveMeetingNotes(id){
 --------------------------------------------------------------------------- */
 let calMonth=new Date().getMonth(), calYear=new Date().getFullYear();
 let calFilters={tasks:true, meetings:true, marketing:true, team:true};
-let calHideCompleted=true;
+let calHideCompleted=false;
 const CAL_TYPE_COLOR={tasks:'var(--blue)', meetings:'var(--green)', marketing:'var(--gold)', team:'var(--amber)'};
 
 /* Monday-first month grid, including the leading/trailing days from
@@ -1758,11 +1758,12 @@ function calendarItemsFor(year,month){
 }
 function calMiniItem(it){
   return '<div class="cal-mini'+(it.overdue?' overdue':'')+(it.done?' done':'')+'" style="border-left-color:'+CAL_TYPE_COLOR[it.type]+'" onclick="event.stopPropagation();'+it.onclick+'">'+
+    (it.done?'<span style="color:var(--green);flex:none">\u2713</span>':'')+
     '<span class="cal-mini-text">'+esc(it.label)+'</span></div>';
 }
 function calDayCell(date,viewMonthNum,byDate){
   const iso_=isoDate(date);
-  const dayItems=(byDate[iso_]||[]);
+  const dayItems=[...(byDate[iso_]||[])].sort((a,b)=>(a.done===b.done)?0:(a.done?1:-1)); // incomplete first, completed sink to the bottom — never removed
   const items=dayItems.slice(0,4);
   const overflow=dayItems.length-items.length;
   const isToday=iso_===today();
@@ -1787,7 +1788,7 @@ function renderFullCalendar(){
     '<button class="btn sm" onclick="calToday()">This month</button>'+
     '<div style="display:flex;gap:8px;margin-left:auto;flex-wrap:wrap">'+
       filterChip('tasks','Tasks')+filterChip('meetings','Meetings')+filterChip('marketing','Marketing')+filterChip('team','Team notes')+
-      '<span class="pill" style="cursor:pointer;'+(calHideCompleted?'':'border-color:var(--gold);color:var(--gold)')+'" onclick="calHideCompleted=!calHideCompleted;renderCurrent()">'+(calHideCompleted?'Completed hidden':'Completed shown')+'</span>'+
+      '<span class="pill" style="cursor:pointer" onclick="calHideCompleted=!calHideCompleted;renderCurrent()">'+(calHideCompleted?'\u2610':'\u2611')+' Show completed tasks</span>'+
     '</div></div>';
   const head='<div class="cal-head-row">'+['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d=>'<div class="cal-head-cell">'+d+'</div>').join('')+'</div>';
   const grid='<div class="cal-grid">'+cells.map(d=>calDayCell(d,calMonth,byDate)).join('')+'</div>';
@@ -3159,16 +3160,25 @@ function expandTopicsToTarget(topics, target){
    unique index (06_marketing_seed_key.sql). Building this list is pure,
    deterministic, offline computation; no network call happens here.
 --------------------------------------------------------------------------- */
+/* The very next Monday strictly AFTER today — never today itself, even if
+   today happens to be a Monday. Weekend rollover (Sat/Sun -> Monday) falls
+   out of the same formula. Previously this walked BACKWARD to the current
+   week's Monday when today was Sunday (dow=0 gave -6, landing in the
+   past) — that bug is why a plan seeded on a Sunday could start days
+   before the seed even ran. */
+function firstPlanMonday(from){
+  const d=new Date(from); d.setHours(0,0,0,0);
+  const dow=d.getDay(); // 0=Sun..6=Sat
+  let daysAhead=((1-dow+7)%7);
+  if(daysAhead===0) daysAhead=7; // today IS Monday — never seed onto today, use next week's Monday instead
+  d.setDate(d.getDate()+daysAhead);
+  return d;
+}
 function buildInsurancePlanRows(){
   const rows=[];
-  const startDate=new Date();
   const monArticles = expandTopicsToTarget(CORE_ARTICLE_TOPICS, 26);
   const wedTopics = expandTopicsToTarget(FOUNDER_JOURNEY_TOPICS, 26);
-
-  let cursor = new Date(startDate);
-  const dow = cursor.getDay();
-  const backToMonday = dow===0 ? -6 : 1-dow;
-  cursor.setDate(cursor.getDate()+backToMonday);
+  let cursor = firstPlanMonday(new Date());
 
   for(let week=0; week<26; week++){
     const weekNum = String(week+1).padStart(2,'0');
@@ -3222,23 +3232,46 @@ async function fetchExistingCampaignSeedKeys(){
   return new Set((data||[]).map(r=>r.seed_key));
 }
 
-/* Real database-level duplicate prevention: upsert with onConflict on the
-   unique seed_key column. Even if two devices race to seed at the same
-   moment and both compute the same "missing" list, Postgres's unique
-   index resolves the conflict — the losing request's conflicting rows are
-   simply not re-inserted (ignoreDuplicates: true), never erroring, never
-   duplicating, and never overwriting a row that already has real
-   progress (status/completed_at) on it. */
+/* ---------------------------------------------------------------------------
+   DUPLICATE PREVENTION, TWO LAYERS.
+   Layer 1 (seed_key + unique index + upsert onConflict) already prevents
+   the database from ever storing two rows with the same seed_key, even
+   under a race. Layer 2, here, is a second, independent guard against a
+   different failure mode: rows that exist WITHOUT a matching seed_key at
+   all — e.g. left over from an earlier version of this seeding logic, or
+   any other path that ever created a marketing_item with the same
+   title/date/type. Before treating a computed row as "missing", check
+   real content identity (title + scheduled_at + item_type) against every
+   existing marketing_item, not just seed_key. If a content match is
+   found but its seed_key is missing, backfill it — that both prevents a
+   duplicate insert now and makes that row seed_key-recognised for every
+   future run.
+--------------------------------------------------------------------------- */
 async function seedInsurancePlanBatched(){
   const allRows = buildInsurancePlanRows();
   const existingKeys = await fetchExistingCampaignSeedKeys();
-  const missingRows = allRows.filter(r => !existingKeys.has(r.seed_key));
-  if(!missingRows.length) return {created:0, alreadyComplete:true, expected:allRows.length, existing:existingKeys.size};
+  const contentIndex = new Map(); // "title|date|type" -> existing row
+  state.marketing_items.forEach(mi=>{ contentIndex.set(mi.title+'|'+mi.scheduled_at+'|'+mi.item_type, mi); });
+
+  const trulyMissing=[];
+  const backfillKeyOnly=[];
+  for(const r of allRows){
+    if(existingKeys.has(r.seed_key)) continue; // already correctly seeded
+    const contentMatch = contentIndex.get(r.title+'|'+r.scheduled_at+'|'+r.item_type);
+    if(contentMatch && !contentMatch.seed_key){ backfillKeyOnly.push({id:contentMatch.id, seed_key:r.seed_key}); }
+    else if(!contentMatch){ trulyMissing.push(r); }
+    // else: a content match already carries a seed_key (from a different week/slot coincidentally
+    // matching text) — leave it alone rather than risk overwriting a real, different row.
+  }
+
+  for(const b of backfillKeyOnly){ await dbUpdate('marketing_items', b.id, {seed_key:b.seed_key}); }
+
+  if(!trulyMissing.length) return {created:0, backfilled:backfillKeyOnly.length, alreadyComplete:true, expected:allRows.length, existing:existingKeys.size};
 
   const CHUNK=40;
   let created=0;
-  for(let i=0;i<missingRows.length;i+=CHUNK){
-    const chunk=missingRows.slice(i,i+CHUNK);
+  for(let i=0;i<trulyMissing.length;i+=CHUNK){
+    const chunk=trulyMissing.slice(i,i+CHUNK);
     const {data,error} = await sb.from('marketing_items')
       .upsert(chunk, {onConflict:'seed_key', ignoreDuplicates:true})
       .select();
@@ -3246,7 +3279,36 @@ async function seedInsurancePlanBatched(){
     (data||[]).forEach(row=>{ if(!byId(state.marketing_items,row.id)) state.marketing_items.push(row); });
     created += (data||[]).length;
   }
-  return {created, alreadyComplete:false, expected:allRows.length, existing:existingKeys.size};
+  return {created, backfilled:backfillKeyOnly.length, alreadyComplete:false, expected:allRows.length, existing:existingKeys.size};
+}
+
+/* One-time cleanup pass for rows that were already duplicated before this
+   guard existed. Groups every marketing_item (not just this campaign — a
+   generic content-identity problem deserves a generic fix) by
+   title+scheduled_at+item_type, keeps the OLDEST row in each group
+   (by created_at), and deletes the rest. marketing_items has no
+   archived_at column (confirmed against the schema), and it does have a
+   real delete RLS policy (unlike lessons_v2/objections/decisions), so
+   delete — not archive — is the correct and only available mechanism
+   here. Cheap to run every sign-in: after the first real cleanup it's
+   just an in-memory grouping over already-loaded state with nothing left
+   to delete. */
+async function dedupeMarketingItemsOnce(){
+  const groups=new Map();
+  state.marketing_items.forEach(mi=>{
+    const key=mi.title+'|'+(mi.scheduled_at||'')+'|'+mi.item_type;
+    if(!groups.has(key)) groups.set(key,[]);
+    groups.get(key).push(mi);
+  });
+  const toDelete=[];
+  groups.forEach(rows=>{
+    if(rows.length<2) return;
+    rows.sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    toDelete.push(...rows.slice(1)); // keep the oldest, mark the rest for removal
+  });
+  if(!toDelete.length) return {removed:0};
+  for(const row of toDelete){ await dbDelete('marketing_items', row.id); }
+  return {removed:toDelete.length};
 }
 
 /* Called automatically from onSignedIn(), after loadAll(), before Today
@@ -3256,6 +3318,8 @@ async function seedInsurancePlanBatched(){
    user action, on the very next login from any device. */
 async function autoSeedMarketingPlanIfNeeded(){
   try{
+    const dedupResult=await dedupeMarketingItemsOnce();
+    if(dedupResult.removed) toast('Removed '+dedupResult.removed+' duplicate marketing item(s)');
     const existingKeys = await fetchExistingCampaignSeedKeys();
     const expected = expectedSeedKeys();
     const missingCount = expected.filter(k=>!existingKeys.has(k)).length;
