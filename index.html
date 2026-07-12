@@ -385,7 +385,6 @@ function today(){return new Date().toISOString().slice(0,10);}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function byId(arr,id){return arr.find(x=>x.id===id);}
 function fmtDate(d){if(!d)return '—';return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}
-function fmtDateTime(d){if(!d)return '—';return new Date(d).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});}
 function daysUntil(d){if(!d)return null;const t=new Date(today()),x=new Date(d);return Math.round((x-t)/86400000);}
 function toast(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.getElementById('toastHost').appendChild(el);setTimeout(()=>el.remove(),3200);}
 function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
@@ -550,9 +549,6 @@ function userDisplay(userId){ const u=byId(state.user_profiles,userId); return u
    database is untouched, per "do not modify the schema."
 --------------------------------------------------------------------------- */
 function isFallbackLessonTitle(t){ return !t || /^migrated lesson/i.test(t.trim()); }
-function titleCaseShort(s){
-  return s.split(' ').map(w=>w.length<=3 && !/^[A-Z]/.test(w) ? w : (w.charAt(0).toUpperCase()+w.slice(1))).join(' ');
-}
 function deriveLessonTitle(l){
   if(!isFallbackLessonTitle(l.title)) return l.title;
   const source=(l.summary||l.detail||'').trim();
@@ -892,6 +888,31 @@ function vOrganisations(){
         '</div></div>';
     }).join('')+'</div>':'<div class="empty"><div class="empty-ico">⌂</div>No organisations yet. Add your first one to get started.</div>');
 }
+function orgQuickActionBar(o){
+  return '<div class="quick-actions" style="margin-bottom:18px">'+
+    '<div class="qa-chip" onclick="openPersonForm(\''+o.id+'\')">➕ Add Person</div>'+
+    '<div class="qa-chip" onclick="route.tab=\'timeline\';renderCurrent()">➕ Add Note</div>'+
+    '<div class="qa-chip" onclick="openTaskForm(\''+o.id+'\')">➕ Add Follow-up</div>'+
+    '<div class="qa-chip" onclick="openMeetingForm(\''+o.id+'\')">➕ Add Meeting</div>'+
+    '<div class="qa-chip" onclick="openOppForm(null,\''+o.id+'\')">➕ Add Opportunity</div>'+
+    '<div class="qa-chip" onclick="openLessonForm(null,\''+o.id+'\')">➕ Add Lesson</div>'+
+    '<div class="qa-chip" onclick="openObjectionForm(\''+o.id+'\')">➕ Log Objection</div>'+
+    '<div class="qa-chip" onclick="openDecisionForm(null,\''+o.id+'\')">➕ Add Decision</div>'+
+    '<div class="qa-chip" onclick="document.getElementById(\'assetFileInput2_'+o.id+'\').click()">➕ Upload Asset</div>'+
+    '<input type="file" id="assetFileInput2_'+o.id+'" style="display:none" onchange="uploadAssetForOrg(this.files[0],\''+o.id+'\')">'+
+  '</div>';
+}
+async function uploadAssetForOrg(file,orgId){
+  if(!file) return;
+  await uploadAsset(file);
+  const newest=[...state.assets_v2].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))[0];
+  if(newest){
+    const existing=state.entity_links.find(el=>el.source_type==='asset'&&el.source_id===newest.id&&el.target_type==='organisation');
+    if(!existing) await dbInsert('entity_links',{source_type:'asset',source_id:newest.id,target_type:'organisation',target_id:orgId,relationship_type:'relates_to',is_inferred:false,confidence:1,created_by:myProfile.display_name});
+    else if(existing.target_id!==orgId || existing.is_inferred) await dbUpdate('entity_links',existing.id,{target_id:orgId,is_inferred:false,confidence:1});
+  }
+  route.tab='assets'; renderCurrent();
+}
 function vOrganisationDetail(){
   const o=byId(state.organisations,route.id);
   if(!o) return '<div class="empty">Organisation not found.</div>';
@@ -922,21 +943,25 @@ function vOrganisationDetail(){
     const investorProfile=orgInvestors[0];
     const openObjections=orgObjections.filter(x=>x.status==='Open');
     body=
+      '<div class="card" style="margin-bottom:18px">'+
+        kvEditReal('Name',o.name,'organisations',o.id,'name')+
+      '</div>'+
       '<div class="card" style="margin-bottom:18px"><div class="fl">Executive summary — what they do, why they matter, current blockers, recommended next action</div>'+
         '<textarea class="input" rows="5" style="font-size:13px" placeholder="What do they do? Why do they matter? What is blocking progress? What should happen next?" onblur="saveExecutiveSummary(\''+o.id+'\',this.value)">'+esc(o.current_summary||'')+'</textarea>'+
         '<div class="faint" style="font-size:10.5px;margin-top:4px">Saves automatically when you click away.</div>'+
-        (o.description?'<div class="fl" style="margin-top:14px">Background</div><div style="font-size:12.5px;white-space:pre-wrap;color:var(--muted)">'+esc(o.description)+'</div>':'')+
+        '<div class="fl" style="margin-top:14px">Background</div>'+
+        '<textarea class="input" rows="3" style="font-size:12.5px" placeholder="Company background…" onblur="dbUpdate(\'organisations\',\''+o.id+'\',{description:this.value.trim()||null})">'+esc(o.description||'')+'</textarea>'+
       '</div>'+
 
       '<div class="grid g2" style="margin-bottom:18px"><div class="card">'+
-        kvPill('Type',o.organisation_type,o.id,'organisation_type')+kv('Sector',o.sector||'—')+
+        kvPill('Type',o.organisation_type,o.id,'organisation_type')+kvEditReal('Sector',o.sector,'organisations',o.id,'sector')+
         kvPill('Pipeline stage',o.pipeline_stage,o.id,'pipeline_stage')+
         kvPill('Relationship status',o.relationship_status,o.id,'relationship_status')+
         kvPill('Priority',o.priority||0,o.id,'priority')+
         kv('Last interaction',fmtDate(o.last_interaction_at))+
-        kvRealEditableText('Next action',o.next_action_summary,o.id,'next_action_summary')+
-        kvRealEditableDate('Next action date',o.next_action_date,o.id,'next_action_date')+
-        kv('Website',o.website?('<a href="'+esc(o.website)+'" target="_blank">'+esc(o.website)+'</a>'):'—')+
+        kvEditReal('Next action',o.next_action_summary,'organisations',o.id,'next_action_summary')+
+        kvEditRealDate('Next action date',o.next_action_date,'organisations',o.id,'next_action_date')+
+        kvEditReal('Website',o.website,'organisations',o.id,'website')+
       '</div><div class="card">'+
         kvEditableText('Champion',getOrgMeta(o).champion,o.id,'champion')+
         kvEditableText('Decision maker',getOrgMeta(o).decisionMaker,o.id,'decisionMaker')+
@@ -984,7 +1009,7 @@ function vOrganisationDetail(){
           '<div class="faint" style="font-size:10.5px;margin-top:8px">'+(p.last_interaction_at?'Last contact '+fmtDate(p.last_interaction_at):'No contact logged')+' · '+pMeetingCount+' meeting'+(pMeetingCount===1?'':'s')+'</div>'+
           (pNextTask?'<div class="faint" style="font-size:10.5px;margin-top:3px">Next: '+esc(pNextTask.title).slice(0,40)+'</div>':'')+
         '</div></div>';
-    }).join('')+'</div><button class="btn sm" style="margin-top:12px" onclick="openPersonForm(null,\''+o.id+'\')">+ New person</button>':'<div class="empty">No linked people.</div><button class="btn sm" onclick="openPersonForm(null,\''+o.id+'\')">+ New person</button>';
+    }).join('')+'</div><button class="btn sm" style="margin-top:12px" onclick="openPersonForm(\''+o.id+'\')">+ New person</button>':'<div class="empty">No linked people.</div><button class="btn sm" onclick="openPersonForm(\''+o.id+'\')">+ New person</button>';
   } else if(tab==='timeline'){
     body='<div style="display:flex;gap:8px;margin-bottom:12px">'+
         '<input class="input" id="orgQuickLog_'+o.id+'" placeholder="Log an interaction…" onkeydown="if(event.key===\'Enter\')quickLogOrgActivity(\''+o.id+'\')" style="flex:1">'+
@@ -1003,7 +1028,7 @@ function vOrganisationDetail(){
   } else if(tab==='decisions'){
     body=orgDecisions.length?orgDecisions.map(d=>'<div class="row-item" onclick="openDecisionForm(\''+d.id+'\')"><div class="row-main"><div class="row-title">'+esc(d.title)+'</div><div class="row-meta">'+esc(d.decision||'').slice(0,140)+'</div></div></div>').join('')+'<button class="btn sm" onclick="openDecisionForm(null,\''+o.id+'\')">+ New decision</button>':'<div class="empty">No linked decisions.</div><button class="btn sm" onclick="openDecisionForm(null,\''+o.id+'\')">+ New decision</button>';
   } else if(tab==='investors'){
-    body=orgInvestors.length?orgInvestors.map(iv=>'<div class="card" style="margin-bottom:10px">'+
+    body=orgInvestors.length?orgInvestors.map(iv=>'<div class="card" style="margin-bottom:10px;cursor:pointer" onclick="openInvestorForm(\''+iv.id+'\')">'+
       kv('Stage',iv.stage||'—')+kv('Type',iv.investor_type||'—')+kv('Thesis',iv.thesis||'—')+kv('Notes',iv.notes||'—')+
       kv('Next action',iv.next_action_summary||'—')+kv('Next action date',fmtDate(iv.next_action_date))+
     '</div>').join('') : ('<div class="empty">No investor profile for this organisation yet.</div>'+
@@ -1019,8 +1044,8 @@ function vOrganisationDetail(){
       getOrgMeta(o).tags.map(t=>'<span class="pill">'+esc(t)+'</span>').join('')+
       '<span class="pill pill-editable" onclick="openTagPopover(event,\''+o.id+'\')">+ tags</span>'+
     '</div>'+
-    '<div class="page-sub">'+esc(o.next_action_summary||'No next action set')+(o.next_action_date?' · due '+fmtDate(o.next_action_date):'')+'</div></div>'+
-    '<button class="btn" onclick="openOrgForm(\''+o.id+'\')">Edit</button></div>'+
+    '<div class="page-sub">'+esc(o.next_action_summary||'No next action set')+(o.next_action_date?' · due '+fmtDate(o.next_action_date):'')+'</div></div></div>'+
+    orgQuickActionBar(o)+
     '<div class="tabs">'+tabs.map(([id,label])=>'<div class="tab'+(tab===id?' active':'')+'" onclick="route.tab=\''+id+'\';renderCurrent()">'+label+'</div>').join('')+'</div>'+
     body;
 }
@@ -1098,37 +1123,61 @@ function kvEditableText(label,value,orgId,key){
 /* Same click-to-edit interaction as kvEditableText, but for real
    organisations columns (dbUpdate directly) rather than the packed
    current_status metadata block. */
-function kvRealEditableText(label,value,orgId,column){
-  return '<div class="kv"><span class="k">'+label+'</span><span class="v"><span class="pill-editable" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="startRealInlineEdit(this,\''+orgId+'\',\''+column+'\')">'+esc(value||'Click to add')+'</span></span></div>';
+/* ---------------------------------------------------------------------------
+   GENERALIZED INLINE EDITING — one pair of helpers for any table/column,
+   used across both Person and Organisation Overview so every attribute is
+   editable in place. Replaces the earlier org-only and
+   next-action-only-on-person versions (kvRealEditableText /
+   kvRealEditableTextPerson / startRealInlineEdit / startRealInlineEditPerson)
+   which only covered a handful of fields — this is the one mechanism now.
+--------------------------------------------------------------------------- */
+function kvEditReal(label,value,table,id,column,kind){
+  kind=kind||'text';
+  return '<div class="kv"><span class="k">'+label+'</span><span class="v"><span class="pill-editable" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="startRealEdit(this,\''+table+'\',\''+id+'\',\''+column+'\',\''+kind+'\')">'+esc(value||'Click to add')+'</span></span></div>';
 }
-function startRealInlineEdit(el,orgId,column){
+function startRealEdit(el,table,id,column,kind){
   const holder=document.createElement('span');
-  holder.innerHTML='<input class="input" style="display:inline-block;width:220px;padding:4px 8px;font-size:12.5px">';
+  if(kind==='textarea') holder.innerHTML='<textarea class="input" rows="2" style="display:block;width:260px;padding:4px 8px;font-size:12.5px"></textarea>';
+  else holder.innerHTML='<input class="input" type="text" style="display:inline-block;width:220px;padding:4px 8px;font-size:12.5px">';
   const input=holder.firstChild;
   input.value = el.textContent==='Click to add' ? '' : el.textContent;
   el.replaceWith(input);
   input.focus();
-  input.onblur=async()=>{ await dbUpdate('organisations',orgId,{[column]: input.value.trim()||null}); renderCurrent(); };
-  input.onkeydown=(e)=>{ if(e.key==='Enter') input.blur(); };
+  input.onblur=async()=>{
+    let value = input.value.trim()||null;
+    if(kind==='array') value = value ? value.split(',').map(s=>s.trim()).filter(Boolean) : null;
+    if((column==='full_name'||column==='name') && !value){ toast((column==='name'?'Organisation name':'Full name')+' can\u2019t be empty'); renderCurrent(); return; }
+    await dbUpdate(table,id,{[column]: value});
+    renderCurrent();
+  };
+  input.onkeydown=(e)=>{ if(e.key==='Enter' && kind!=='textarea') input.blur(); };
 }
-function kvRealEditableDate(label,value,orgId,column){
+function kvEditRealDate(label,value,table,id,column){
   return '<div class="kv"><span class="k">'+label+'</span><span class="v">'+
     '<input type="date" class="input" style="display:inline-block;width:150px;padding:4px 8px;font-size:12.5px" value="'+(value||'')+'" '+
-    'onchange="dbUpdate(\'organisations\',\''+orgId+'\',{'+column+':this.value||null}).then(renderCurrent)"></span></div>';
+    'onchange="dbUpdate(\''+table+'\',\''+id+'\',{'+column+':this.value||null}).then(renderCurrent)"></span></div>';
 }
-function kvRealEditableTextPerson(label,value,personId){
-  return '<div class="kv"><span class="k">'+label+'</span><span class="v"><span class="pill-editable" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="startRealInlineEditPerson(this,\''+personId+'\')">'+esc(value||'Click to add')+'</span></span></div>';
+/* Select-variant, for id-valued fields like a person's organisation —
+   reuses the pill popover mechanism but with an id/label option list
+   instead of fixed strings. */
+function kvEditRealSelect(label,value,table,id,column,options){
+  return '<div class="kv"><span class="k">'+label+'</span><span class="v"><span class="pill pill-editable" onclick="openIdPickerPopover(event,\''+table+'\',\''+id+'\',\''+column+'\')">'+esc(value||'Click to set')+'</span></span></div>';
 }
-function startRealInlineEditPerson(el,personId){
-  const holder=document.createElement('span');
-  holder.innerHTML='<input class="input" style="display:inline-block;width:220px;padding:4px 8px;font-size:12.5px">';
-  const input=holder.firstChild;
-  input.value = el.textContent==='Click to add' ? '' : el.textContent;
-  el.replaceWith(input);
-  input.focus();
-  input.onblur=async()=>{ await dbUpdate('people',personId,{next_action_summary: input.value.trim()||null}); renderCurrent(); };
-  input.onkeydown=(e)=>{ if(e.key==='Enter') input.blur(); };
+function openIdPickerPopover(event,table,id,column){
+  event.stopPropagation();
+  closePillPopover();
+  const options = column==='primary_organisation_id' ? state.organisations.map(o=>({id:o.id,label:o.name})) : [];
+  const rect = event.currentTarget.getBoundingClientRect();
+  const pop = document.createElement('div');
+  pop.id='pillPopover';
+  pop.style.cssText='position:fixed;top:'+(rect.bottom+4)+'px;left:'+rect.left+'px;background:var(--panel2);'+
+    'border:1px solid var(--line-s);border-radius:10px;padding:4px;z-index:150;box-shadow:0 12px 30px rgba(0,0,0,.5);min-width:180px;max-height:260px;overflow-y:auto';
+  pop.innerHTML = options.map(opt=>'<div style="padding:7px 10px;font-size:12.5px;border-radius:7px;cursor:pointer" '+
+    'onmouseover="this.style.background=\'var(--raise)\'" onmouseout="this.style.background=\'\'" '+
+    'onclick="dbUpdate(\''+table+'\',\''+id+'\',{'+column+':\''+opt.id+'\'}).then(()=>{closePillPopover();renderCurrent()})">'+esc(opt.label)+'</div>').join('');
+  document.body.appendChild(pop);
 }
+
 
 
 async function saveExecutiveSummary(orgId,value){
@@ -1145,33 +1194,33 @@ async function quickLogOrgActivity(orgId){
   input.value='';
   renderCurrent(); toast('Logged');
 }
-function openOrgForm(id){
-  const o=id?byId(state.organisations,id):null;
-  openModal('<h3>'+(o?'Edit organisation':'New organisation')+'</h3>'+
-    '<div class="field"><label class="fl">Name</label><input class="input" id="f_name" value="'+esc(o?o.name:'')+'"></div>'+
+/* Create-only. There is deliberately no edit path here anymore — every
+   field this used to edit (name, type, sector, next action, next action
+   date) is now inline-editable directly on the Organisation Detail
+   Overview tab, which is the single place to manage an existing
+   organisation. This also removes a real data-corruption risk: the old
+   "Current status" field here wrote to organisations.current_status,
+   which is now the packed store for relationship tags/champion/decision
+   maker — an old-style edit here would have silently overwritten that
+   structured data with free text. */
+function openOrgForm(){
+  openModal('<h3>New organisation</h3>'+
+    '<div class="field"><label class="fl">Name</label><input class="input" id="f_name"></div>'+
     '<div class="field"><label class="fl">Type</label><select class="select" id="f_type">'+
-      ['Prospect','Customer','Investor','Partner','Supplier','Regulator','Advisor organisation','Internal','Other'].map(t=>'<option'+(o&&o.organisation_type===t?' selected':'')+'>'+t+'</option>').join('')+'</select></div>'+
-    '<div class="field"><label class="fl">Sector</label><input class="input" id="f_sector" value="'+esc(o?o.sector:'')+'"></div>'+
-    '<div class="field"><label class="fl">Current status</label><textarea class="input" id="f_status" rows="2">'+esc(o?o.current_status:'')+'</textarea></div>'+
-    '<div class="field"><label class="fl">Next action</label><input class="input" id="f_next" value="'+esc(o?o.next_action_summary:'')+'"></div>'+
-    '<div class="field"><label class="fl">Next action date</label><input class="input" type="date" id="f_nextdate" value="'+(o?(o.next_action_date||''):'')+'"></div>'+
-    '<button class="btn gold" onclick="saveOrgForm(\''+(o?o.id:'')+'\')">Save</button>');
+      ['Prospect','Customer','Investor','Partner','Supplier','Regulator','Advisor organisation','Internal','Other'].map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
+    '<div class="faint" style="font-size:11px;margin-bottom:10px">Everything else — sector, next action, tags, summary — can be added right on the organisation\u2019s page after it\u2019s created.</div>'+
+    '<button class="btn gold" onclick="saveOrgForm()">Create</button>');
 }
-async function saveOrgForm(id){
+async function saveOrgForm(){
+  const name=document.getElementById('f_name').value.trim();
+  if(!name){toast('Name is required');return;}
   const payload={
-    name: document.getElementById('f_name').value.trim(),
-    organisation_type: document.getElementById('f_type').value,
-    sector: document.getElementById('f_sector').value.trim()||null,
-    current_status: document.getElementById('f_status').value.trim()||null,
-    next_action_summary: document.getElementById('f_next').value.trim()||null,
-    next_action_date: document.getElementById('f_nextdate').value||null,
-    updated_by: myProfile.display_name
+    name, organisation_type: document.getElementById('f_type').value,
+    created_by: myProfile.display_name, updated_by: myProfile.display_name,
+    canonical_name: name.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
   };
-  if(!payload.name){toast('Name is required');return;}
-  if(id){ await dbUpdate('organisations',id,payload); }
-  else { payload.created_by=myProfile.display_name; payload.canonical_name=payload.name.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); const created=await dbInsert('organisations',payload); id=created.id; }
-  closeModal(); renderCurrent();
-  go('organisationDetail', id);
+  const created=await dbInsert('organisations',payload);
+  closeModal(); go('organisationDetail', created.id);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1232,6 +1281,17 @@ function vPeople(){
     '<button class="btn gold" onclick="openPersonForm()">+ Add person</button></div>'+
     toolbar+cards;
 }
+function personQuickActionBar(p){
+  const oid=p.primary_organisation_id||'';
+  return '<div class="quick-actions" style="margin-bottom:18px">'+
+    '<div class="qa-chip" onclick="document.getElementById(\'quickLog_\'+'+"'"+p.id+"'"+').focus();route.tab=\'notes\';renderCurrent()">➕ Add Note</div>'+
+    '<div class="qa-chip" onclick="openTaskForm(\''+oid+'\',\''+p.id+'\')">➕ Add Follow-up</div>'+
+    '<div class="qa-chip" onclick="openMeetingForm(\''+oid+'\')">➕ Add Meeting</div>'+
+    '<div class="qa-chip" onclick="openLessonForm(null,null,\''+p.id+'\')">➕ Add Lesson</div>'+
+    '<div class="qa-chip" onclick="openObjectionForm(\''+oid+'\',null,\''+p.id+'\')">➕ Log Objection</div>'+
+    '<div class="qa-chip" onclick="openDecisionForm(null,\''+oid+'\',\''+p.id+'\')">➕ Add Decision</div>'+
+  '</div>';
+}
 function vPersonDetail(){
   const p=byId(state.people,route.id);
   if(!p) return '<div class="empty">Person not found.</div>';
@@ -1245,51 +1305,76 @@ function vPersonDetail(){
   const pDecisions=state.decisions.filter(d=>!d.archived_at && state.entity_links.some(el=>el.source_type==='decision'&&el.source_id===d.id&&el.target_type==='person'&&el.target_id===p.id));
   const pLessons=state.lessons_v2.filter(l=>!l.archived_at && state.entity_links.some(el=>el.source_type==='lesson'&&el.source_id===l.id&&el.target_type==='person'&&el.target_id===p.id));
   const currentOpp=p.primary_organisation_id?state.opportunities.find(o=>o.organisation_id===p.primary_organisation_id&&o.status==='Active'):null;
+  const openTasks=pTasks.filter(t=>!['Completed','Cancelled','Closed / Lost'].includes(t.status));
 
-  return '<div class="page-head"><div><div class="eyebrow">'+esc(p.primary_organisation_id?orgName(p.primary_organisation_id):'Person')+'</div>'+
-    '<div class="page-title">'+esc(p.full_name)+'</div><div class="page-sub">'+esc(p.role||'')+(p.warmth?' · '+esc(p.warmth):'')+'</div></div>'+
-    '<button class="btn" onclick="openPersonForm(\''+p.id+'\')">Edit details</button></div>'+
+  const tab=route.tab||'overview';
+  const tabs=[['overview','Overview'],['notes','Notes ('+acts.length+')'],['tasks','Follow-ups ('+openTasks.length+')'],
+    ['meetings','Meetings ('+pMeetings.length+')'],['lessons','Lessons ('+pLessons.length+')'],
+    ['objections','Objections ('+pObjections.length+')'],['decisions','Decisions ('+pDecisions.length+')']];
 
+  let body='';
+  if(tab==='overview'){
+    body='<div class="card" style="margin-bottom:16px">'+
+      kvEditReal('Full name',p.full_name,'people',p.id,'full_name')+
+      kvEditReal('Role',p.role,'people',p.id,'role')+
+      kvEditRealSelect('Organisation',p.primary_organisation_id?orgName(p.primary_organisation_id):null,'people',p.id,'primary_organisation_id')+
+      kvEditReal('Email',p.email,'people',p.id,'email')+
+      kvEditReal('LinkedIn',p.linkedin,'people',p.id,'linkedin')+
+    '</div>'+
     '<div class="card" style="margin-bottom:16px"><div class="fl">Relationship summary — who they are, why they matter, communication style, strategic value</div>'+
-    '<textarea class="input" id="personSummary_'+p.id+'" rows="5" style="font-size:13px" placeholder="Who are they? Why do they matter? How do they communicate? What is their strategic value to Kweli?" onblur="savePersonSummary(\''+p.id+'\',this.value)">'+esc(p.notes||'')+'</textarea>'+
-    '<div class="faint" style="font-size:10.5px;margin-top:4px">Saves automatically when you click away.</div></div>'+
-
-    '<div class="grid g2" style="margin-bottom:16px"><div class="card">'+
-      kv('Organisation', p.primary_organisation_id?('<a href="#" onclick="go(\'organisationDetail\',\''+p.primary_organisation_id+'\');return false;">'+esc(orgName(p.primary_organisation_id))+'</a>'):'—')+
-      kv('Current opportunity', currentOpp?('<a href="#" onclick="go(\'opportunityDetail\',\''+currentOpp.id+'\');return false;">'+esc(currentOpp.title)+'</a> · '+esc(currentOpp.stage)):'—')+
-      kv('Email',p.email||'—')+kv('LinkedIn',p.linkedin||'—')+kv('Relationship',p.relationship_description||p.relationship_to_kweli||'—')+
-      kvPill('Warmth',p.warmth,p.id,'warmth')+
-      kv('Introduced by',p.introduced_by_text||'—')+
-      (pInvestor.length?kv('Investor relationship',pInvestor.map(iv=>esc(iv.stage||'Investor')).join(', ')):'')+
-    '</div><div class="card">'+
-      kv('Expertise',(p.expertise&&p.expertise.length)?p.expertise.join(', '):'—')+
-      kv('Why they matter',p.why_they_matter||'—')+
-      kv('Last interaction',fmtDate(p.last_interaction_at))+
-      kvRealEditableTextPerson('Next action',p.next_action_summary,p.id)+
-    '</div></div>'+
-
-    '<div class="sec"><div class="sec-h"><h2>Timeline</h2><span class="count">'+acts.length+'</span></div>'+
-      '<div style="display:flex;gap:8px;margin-bottom:12px">'+
+      '<textarea class="input" id="personSummary_'+p.id+'" rows="5" style="font-size:13px" placeholder="Who are they? Why do they matter? How do they communicate? What is their strategic value to Kweli?" onblur="savePersonSummary(\''+p.id+'\',this.value)">'+esc(p.notes||'')+'</textarea>'+
+      '<div class="faint" style="font-size:10.5px;margin-top:4px">Saves automatically when you click away.</div></div>'+
+      '<div class="grid g2" style="margin-bottom:16px"><div class="card">'+
+        kv('Current opportunity', currentOpp?('<a href="#" onclick="go(\'opportunityDetail\',\''+currentOpp.id+'\');return false;">'+esc(currentOpp.title)+'</a> · '+esc(currentOpp.stage)):'—')+
+        kvEditReal('Relationship',p.relationship_description||p.relationship_to_kweli,'people',p.id,'relationship_description')+
+        kvPill('Warmth',p.warmth,p.id,'warmth')+
+        kvEditReal('Introduced by',p.introduced_by_text,'people',p.id,'introduced_by_text')+
+        (pInvestor.length?kv('Investor relationship',pInvestor.map(iv=>esc(iv.stage||'Investor')).join(', ')):'')+
+      '</div><div class="card">'+
+        kvEditReal('Expertise',(p.expertise&&p.expertise.length)?p.expertise.join(', '):null,'people',p.id,'expertise','array')+
+        kvEditReal('Why they matter',p.why_they_matter,'people',p.id,'why_they_matter','textarea')+
+        kv('Last interaction',fmtDate(p.last_interaction_at))+
+        kvEditReal('Next action',p.next_action_summary,'people',p.id,'next_action_summary')+
+      '</div></div>'+
+      '<div class="sec-h"><h2>At a glance</h2></div>'+
+      '<div class="grid g-auto" style="margin-bottom:8px">'+
+        stat(openTasks.length,'Open follow-ups')+stat(pMeetings.length,'Meetings')+stat(pLessons.length,'Lessons')+
+        stat(pObjections.length,'Objections')+stat(pDecisions.length,'Decisions influenced')+
+        (currentOpp?stat(1,'Active opportunity'):stat(0,'Active opportunities'))+
+      '</div>'+
+      (pMeetings[0]?'<div class="dsec"><div class="dsec-h"><h2>Latest meeting</h2></div><div class="dlist">'+
+        '<div class="drow" onclick="go(\'meetingDetail\',\''+pMeetings[0].id+'\')"><div class="drow-main"><div class="drow-title">'+esc(pMeetings[0].title)+'</div></div><div class="drow-right">'+fmtDate(pMeetings[0].scheduled_at)+'</div></div></div></div>':'')+
+      (pLessons[0]?'<div class="dsec"><div class="dsec-h"><h2>Latest lesson</h2></div><div class="dlist">'+
+        '<div class="drow" onclick="openLessonForm(\''+pLessons[0].id+'\')"><div class="drow-main"><div class="drow-title">'+esc(deriveLessonTitle(pLessons[0]))+'</div></div></div></div></div>':'')+
+      (pObjections[0]?'<div class="dsec"><div class="dsec-h"><h2>Latest objection</h2></div><div class="dlist">'+
+        '<div class="drow" onclick="openObjectionForm(\''+(pObjections[0].organisation_id||'')+'\',\''+pObjections[0].id+'\')"><div class="drow-main"><div class="drow-title">'+esc((pObjections[0].objection||'').slice(0,140))+'</div></div></div></div></div>':'');
+  } else if(tab==='notes'){
+    body='<div style="display:flex;gap:8px;margin-bottom:12px">'+
         '<input class="input" id="quickLog_'+p.id+'" placeholder="Log an interaction…" onkeydown="if(event.key===\'Enter\')quickLogPersonActivity(\''+p.id+'\')" style="flex:1">'+
         '<button class="btn sm" onclick="quickLogPersonActivity(\''+p.id+'\')">Log</button></div>'+
-      (acts.length?acts.map(timelineRow).join(''):'<div class="empty">No activity yet.</div>')+'</div>'+
+      (acts.length?acts.map(timelineRow).join(''):'<div class="empty">No activity yet. Notes here are chronological — the Overview\u2019s Relationship Summary is a single evolving summary, this is the timeline.</div>');
+  } else if(tab==='tasks'){
+    body=pTasks.length?pTasks.map(t=>'<div class="row-item" onclick="openTaskModal(\''+t.id+'\')"><div class="row-main"><div class="row-title">'+esc(t.title)+'</div><div class="row-meta">'+(t.due_at?'Due '+fmtDate(t.due_at):'')+'</div></div><div class="row-right">'+t.status+'</div></div>').join(''):'<div class="empty">No follow-ups yet.</div>';
+    body+='<button class="btn sm" style="margin-top:8px" onclick="openTaskForm(\''+(p.primary_organisation_id||'')+'\',\''+p.id+'\')">+ Add follow-up</button>';
+  } else if(tab==='meetings'){
+    body=pMeetings.length?pMeetings.map(m=>'<div class="row-item" onclick="go(\'meetingDetail\',\''+m.id+'\')"><div class="row-main"><div class="row-title">'+esc(m.title)+'</div>'+(m.outcomes?'<div class="row-meta" style="white-space:normal">'+esc(m.outcomes.slice(0,140))+'</div>':'')+'</div><div class="row-right">'+fmtDate(m.scheduled_at)+'</div></div>').join(''):'<div class="empty">No meetings yet.</div>';
+    body+='<button class="btn sm" style="margin-top:8px" onclick="openMeetingForm(\''+(p.primary_organisation_id||'')+'\')">+ Add meeting</button>';
+  } else if(tab==='lessons'){
+    body=pLessons.length?pLessons.map(l=>'<div class="row-item" onclick="openLessonForm(\''+l.id+'\')"><div class="row-main"><div class="row-title">'+esc(deriveLessonTitle(l))+'</div></div></div>').join(''):'<div class="empty">No lessons linked yet.</div>';
+    body+='<button class="btn sm" style="margin-top:8px" onclick="openLessonForm(null,null,\''+p.id+'\')">+ Add lesson</button>';
+  } else if(tab==='objections'){
+    body=pObjections.length?pObjections.map(x=>'<div class="row-item" onclick="openObjectionForm(\''+(x.organisation_id||'')+'\',\''+x.id+'\')"><div class="row-main"><div class="row-title">'+esc((x.objection||'').slice(0,160))+'</div></div><div class="row-right">'+x.status+'</div></div>').join(''):'<div class="empty">No objections logged for this person.</div>';
+    body+='<button class="btn sm" style="margin-top:8px" onclick="openObjectionForm(\''+(p.primary_organisation_id||'')+'\',null,\''+p.id+'\')">+ Log objection</button>';
+  } else if(tab==='decisions'){
+    body=pDecisions.length?pDecisions.map(d=>'<div class="row-item" onclick="openDecisionForm(\''+d.id+'\')"><div class="row-main"><div class="row-title">'+esc(d.title)+'</div><div class="row-meta" style="white-space:normal">'+esc((d.decision||'').slice(0,160))+'</div></div></div>').join(''):'<div class="empty">No decisions linked to this person yet.</div>';
+    body+='<button class="btn sm" style="margin-top:8px" onclick="openDecisionForm(null,\''+(p.primary_organisation_id||'')+'\',\''+p.id+'\')">+ Add decision</button>';
+  }
 
-    '<div class="sec"><div class="sec-h"><h2>Meetings</h2><span class="count">'+pMeetings.length+'</span></div>'+
-      (pMeetings.length?pMeetings.map(m=>'<div class="row-item" onclick="go(\'meetingDetail\',\''+m.id+'\')"><div class="row-main"><div class="row-title">'+esc(m.title)+'</div>'+(m.outcomes?'<div class="row-meta" style="white-space:normal">'+esc(m.outcomes.slice(0,140))+'</div>':'')+'</div><div class="row-right">'+fmtDate(m.scheduled_at)+'</div></div>').join(''):'<div class="empty">No meetings yet.</div>')+'</div>'+
-
-    '<div class="sec"><div class="sec-h"><h2>Tasks</h2><span class="count">'+pTasks.length+'</span></div>'+
-      (pTasks.length?pTasks.map(t=>'<div class="row-item" onclick="openTaskModal(\''+t.id+'\')"><div class="row-main"><div class="row-title">'+esc(t.title)+'</div></div><div class="row-right">'+t.status+'</div></div>').join(''):'<div class="empty">No tasks yet.</div>')+'</div>'+
-
-    '<div class="sec"><div class="sec-h"><h2>Lessons</h2><span class="count">'+pLessons.length+'</span></div>'+
-      (pLessons.length?pLessons.map(l=>'<div class="row-item" onclick="openLessonForm(\''+l.id+'\')"><div class="row-main"><div class="row-title">'+esc(deriveLessonTitle(l))+'</div></div></div>').join(''):'<div class="empty">No lessons linked yet.</div>')+
-      '<button class="btn sm" style="margin-top:8px" onclick="openLessonForm(null,null,\''+p.id+'\')">+ Add lesson</button></div>'+
-
-    '<div class="sec"><div class="sec-h"><h2>Objections raised</h2><span class="count">'+pObjections.length+'</span></div>'+
-      (pObjections.length?pObjections.map(x=>'<div class="row-item" onclick="openObjectionForm(\''+(x.organisation_id||'')+'\',\''+x.id+'\')"><div class="row-main"><div class="row-title">'+esc((x.objection||'').slice(0,160))+'</div></div><div class="row-right">'+x.status+'</div></div>').join(''):'<div class="empty">No objections logged for this person.</div>')+
-      '<button class="btn sm" style="margin-top:8px" onclick="openObjectionForm(\''+(p.primary_organisation_id||'')+'\',null,\''+p.id+'\')">+ Log objection</button></div>'+
-
-    '<div class="sec"><div class="sec-h"><h2>Decisions influenced</h2><span class="count">'+pDecisions.length+'</span></div>'+
-      (pDecisions.length?pDecisions.map(d=>'<div class="row-item" onclick="openDecisionForm(\''+d.id+'\')"><div class="row-main"><div class="row-title">'+esc(d.title)+'</div><div class="row-meta" style="white-space:normal">'+esc((d.decision||'').slice(0,160))+'</div></div></div>').join(''):'<div class="empty">No decisions linked to this person yet.</div>')+'</div>';
+  return '<div class="page-head"><div><div class="eyebrow">'+esc(p.primary_organisation_id?orgName(p.primary_organisation_id):'Person')+'</div>'+
+    '<div class="page-title">'+esc(p.full_name)+'</div><div class="page-sub">'+esc(p.role||'')+(p.warmth?' · '+esc(p.warmth):'')+'</div></div></div>'+
+    personQuickActionBar(p)+
+    '<div class="tabs">'+tabs.map(([id,label])=>'<div class="tab'+(tab===id?' active':'')+'" onclick="route.tab=\''+id+'\';renderCurrent()">'+label+'</div>').join('')+'</div>'+
+    body;
 }
 async function savePersonSummary(id,value){
   const p=byId(state.people,id);
@@ -1307,40 +1392,36 @@ async function quickLogPersonActivity(id){
   input.value='';
   renderCurrent(); toast('Logged');
 }
-function openPersonForm(id,orgId){
-  const p=id?byId(state.people,id):null;
-  const orgOpts='<option value="">—</option>'+state.organisations.map(o=>'<option value="'+o.id+'"'+((p?p.primary_organisation_id:orgId)===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('');
-  openModal('<h3>'+(p?'Edit person':'New person')+'</h3>'+
-    '<div class="field"><label class="fl">Full name</label><input class="input" id="f_pname" value="'+esc(p?p.full_name:'')+'"></div>'+
+/* Create-only, same reasoning as openOrgForm — every field this used to
+   edit is now inline-editable on the Person Detail Overview tab. Email and
+   LinkedIn are kept here (not just inline-only) because they're what the
+   duplicate-detection check below actually needs at creation time. */
+function openPersonForm(orgId){
+  const orgOpts='<option value="">—</option>'+state.organisations.map(o=>'<option value="'+o.id+'"'+(orgId===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('');
+  openModal('<h3>New person</h3>'+
+    '<div class="field"><label class="fl">Full name</label><input class="input" id="f_pname"></div>'+
     '<div class="field"><label class="fl">Organisation</label><select class="select" id="f_porg">'+orgOpts+'</select></div>'+
-    '<div class="field"><label class="fl">Role</label><input class="input" id="f_prole" value="'+esc(p?p.role:'')+'"></div>'+
-    '<div class="field"><label class="fl">Email</label><input class="input" id="f_pemail" value="'+esc(p?p.email:'')+'"></div>'+
-    '<div class="field"><label class="fl">LinkedIn</label><input class="input" id="f_plinkedin" value="'+esc(p?p.linkedin:'')+'"></div>'+
-    '<div class="field"><label class="fl">Notes</label><textarea class="input" id="f_pnotes" rows="3">'+esc(p?p.notes:'')+'</textarea></div>'+
-    '<button class="btn gold" onclick="savePersonForm(\''+(p?p.id:'')+'\')">Save</button>');
+    '<div class="field"><label class="fl">Email</label><input class="input" id="f_pemail"></div>'+
+    '<div class="field"><label class="fl">LinkedIn</label><input class="input" id="f_plinkedin"></div>'+
+    '<div class="faint" style="font-size:11px;margin-bottom:10px">Role, warmth, notes and everything else can be added right on their page after creation.</div>'+
+    '<button class="btn gold" onclick="savePersonForm()">Create</button>');
 }
-async function savePersonForm(id){
+async function savePersonForm(){
   const email=document.getElementById('f_pemail').value.trim();
   const linkedin=document.getElementById('f_plinkedin').value.trim();
-  if(!id){
-    const dupe=state.people.find(x=>(email && x.email && x.email.toLowerCase()===email.toLowerCase()) ||
-                                     (linkedin && x.linkedin && x.linkedin.replace(/\/$/,'').toLowerCase()===linkedin.replace(/\/$/,'').toLowerCase()));
-    if(dupe && !confirm('This looks like it might be the same person as "'+dupe.full_name+'" (matching email/LinkedIn). Create a new record anyway?')) {
-      closeModal(); go('personDetail', dupe.id); return;
-    }
+  const dupe=state.people.find(x=>(email && x.email && x.email.toLowerCase()===email.toLowerCase()) ||
+                                   (linkedin && x.linkedin && x.linkedin.replace(/\/$/,'').toLowerCase()===linkedin.replace(/\/$/,'').toLowerCase()));
+  if(dupe && !confirm('This looks like it might be the same person as "'+dupe.full_name+'" (matching email/LinkedIn). Create a new record anyway?')) {
+    closeModal(); go('personDetail', dupe.id); return;
   }
+  const full_name=document.getElementById('f_pname').value.trim();
+  if(!full_name){toast('Name is required');return;}
   const payload={
-    full_name: document.getElementById('f_pname').value.trim(),
-    primary_organisation_id: document.getElementById('f_porg').value||null,
-    role: document.getElementById('f_prole').value.trim()||null,
-    email: email||null, linkedin: linkedin||null,
-    notes: document.getElementById('f_pnotes').value.trim()||null,
-    updated_by: myProfile.display_name
+    full_name, primary_organisation_id: document.getElementById('f_porg').value||null,
+    email: email||null, linkedin: linkedin||null, created_by: myProfile.display_name
   };
-  if(!payload.full_name){toast('Name is required');return;}
-  if(id){ await dbUpdate('people',id,payload); }
-  else { payload.created_by=myProfile.display_name; const created=await dbInsert('people',payload); id=created.id; }
-  closeModal(); go('personDetail', id);
+  const created=await dbInsert('people',payload);
+  closeModal(); go('personDetail', created.id);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1356,6 +1437,15 @@ function vOpportunities(){
       '<div class="muted" style="font-size:12px;margin-top:3px">'+esc(orgName(op.organisation_id))+'</div>'+
       '<div class="faint" style="font-size:11px;margin-top:8px">'+esc(op.next_action_summary||'')+'</div></div>').join('')+'</div>';
 }
+/* Opportunities are permitted to be deleted under RLS, confirmed against
+   the real policy file. Warning is stronger than the asset one — an
+   opportunity carries pipeline stage, priority, and next-action history
+   that's genuinely lost, not just a file reference. */
+async function deleteOpportunityConfirm(id,orgId){
+  if(!confirm('Delete this opportunity permanently? Its stage, priority, and next-action history will be lost. This cannot be undone.')) return;
+  await dbDelete('opportunities',id);
+  go('organisationDetail',orgId); toast('Opportunity deleted');
+}
 function vOpportunityDetail(){
   const op=byId(state.opportunities,route.id);
   if(!op) return '<div class="empty">Opportunity not found.</div>';
@@ -1364,7 +1454,8 @@ function vOpportunityDetail(){
   const oppObjections=state.objections.filter(x=>!x.archived_at && x.opportunity_id===op.id);
   return '<div class="page-head"><div><div class="eyebrow"><a href="#" onclick="go(\'organisationDetail\',\''+op.organisation_id+'\');return false;">'+esc(orgName(op.organisation_id))+'</a></div>'+
     '<div class="page-title">'+esc(op.title)+'</div><div class="page-sub">'+esc(op.stage)+' · '+esc(op.status)+'</div></div>'+
-    '<button class="btn" onclick="openOppForm(\''+op.id+'\',\''+op.organisation_id+'\')">Edit</button></div>'+
+    '<button class="btn" onclick="openOppForm(\''+op.id+'\',\''+op.organisation_id+'\')">Edit</button>'+
+    '<button class="btn danger" onclick="deleteOpportunityConfirm(\''+op.id+'\',\''+op.organisation_id+'\')">Delete</button></div>'+
     '<div class="grid g2"><div class="card">'+
       kv('Problem',op.problem||'—')+kv('Kweli angle',op.kweli_angle||'—')+kv('Proposed pilot',op.proposed_pilot||'—')+
       kv('Commercial model',op.commercial_model||'—')+kv('Next action',op.next_action_summary||'—')+kv('Next action date',fmtDate(op.next_action_date))+
@@ -1442,19 +1533,23 @@ function openTaskForm(orgId,personId,opportunityId){
     '<div class="field"><label class="fl">Due date</label><input class="input" type="date" id="f_tdue" value="'+today()+'"></div>'+
     '<div class="field"><label class="fl">Priority</label><select class="select" id="f_tpriority">'+
       ['Normal','High','Urgent','Low'].map(p=>'<option>'+p+'</option>').join('')+'</select></div>'+
+    '<input type="hidden" id="f_tperson" value="'+esc(personId||'')+'">'+
+    '<input type="hidden" id="f_topp" value="'+esc(opportunityId||'')+'">'+
     '<button class="btn gold" onclick="saveTaskForm()">Save</button>');
 }
 async function saveTaskForm(){
   const payload={
     title: document.getElementById('f_ttitle').value.trim(),
     organisation_id: document.getElementById('f_torg').value||null,
+    person_id: document.getElementById('f_tperson').value||null,
+    opportunity_id: document.getElementById('f_topp').value||null,
     due_at: document.getElementById('f_tdue').value||null,
     priority: document.getElementById('f_tpriority').value,
     status:'To Do', created_by_user_id: myProfile.id, assigned_to_user_id: myProfile.id
   };
   if(!payload.title){toast('Title is required');return;}
   const created=await dbInsert('tasks',payload);
-  await logActivity({activity_type:'Follow-up', title:'Follow-up created: '+payload.title, organisation_id:payload.organisation_id, task_id:created.id});
+  await logActivity({activity_type:'Follow-up', title:'Follow-up created: '+payload.title, organisation_id:payload.organisation_id, person_id:payload.person_id, task_id:created.id});
   if(payload.organisation_id) await touchOrgInteraction(payload.organisation_id, payload.title, payload.due_at);
   closeModal(); renderCurrent();
 }
@@ -1543,30 +1638,38 @@ function vMeetingDetail(){
   const attendees=state.meeting_attendees.filter(a=>a.meeting_id===m.id);
   return '<div class="page-head"><div><div class="eyebrow"><a href="#" onclick="go(\'organisationDetail\',\''+m.organisation_id+'\');return false;">'+esc(orgName(m.organisation_id))+'</a></div>'+
     '<div class="page-title">'+esc(m.title)+'</div><div class="page-sub">'+fmtDate(m.scheduled_at)+' · '+m.meeting_status+'</div></div>'+
+    '<button class="btn" onclick="openMeetingForm(\''+m.organisation_id+'\',\''+m.id+'\')">Edit details</button>'+
     '<button class="btn" onclick="openMeetingNotesForm(\''+m.id+'\')">'+(m.notes?'Edit notes':'Add notes')+'</button></div>'+
     '<div class="grid g2"><div class="card">'+kv('Objective',m.objective||'—')+kv('Outcomes',m.outcomes||'—')+kv('Next steps',m.next_steps||'—')+
       kv('Attendees',attendees.length?attendees.map(a=>a.external_name||userDisplay(a.user_id)||'—').join(', '):'—')+'</div>'+
     '<div class="card"><div class="fl">Notes</div><div style="font-size:12.5px;white-space:pre-wrap;max-height:340px;overflow-y:auto">'+esc(m.notes||'No notes yet.')+'</div></div></div>';
 }
-function openMeetingForm(orgId){
-  const orgOpts='<option value="">—</option>'+state.organisations.map(o=>'<option value="'+o.id+'"'+(orgId===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('');
-  openModal('<h3>New meeting</h3>'+
-    '<div class="field"><label class="fl">Title</label><input class="input" id="f_mtitle"></div>'+
+function openMeetingForm(orgId,id){
+  const m=id?byId(state.meetings,id):null;
+  const effectiveOrgId=m?m.organisation_id:orgId;
+  const orgOpts='<option value="">—</option>'+state.organisations.map(o=>'<option value="'+o.id+'"'+(effectiveOrgId===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('');
+  openModal('<h3>'+(m?'Edit meeting':'New meeting')+'</h3>'+
+    '<div class="field"><label class="fl">Title</label><input class="input" id="f_mtitle" value="'+esc(m?m.title:'')+'"></div>'+
     '<div class="field"><label class="fl">Organisation</label><select class="select" id="f_morg">'+orgOpts+'</select></div>'+
-    '<div class="field"><label class="fl">Date &amp; time</label><input class="input" type="datetime-local" id="f_mwhen"></div>'+
-    '<button class="btn gold" onclick="saveMeetingForm()">Save</button>');
+    '<div class="field"><label class="fl">Date &amp; time</label><input class="input" type="datetime-local" id="f_mwhen" value="'+(m&&m.scheduled_at?m.scheduled_at.slice(0,16):'')+'"></div>'+
+    '<button class="btn gold" onclick="saveMeetingForm(\''+(m?m.id:'')+'\')">Save</button>');
 }
-async function saveMeetingForm(){
+async function saveMeetingForm(id){
   const payload={
     title: document.getElementById('f_mtitle').value.trim(),
     organisation_id: document.getElementById('f_morg').value||null,
     scheduled_at: document.getElementById('f_mwhen').value || new Date().toISOString(),
-    meeting_status:'Scheduled', created_by: myProfile.display_name
   };
   if(!payload.title){toast('Title required');return;}
-  const created=await dbInsert('meetings',payload);
-  if(payload.organisation_id) await logActivity({activity_type:'Meeting',title:'Meeting scheduled: '+payload.title,organisation_id:payload.organisation_id,meeting_id:created.id});
-  closeModal(); go('meetingDetail', created.id);
+  if(id){
+    await dbUpdate('meetings',id,payload);
+    closeModal(); go('meetingDetail', id); toast('Saved');
+  } else {
+    payload.meeting_status='Scheduled'; payload.created_by=myProfile.display_name;
+    const created=await dbInsert('meetings',payload);
+    if(payload.organisation_id) await logActivity({activity_type:'Meeting',title:'Meeting scheduled: '+payload.title,organisation_id:payload.organisation_id,meeting_id:created.id});
+    closeModal(); go('meetingDetail', created.id);
+  }
 }
 function openMeetingNotesForm(id){
   const m=byId(state.meetings,id);
@@ -1904,17 +2007,18 @@ function vDecisions(){
       return '<div class="row-item" onclick="openDecisionForm(\''+d.id+'\')"><div class="row-main"><div class="row-title">'+esc(d.title)+'</div><div class="row-meta">'+esc((d.decision||'').slice(0,180))+(links.length?' · linked to '+links.map(linkLabel).join(', '):'')+'</div></div><div class="row-right">'+fmtDate(d.decided_at)+'</div></div>';
     }).join(''):'<div class="empty">No decisions recorded.</div>');
 }
-function openDecisionForm(id,orgId){
+function openDecisionForm(id,orgId,personId){
   const d=id?byId(state.decisions,id):null;
   const existingOrgLink=d?state.entity_links.find(el=>el.source_type==='decision'&&el.source_id===id&&el.target_type==='organisation'):null;
   const existingPersonLink=d?state.entity_links.find(el=>el.source_type==='decision'&&el.source_id===id&&el.target_type==='person'):null;
   const preselectOrg=existingOrgLink?existingOrgLink.target_id:orgId;
+  const preselectPerson=existingPersonLink?existingPersonLink.target_id:personId;
   openModal('<h3>'+(d?'Edit decision':'New decision')+'</h3>'+
     '<div class="field"><label class="fl">Title</label><input class="input" id="f_dtitle" value="'+esc(d?d.title:'')+'"></div>'+
     '<div class="field"><label class="fl">Decision</label><textarea class="input" id="f_ddecision" rows="3">'+esc(d?d.decision:'')+'</textarea></div>'+
     '<div class="field"><label class="fl">Reason</label><textarea class="input" id="f_dreason" rows="2">'+esc(d?d.reason:'')+'</textarea></div>'+
     '<div class="field"><label class="fl">Organisation (optional)</label><select class="select" id="f_dorg"><option value="">—</option>'+state.organisations.map(o=>'<option value="'+o.id+'"'+(preselectOrg===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('')+'</select></div>'+
-    '<div class="field"><label class="fl">Influenced by person (optional)</label><select class="select" id="f_dperson"><option value="">—</option>'+state.people.map(p=>'<option value="'+p.id+'"'+(existingPersonLink&&existingPersonLink.target_id===p.id?' selected':'')+'>'+esc(p.full_name)+'</option>').join('')+'</select></div>'+
+    '<div class="field"><label class="fl">Influenced by person (optional)</label><select class="select" id="f_dperson"><option value="">—</option>'+state.people.map(p=>'<option value="'+p.id+'"'+(preselectPerson===p.id?' selected':'')+'>'+esc(p.full_name)+'</option>').join('')+'</select></div>'+
     '<button class="btn gold" onclick="saveDecisionForm(\''+(d?d.id:'')+'\')">Save</button>'+
     (d?' <button class="btn danger" onclick="deleteDecisionConfirm(\''+d.id+'\')">Delete</button>':''));
 }
@@ -2004,7 +2108,6 @@ function assetIconType(a){const t=(a.file_type||'').toLowerCase(),n=(a.file_name
   if(t.includes('image')||/\.(png|jpe?g|svg|gif|webp)$/.test(n))return {ico:'🖼️',label:'Image'};
   if(t.includes('video')||/\.(mp4|mov|webm)$/.test(n))return {ico:'🎬',label:'Video'};
   return {ico:'📁',label:'File'};}
-function assetIcon(a){return assetIconType(a).ico;}
 function isPdfAsset(a){ return (a.file_type||'').toLowerCase().includes('pdf') || (a.file_name||'').toLowerCase().endsWith('.pdf'); }
 function isImageAsset(a){ return (a.file_type||'').toLowerCase().includes('image') || /\.(png|jpe?g|gif|webp)$/i.test(a.file_name||''); }
 function linkLabel2(l){ if(l.target_type==='organisation') return orgName(l.target_id); return l.target_type; }
@@ -2163,6 +2266,17 @@ async function hydratePdfThumbnails(){
   });
 }
 
+/* Removes the assets_v2 record only. The underlying file in Storage is
+   deliberately left in place — same conservative principle as legacy V1
+   assets: an accidental record deletion should never silently destroy the
+   only copy of a file that might still be linked elsewhere or referenced
+   externally. RLS permits this delete (assets_v2 has a real delete
+   policy, confirmed against 03_rls_policies.sql). */
+async function deleteAssetConfirm(id){
+  if(!confirm('Delete this asset record? The underlying file is not removed from storage — only this entry.')) return;
+  await dbDelete('assets_v2',id);
+  go('assets'); toast('Asset record deleted');
+}
 function vAssets(){
   const items=[...state.assets_v2].filter(a=>!a.archived_at);
   if(!items.length) return '<div class="page-head"><div><div class="eyebrow">Knowledge</div><div class="page-title">Assets</div></div>'+
@@ -2203,6 +2317,7 @@ function vAssetDetail(){
       '<button class="btn sm" onclick="openAssetFile(\''+a.id+'\')">Open</button>'+
       '<button class="btn sm" onclick="downloadAssetFile(\''+a.id+'\')">Download</button>'+
       '<label class="btn sm" style="cursor:pointer">Replace file<input type="file" style="display:none" onchange="replaceAssetFile(\''+a.id+'\',this.files[0])"></label>'+
+      '<button class="btn sm danger" onclick="deleteAssetConfirm(\''+a.id+'\')">Delete</button>'+
     '</div></div>'+
     '<div class="grid g2"><div class="card">'+
       kv('File name',a.file_name||'—')+kv('File size',fmtBytes(a.file_size))+kv('Type',a.asset_type||it.label)+
@@ -2380,22 +2495,25 @@ async function confirmLinkExistingInvestor(){
   await promoteToInvestorProfile(orgId);
   closeModal();
 }
-function openInvestorForm(){
-  openModal('<h3>New investor profile</h3>'+
-    '<div class="field"><label class="fl">Organisation (optional)</label><select class="select" id="f_iorg"><option value="">—</option>'+state.organisations.map(o=>'<option value="'+o.id+'">'+esc(o.name)+'</option>').join('')+'</select></div>'+
-    '<div class="field"><label class="fl">Person (optional)</label><select class="select" id="f_iperson"><option value="">—</option>'+state.people.map(p=>'<option value="'+p.id+'">'+esc(p.full_name)+'</option>').join('')+'</select></div>'+
-    '<div class="field"><label class="fl">Stage</label><input class="input" id="f_istage" placeholder="Contacted, Diligence, Committed…"></div>'+
-    '<div class="field"><label class="fl">Thesis / why they matter</label><textarea class="input" id="f_ithesis" rows="2"></textarea></div>'+
-    '<div class="field"><label class="fl">Notes</label><textarea class="input" id="f_inotes" rows="3"></textarea></div>'+
-    '<button class="btn gold" onclick="saveInvestorForm()">Save</button>');
+function openInvestorForm(id){
+  const iv=id?byId(state.investor_profiles,id):null;
+  openModal('<h3>'+(iv?'Edit investor profile':'New investor profile')+'</h3>'+
+    '<div class="field"><label class="fl">Organisation (optional)</label><select class="select" id="f_iorg"><option value="">—</option>'+state.organisations.map(o=>'<option value="'+o.id+'"'+(iv&&iv.organisation_id===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('')+'</select></div>'+
+    '<div class="field"><label class="fl">Person (optional)</label><select class="select" id="f_iperson"><option value="">—</option>'+state.people.map(p=>'<option value="'+p.id+'"'+(iv&&iv.person_id===p.id?' selected':'')+'>'+esc(p.full_name)+'</option>').join('')+'</select></div>'+
+    '<div class="field"><label class="fl">Stage</label><input class="input" id="f_istage" placeholder="Contacted, Diligence, Committed…" value="'+esc(iv?iv.stage:'')+'"></div>'+
+    '<div class="field"><label class="fl">Thesis / why they matter</label><textarea class="input" id="f_ithesis" rows="2">'+esc(iv?iv.thesis:'')+'</textarea></div>'+
+    '<div class="field"><label class="fl">Notes</label><textarea class="input" id="f_inotes" rows="3">'+esc(iv?iv.notes:'')+'</textarea></div>'+
+    '<button class="btn gold" onclick="saveInvestorForm(\''+(iv?iv.id:'')+'\')">Save</button>');
 }
-async function saveInvestorForm(){
+async function saveInvestorForm(id){
   const organisation_id=document.getElementById('f_iorg').value||null;
   const person_id=document.getElementById('f_iperson').value||null;
   if(!organisation_id && !person_id){toast('Select an organisation or a person');return;}
-  await dbInsert('investor_profiles',{organisation_id, person_id, stage:document.getElementById('f_istage').value.trim()||null,
-    thesis:document.getElementById('f_ithesis').value.trim()||null, notes:document.getElementById('f_inotes').value.trim()||null});
-  closeModal(); renderCurrent();
+  const payload={organisation_id, person_id, stage:document.getElementById('f_istage').value.trim()||null,
+    thesis:document.getElementById('f_ithesis').value.trim()||null, notes:document.getElementById('f_inotes').value.trim()||null};
+  if(id) await dbUpdate('investor_profiles',id,payload);
+  else await dbInsert('investor_profiles',payload);
+  closeModal(); renderCurrent(); toast('Saved');
 }
 /* ---------------------------------------------------------------------------
    CONTENT LIBRARY — extracted programmatically (not retyped) from the
@@ -3405,14 +3523,6 @@ async function seedContentLibrary(){
   renderCurrent();
   return {created,skipped};
 }
-async function runContentLibraryImport(){
-  toast('Importing the full content library — this covers '+CONTENT_LIBRARY.length+' items, please wait…');
-  const r=await seedContentLibrary();
-  openModal('<h3>Content library import complete</h3>'+
-    kv('Items created',r.created)+kv('Already present (skipped)',r.skipped)+kv('Total in library',CONTENT_LIBRARY.length)+
-    '<div class="muted" style="font-size:11.5px;margin-top:14px">Nothing is scheduled yet — this is the permanent library. Use "Generate editorial calendar" to build a publishing schedule from it.</div>'+
-    '<button class="btn gold" style="margin-top:12px" onclick="closeModal();openGenerateCalendarPrompt()">Generate editorial calendar now</button>');
-}
 /* One click: import the library AND generate a 6-month schedule in a
    single chained action, so there is no separate second step required to
    see recurring work on Today/Calendar. */
@@ -3721,11 +3831,6 @@ async function saveMarketingDetail(id){
     await dbDelete('entity_links',existingLink.id);
   }
   closeModal(); renderCurrent(); toast('Saved');
-}
-async function updateMarketingStatus(id){
-  // kept for any legacy callers; routes into the new stage model
-  await setContentStage(id, document.getElementById('f_mistatus') ? document.getElementById('f_mistatus').value : 'Scheduled');
-  closeModal(); renderCurrent();
 }
 function openMarketingForm(){
   openModal('<h3>New content item</h3>'+
