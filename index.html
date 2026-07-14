@@ -252,6 +252,15 @@
     background:radial-gradient(circle at 35% 30%,#fff3b0,#c7372f 35%,#6d100d 72%);box-shadow:0 3px 5px rgba(0,0,0,.4);z-index:2}
   .team-empty{color:rgba(255,255,255,.7);text-align:center;padding:34px 15px;border:1px dashed rgba(255,255,255,.22);border-radius:12px}
 
+
+  /* calendar meeting capture */
+  .person-pick-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;max-height:230px;overflow-y:auto;
+    padding:8px;background:var(--bg);border:1px solid var(--line);border-radius:10px}
+  .person-pick{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;background:var(--panel2);border:1px solid var(--line);
+    cursor:pointer;font-size:12px}
+  .person-pick:hover{border-color:var(--gold)}
+  .calendar-day-actions{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}
+
   /* mini calendar (Today) */
   .mini-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
   .mini-cal .mc-h{font-size:8.5px;color:var(--faint);text-align:center;text-transform:uppercase}
@@ -1982,43 +1991,113 @@ function vMeetingDetail(){
   const m=byId(state.meetings,route.id);
   if(!m) return '<div class="empty">Meeting not found.</div>';
   const attendees=state.meeting_attendees.filter(a=>a.meeting_id===m.id);
-  return '<div class="page-head"><div><div class="eyebrow"><a href="#" onclick="go(\'organisationDetail\',\''+m.organisation_id+'\');return false;">'+esc(orgName(m.organisation_id))+'</a></div>'+
-    '<div class="page-title">'+esc(m.title)+'</div><div class="page-sub">'+fmtDate(m.scheduled_at)+' · '+m.meeting_status+'</div></div>'+
-    '<button class="btn" onclick="openMeetingForm(\''+m.organisation_id+'\',\''+m.id+'\')">Edit details</button>'+
-    '<button class="btn" onclick="openMeetingNotesForm(\''+m.id+'\')">'+(m.notes?'Edit notes':'Add notes')+'</button></div>'+
-    '<div class="grid g2"><div class="card">'+kv('Objective',m.objective||'—')+kv('Outcomes',m.outcomes||'—')+kv('Next steps',m.next_steps||'—')+
-      kv('Attendees',attendees.length?attendees.map(a=>a.external_name||userDisplay(a.user_id)||'—').join(', '):'—')+'</div>'+
-    '<div class="card"><div class="fl">Notes</div><div style="font-size:12.5px;white-space:pre-wrap;max-height:340px;overflow-y:auto">'+esc(m.notes||'No notes yet.')+'</div></div></div>';
+  const attendeeNames=attendees.map(a=>{
+    if(a.person_id){const p=byId(state.people,a.person_id);return p?p.full_name:'Contact';}
+    return a.external_name||userDisplay(a.user_id)||'—';
+  });
+  return '<div class="page-head"><div><div class="eyebrow">'+
+    (m.organisation_id?'<a href="#" onclick="go(\'organisationDetail\',\''+m.organisation_id+'\');return false;">'+esc(orgName(m.organisation_id))+'</a>':'Meeting')+
+    '</div><div class="page-title">'+esc(m.title)+'</div>'+
+    '<div class="page-sub">'+fmtDateTime(m.scheduled_at)+' · '+esc(m.meeting_status||'Scheduled')+'</div></div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="openMeetingForm(\''+(m.organisation_id||'')+'\',\''+m.id+'\')">Edit meeting</button>'+
+    '<button class="btn gold" onclick="openMeetingNotesForm(\''+m.id+'\')">'+(m.notes?'Update meeting record':'Add notes & outcomes')+'</button></div></div>'+
+    '<div class="grid g2">'+
+      '<div class="card"><div class="sec-h"><h2>Meeting details</h2></div>'+
+        kv('Date & time',fmtDateTime(m.scheduled_at))+
+        kv('Organisation',orgName(m.organisation_id)||'—')+
+        kv('Attendees',attendeeNames.length?attendeeNames.join(', '):'—')+
+        kv('Objective',m.objective||'—')+
+        kv('Agenda',m.agenda||'—')+
+      '</div>'+
+      '<div class="card"><div class="sec-h"><h2>After the meeting</h2></div>'+
+        '<div class="fl">Notes / comments</div><div style="font-size:12.5px;white-space:pre-wrap;margin-bottom:16px">'+esc(m.notes||'No notes yet.')+'</div>'+
+        '<div class="fl">Outcomes</div><div style="font-size:12.5px;white-space:pre-wrap;margin-bottom:16px">'+esc(m.outcomes||'No outcomes captured yet.')+'</div>'+
+        '<div class="fl">Next steps</div><div style="font-size:12.5px;white-space:pre-wrap">'+esc(m.next_steps||'No next steps captured yet.')+'</div>'+
+      '</div>'+
+    '</div>';
 }
-function openMeetingForm(orgId,id){
+function openMeetingForm(orgId,id,prefillDate){
   const m=id?byId(state.meetings,id):null;
   const effectiveOrgId=m?m.organisation_id:orgId;
-  const orgOpts='<option value="">—</option>'+state.organisations.map(o=>'<option value="'+o.id+'"'+(effectiveOrgId===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('');
+  const existingAttendees=m?state.meeting_attendees.filter(a=>a.meeting_id===m.id):[];
+  const selectedPeople=new Set(existingAttendees.map(a=>a.person_id).filter(Boolean));
+  const orgOpts='<option value="">— No organisation —</option>'+state.organisations
+    .filter(o=>!o.archived_at)
+    .sort((a,b)=>a.name.localeCompare(b.name))
+    .map(o=>'<option value="'+o.id+'"'+(effectiveOrgId===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('');
+  const peopleHtml=state.people.filter(p=>!p.archived_at).sort((a,b)=>a.full_name.localeCompare(b.full_name)).map(p=>
+    '<label class="person-pick"><input type="checkbox" class="f_mperson" value="'+p.id+'"'+(selectedPeople.has(p.id)?' checked':'')+'>'+
+      personAvatar(p,true)+'<span><strong>'+esc(p.full_name)+'</strong><br><span class="faint">'+esc(p.role||orgName(p.primary_organisation_id)||'Contact')+'</span></span></label>'
+  ).join('');
+  const dtValue=m&&m.scheduled_at?String(m.scheduled_at).slice(0,16):(prefillDate?prefillDate+'T09:00':'');
   openModal('<h3>'+(m?'Edit meeting':'New meeting')+'</h3>'+
-    '<div class="field"><label class="fl">Title</label><input class="input" id="f_mtitle" value="'+esc(m?m.title:'')+'"></div>'+
+    '<div class="grid g2">'+
+      '<div class="field"><label class="fl">Meeting name</label><input class="input" id="f_mtitle" placeholder="e.g. Mayfair pilot discussion" value="'+esc(m?m.title:'')+'"></div>'+
+      '<div class="field"><label class="fl">Date &amp; time</label><input class="input" type="datetime-local" id="f_mwhen" value="'+esc(dtValue)+'"></div>'+
+    '</div>'+
     '<div class="field"><label class="fl">Organisation</label><select class="select" id="f_morg">'+orgOpts+'</select></div>'+
-    '<div class="field"><label class="fl">Date &amp; time</label><input class="input" type="datetime-local" id="f_mwhen" value="'+(m&&m.scheduled_at?m.scheduled_at.slice(0,16):'')+'"></div>'+
-    '<button class="btn gold" onclick="saveMeetingForm(\''+(m?m.id:'')+'\')">Save</button>');
+    '<div class="field"><label class="fl">Choose existing people</label><div class="person-pick-list">'+
+      (peopleHtml||'<div class="faint">No people have been added yet.</div>')+'</div></div>'+
+    '<div class="field"><label class="fl">Other attendees</label><input class="input" id="f_mexternal" placeholder="Comma-separated names" value="'+esc(existingAttendees.filter(a=>a.external_name).map(a=>a.external_name).join(', '))+'"></div>'+
+    '<div class="grid g2">'+
+      '<div class="field"><label class="fl">Objective</label><textarea class="input" id="f_mobjective" rows="3" placeholder="What should this meeting achieve?">'+esc(m?m.objective||'':'')+'</textarea></div>'+
+      '<div class="field"><label class="fl">Agenda / preparation</label><textarea class="input" id="f_magenda" rows="3" placeholder="Topics, questions, documents to prepare">'+esc(m?m.agenda||'':'')+'</textarea></div>'+
+    '</div>'+
+    '<button class="btn gold" onclick="saveMeetingForm(\''+(m?m.id:'')+'\')">'+(m?'Save changes':'Create meeting')+'</button>', true);
 }
 async function saveMeetingForm(id){
   const payload={
     title: document.getElementById('f_mtitle').value.trim(),
     organisation_id: document.getElementById('f_morg').value||null,
     scheduled_at: document.getElementById('f_mwhen').value || new Date().toISOString(),
+    objective: document.getElementById('f_mobjective').value.trim()||null,
+    agenda: document.getElementById('f_magenda').value.trim()||null
   };
-  if(!payload.title){toast('Title required');return;}
+  if(!payload.title){toast('Meeting name required');return;}
+  if(!document.getElementById('f_mwhen').value){toast('Please choose a date and time');return;}
+
+  let meetingId=id;
   if(id){
     await dbUpdate('meetings',id,payload);
-    closeModal(); go('meetingDetail', id); toast('Saved');
   } else {
     const day=(payload.scheduled_at||'').slice(0,10);
-    const dupe=state.meetings.find(m=>(m.organisation_id||null)===(payload.organisation_id||null) && (m.scheduled_at||'').slice(0,10)===day && normText(m.title)===normText(payload.title));
-    if(dupe && !confirm('A meeting "'+dupe.title+'" for the same organisation on '+fmtDate(day)+' already exists. Create another anyway?')){ closeModal(); go('meetingDetail', dupe.id); return; }
-    payload.meeting_status='Scheduled'; payload.created_by=myProfile.display_name;
+    const dupe=state.meetings.find(m=>(m.organisation_id||null)===(payload.organisation_id||null) &&
+      (m.scheduled_at||'').slice(0,10)===day && normText(m.title)===normText(payload.title));
+    if(dupe && !confirm('A meeting "'+dupe.title+'" for the same organisation on '+fmtDate(day)+' already exists. Create another anyway?')){
+      closeModal(); go('meetingDetail',dupe.id); return;
+    }
+    payload.meeting_status='Scheduled';
+    payload.created_by=myProfile.display_name;
     const created=await dbInsert('meetings',payload);
-    if(payload.organisation_id) await logActivity({activity_type:'Meeting',title:'Meeting scheduled: '+payload.title,organisation_id:payload.organisation_id,meeting_id:created.id});
-    closeModal(); go('meetingDetail', created.id);
+    meetingId=created.id;
+    if(payload.organisation_id) await logActivity({
+      activity_type:'Meeting',title:'Meeting scheduled: '+payload.title,
+      organisation_id:payload.organisation_id,meeting_id:meetingId
+    });
   }
+
+  const selected=[...document.querySelectorAll('.f_mperson:checked')].map(el=>el.value);
+  const existing=state.meeting_attendees.filter(a=>a.meeting_id===meetingId);
+  for(const personId of selected){
+    if(!existing.some(a=>a.person_id===personId)){
+      const row=await dbInsert('meeting_attendees',{meeting_id:meetingId,person_id:personId});
+      const person=byId(state.people,personId);
+      if(person) await logActivity({
+        activity_type:'Meeting',title:'Meeting scheduled: '+payload.title,
+        organisation_id:payload.organisation_id,person_id:personId,meeting_id:meetingId
+      });
+    }
+  }
+  const externalNames=document.getElementById('f_mexternal').value.split(',').map(s=>s.trim()).filter(Boolean);
+  for(const name of externalNames){
+    if(!existing.some(a=>normText(a.external_name)===normText(name))){
+      await dbInsert('meeting_attendees',{meeting_id:meetingId,external_name:name});
+    }
+  }
+
+  closeModal();
+  go('meetingDetail',meetingId);
+  toast(id?'Meeting updated':'Meeting created');
 }
 function openMeetingNotesForm(id){
   const m=byId(state.meetings,id);
@@ -2148,16 +2227,22 @@ function renderFullCalendar(){
 }
 function vCalendar(){
   return '<div class="page-head"><div><div class="eyebrow">Work</div><div class="page-title">Full Calendar</div>'+
-    '<div class="page-sub">Every follow-up, meeting, marketing task and team reminder — one calendar.</div></div></div>'+
+    '<div class="page-sub">Every follow-up, meeting, marketing task and team reminder — one calendar.</div></div>'+
+    '<button class="btn gold" onclick="openMeetingForm()">+ Add meeting</button></div>'+
     renderFullCalendar();
 }
 function calNav(delta){ calMonth+=delta; if(calMonth<0){calMonth=11;calYear--;} if(calMonth>11){calMonth=0;calYear++;} renderCurrent(); }
 function calToday(){ calMonth=new Date().getMonth(); calYear=new Date().getFullYear(); renderCurrent(); }
 function calDayView(dateISO){
-  const items=[...calendarItemsFor(new Date(dateISO).getFullYear(), new Date(dateISO).getMonth())].filter(it=>it.date===dateISO && calFilters[it.type]);
-  const label=new Date(dateISO+'T00:00:00').toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  const dt=new Date(dateISO+'T00:00:00');
+  const items=[...calendarItemsFor(dt.getFullYear(),dt.getMonth())].filter(it=>it.date===dateISO && calFilters[it.type]);
+  const label=dt.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
   openModal('<h3>'+esc(label)+'</h3>'+
-    (items.length?'<div style="display:flex;flex-direction:column;gap:6px">'+items.map(calMiniItem).join('')+'</div>':'<div class="empty">Nothing scheduled for this day.</div>'));
+    '<div class="calendar-day-actions">'+
+      '<button class="btn gold sm" onclick="openMeetingForm(null,null,\''+dateISO+'\')">+ Add meeting</button>'+
+    '</div>'+
+    (items.length?'<div style="display:flex;flex-direction:column;gap:6px">'+items.map(calMiniItem).join('')+'</div>':
+      '<div class="empty">Nothing scheduled for this day yet.</div>'), true);
 }
 
 /* ---------------------------------------------------------------------------
