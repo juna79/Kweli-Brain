@@ -389,6 +389,7 @@ function normText(s){return (s==null?'':String(s)).toLowerCase().replace(/[^a-z0
 function normEmail(s){return (s==null?'':String(s)).toLowerCase().trim();}
 function normDomain(url){ if(!url) return ''; try{ let u=String(url).trim().replace(/^https?:\/\//i,'').replace(/^www\./i,''); return u.split(/[\/?#]/)[0].toLowerCase(); }catch(e){ return ''; } }
 function fmtDate(d){if(!d)return '—';return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}
+function fmtDateTime(d){ if(!d) return 'Never'; try{ const dt=new Date(d); const t=dt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); const isToday=dt.toDateString()===new Date().toDateString(); return (isToday?'Today':dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}))+' '+t; }catch(e){ return String(d); } }
 function daysUntil(d){if(!d)return null;const t=new Date(today()),x=new Date(d);return Math.round((x-t)/86400000);}
 function toast(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.getElementById('toastHost').appendChild(el);setTimeout(()=>el.remove(),3200);}
 function debounce(fn,ms){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
@@ -3181,9 +3182,9 @@ const CONTENT_LIBRARY=[
    suffix if the plan structure ever changes again, so an old partial run
    never blocks a fresh correct one.
 --------------------------------------------------------------------------- */
-const MARKETING_CAMPAIGN_KEY = 'weekly-rhythm-6mo-v1';
-const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1'];
-const WEEKLY_MIGRATION_VERSION = 'weekly_rhythm_v1';
+const MARKETING_CAMPAIGN_KEY = 'weekly-rhythm-6mo-v2';
+const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1'];
+const WEEKLY_MIGRATION_VERSION = 'weekly_rhythm_v2';
 
 const MONTHLY_THEMES_6MO_V2 = ['The Trust Problem','Insurance','Verification Infrastructure','Customer Stories','Future of Trust','Building the Category'];
 /* FIXED operating rhythm — identical every week, only the theme changes.
@@ -3191,7 +3192,7 @@ const MONTHLY_THEMES_6MO_V2 = ['The Trust Problem','Insurance','Verification Inf
    rotating support task (per-campaign). Thu: distribution only. Fri: Founder
    Friday + review. Sat/Sun: nothing. This is a rhythm a founder can sustain,
    not a content-maximising calendar. */
-const WEEK_SLOTS = ['article','instagram','linkedin','x','support','distribution','friday'];
+const WEEK_SLOTS = ['article','instagram','linkedin','x','support','distribution','friday','review'];
 
 /* 26 weekly campaigns = a 6-month thematic arc. Each is ONE message driven
    into the market for a week. Audience/objective seed the deliverables; the
@@ -3290,9 +3291,11 @@ function buildInsurancePlanRows(){
     rows.push(mk('distribution','Distribute: '+theme, 'Distribution', thu,
       'Distribution day \u2014 no new content.\n\n\u2022 Send the '+theme+' article to the most relevant people in your CRM (see suggestions in the campaign / Today view).\n\u2022 Comment on 1\u20132 industry posts about '+theme.toLowerCase()+'.\n\u2022 Follow up with prospects who should see this content.'));
 
-    // FRIDAY — Founder Friday + weekly review.
+    // FRIDAY — exactly two tasks: Founder Friday post + weekly review.
     rows.push(mk('friday','Founder Friday: '+theme, 'Founder Friday', fri,
-      'One personal post \u2014 building Kweli, a customer conversation, a startup lesson, or trust infrastructure. Tie it loosely to '+theme.toLowerCase()+' if it fits; keep it honest, no fabricated pilot claims.\n\nThen review: article published? LinkedIn + X posted? Support task done? Outreach done? What worked, who engaged \u2014 and confirm next week\u2019s theme.'));
+      'One personal post \u2014 what I learnt this week, the biggest customer lesson, building Kweli, a startup mistake, why trust matters, or a conversation from this week. Keep it personal and honest. No fabricated pilot claims.'));
+    rows.push(mk('review','Weekly review: '+theme, 'Weekly Review', fri,
+      'Close out the week:\n\u2022 Article published?  LinkedIn published?  X published?\n\u2022 Distribution completed?\n\u2022 What conversations happened this week? Who engaged?\n\u2022 Pick next week\u2019s campaign theme.'));
 
     cursor.setDate(cursor.getDate()+7);
   }
@@ -3509,8 +3512,135 @@ function hideSeedingOverlay(){ const el=document.getElementById('seedingOverlay'
 /* Settings-only manual rebuild. Deletes ONLY rows belonging to this
    campaign (matched by seed_key prefix — a real, RLS-permitted bulk
    delete, one network call) then reseeds the full expected set fresh. */
-async function rebuildInsurancePlan(){
-  if(!confirm('Rebuild the 6-month marketing plan? This removes every item in the current (and previous) auto-plan and recreates it fresh as weekly campaigns — any manual edits to those items will be lost.')) return;
+/* ===========================================================================
+   MARKETING PLAN REBUILD (Settings → Marketing)
+   Deletes only auto-generated, untouched seeded items across ANY past or
+   present campaign key; preserves anything edited, published or archived;
+   reseeds the current weekly rhythm week-by-week (real progress); then
+   verifies the day structure and refuses to report success if it's wrong.
+=========================================================================== */
+function itemIsContentLibrary(mi){ return !mi.seed_key && Array.isArray(CONTENT_LIBRARY) && CONTENT_LIBRARY.some(c=>c.title===mi.title); }
+function itemHasLegacyTag(mi){ return /\[\[campaign:[^\]]+\]\]/.test(mi.description||''); }
+function itemIsCurrentPlan(mi){ return !!mi.seed_key && mi.seed_key.startsWith(MARKETING_CAMPAIGN_KEY+'-week-'); }
+function itemIsSeeded(mi){
+  // Any auto-generated marketing row: a campaign-plan row (current OR any
+  // legacy campaign key), a legacy [[campaign:]]-tagged row, or a
+  // bulk-imported content-library row.
+  if(!!mi.seed_key && /-week-\d/.test(mi.seed_key)) return true;
+  if(itemHasLegacyTag(mi)) return true;
+  if(itemIsContentLibrary(mi)) return true;
+  return false;
+}
+function itemHasUserContent(mi){
+  const f=parseContentFields(mi.description||'');
+  if([f.draftLink,f.publishedUrl,f.lessonsLearned].some(v=>v&&String(v).trim())) return true;
+  if([f.views,f.likes,f.comments,f.shares,f.saves,f.leads].some(v=>v&&String(v).trim())) return true;
+  if(f.notes && f.notes.trim()) return true;
+  return false;
+}
+function itemIsProtected(mi){
+  const stage = getContentStage(mi);
+  if(['Published','Repurposing','Archived'].includes(stage) || mi.status==='Published' || mi.status==='Archived' || !!mi.completed_at) return true;
+  // Content-library rows get their updated_at bumped by auto-scheduling, so a
+  // timestamp is not a reliable "edited" signal — only real user content is.
+  if(itemIsContentLibrary(mi)) return itemHasUserContent(mi);
+  // Campaign-plan rows (current + legacy): the seeders never update rows after
+  // insert, so a diverged updated_at means the user genuinely edited it.
+  const edited = mi.updated_at && mi.created_at && (new Date(mi.updated_at)-new Date(mi.created_at) > 5000);
+  return !!edited;
+}
+function marketingStatusInfo(){
+  const last=(state.migration_log||[]).filter(m=>m.step==='marketing_rebuild').sort((a,b)=>String(b.created_at||'').localeCompare(String(a.created_at||'')))[0];
+  const mi=state.marketing_items;
+  const current=mi.filter(itemIsCurrentPlan).length;
+  const legacy=mi.filter(x=>itemIsSeeded(x) && !itemIsCurrentPlan(x)).length;
+  const deletable=mi.filter(x=>itemIsSeeded(x) && !itemIsProtected(x)).length;
+  const preserved=mi.filter(x=>itemIsSeeded(x) && itemIsProtected(x)).length;
+  return { campaign:MARKETING_CAMPAIGN_KEY, count:mi.length, current, legacy, deletable, preserved,
+    expected:expectedSeedKeys().length, lastRebuild:last?last.created_at:null };
+}
+function verifyRhythm(){
+  const items=state.marketing_items.filter(mi=>mi.seed_key && mi.seed_key.startsWith(MARKETING_CAMPAIGN_KEY+'-week-'));
+  const byWeek={};
+  items.forEach(mi=>{ const m=mi.seed_key.match(/-week-(\d\d)-/); if(!m||!mi.scheduled_at) return; const wk=m[1]; const dow=new Date(mi.scheduled_at).getUTCDay(); (byWeek[wk]=byWeek[wk]||{})[dow]=(byWeek[wk][dow]||0)+1; });
+  const expect={1:2,2:2,3:1,4:1,5:2,6:0,0:0}; const dayName={0:'Sunday',1:'Monday',2:'Tuesday',3:'Wednesday',4:'Thursday',5:'Friday',6:'Saturday'};
+  const errors=[];
+  Object.keys(byWeek).forEach(wk=>{ const d=byWeek[wk]; [1,2,3,4,5,6,0].forEach(dow=>{ const got=d[dow]||0; if(got!==expect[dow]) errors.push('Week '+wk+': '+dayName[dow]+' has '+got+' (expected '+expect[dow]+')'); }); });
+  return { weeks:Object.keys(byWeek).length, ok:errors.length===0, errors };
+}
+function showRebuildError(msg){ hideSeedingOverlay(); openModal('<h3 style="color:var(--danger,#F87171)">Rebuild stopped</h3><div class="muted" style="font-size:12.5px;white-space:pre-wrap;line-height:1.5">'+esc(msg)+'</div>', true); renderCurrent(); }
+async function rebuildMarketingPlan(){
+  const deletable=state.marketing_items.filter(mi=>itemIsSeeded(mi) && !itemIsProtected(mi));
+  const preserved=state.marketing_items.filter(mi=>itemIsSeeded(mi) && itemIsProtected(mi)).length;
+  if(!confirm('This will delete ALL automatically-generated marketing items and recreate the 26-week plan.\n\nItems you have edited manually or already published will be preserved ('+preserved+' kept).\n\nContinue?')) return;
+  try{
+    // 1. Delete untouched seeded items (any campaign key), in chunks.
+    showSeedingOverlay('Deleting old campaign…');
+    const ids=deletable.map(mi=>mi.id); let deleted=0;
+    for(let i=0;i<ids.length;i+=100){
+      const chunk=ids.slice(i,i+100);
+      const {error}=await sb.from('marketing_items').delete().in('id',chunk);
+      if(error){ showRebuildError('Delete failed: '+error.message); return; }
+      deleted+=chunk.length;
+    }
+    const gone=new Set(ids);
+    state.marketing_items=state.marketing_items.filter(mi=>!gone.has(mi.id));
+
+    // 2. Reseed the CURRENT rhythm, week by week (real progress). Uses the
+    //    live generator; onConflict keeps any preserved edited slot intact.
+    showSeedingOverlay('Generating new plan…');
+    const rows=buildInsurancePlanRows();
+    const weeks={};
+    rows.forEach(r=>{ const m=r.seed_key.match(/-week-(\d\d)-/); const wk=m?m[1]:'00'; (weeks[wk]=weeks[wk]||[]).push(r); });
+    const weekNums=Object.keys(weeks).sort();
+    let created=0;
+    for(const wk of weekNums){
+      showSeedingOverlay('Building Week '+parseInt(wk,10)+'…');
+      const {data,error}=await sb.from('marketing_items').upsert(weeks[wk],{onConflict:'seed_key',ignoreDuplicates:true}).select();
+      if(error){ showRebuildError('Seeding failed on week '+wk+': '+error.message); return; }
+      (data||[]).forEach(row=>{ if(!byId(state.marketing_items,row.id)) state.marketing_items.push(row); });
+      created+=(data||[]).length;
+    }
+
+    // 3. Reload state from the database so Today / Calendar / Marketing all
+    //    reflect the true post-rebuild rows, then verify the fixed structure.
+    showSeedingOverlay('Reloading…');
+    await loadAll();
+    showSeedingOverlay('Verifying 26 weeks…');
+    const v=verifyRhythm();
+    if(!v.ok){ showRebuildError('Verification failed after rebuild:\n\n'+v.errors.slice(0,12).join('\n')+(v.errors.length>12?'\n… ('+(v.errors.length-12)+' more)':'')); return; }
+
+    try{ await dbInsert('migration_log',{step:'marketing_rebuild', status:'ok', source_table:'system', detail:'Deleted '+deleted+' untouched seeded item(s), preserved '+preserved+', created '+created+'. Campaign '+MARKETING_CAMPAIGN_KEY}); }catch(e){}
+    const total=state.marketing_items.filter(mi=>mi.seed_key && mi.seed_key.startsWith(MARKETING_CAMPAIGN_KEY+'-week-')).length;
+    hideSeedingOverlay();
+    openModal('<h3>Marketing plan rebuilt successfully</h3>'+
+      '<div class="muted" style="font-size:13px;line-height:1.7;margin-bottom:12px">Old campaigns removed.<br>26-week operating rhythm installed.</div>'+
+      '<div class="mono" style="font-size:12px;color:var(--gold)">'+total+' items · '+v.weeks+' weeks verified ✓'+(preserved?' · '+preserved+' preserved':'')+'</div>', true);
+    toast('Marketing plan rebuilt — deleted '+deleted+', created '+created+' ('+total+' current-plan rows)');
+    renderCurrent();
+  }catch(e){ showRebuildError('Rebuild failed: '+(e.message||e)); }
+}
+function vMarketingRebuildPanel(){
+  const info=marketingStatusInfo();
+  const kv=(k,v,mono,color)=>'<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)"><span class="faint" style="font-size:12px">'+k+'</span><span'+(mono?' class="mono"':'')+' style="font-size:12px;text-align:right'+(color?';color:'+color:'')+'">'+v+'</span></div>';
+  const clean = info.legacy===0 && info.current===info.expected;
+  return '<div class="card" style="border:1px solid var(--gold);box-shadow:0 0 0 1px rgba(212,175,55,.15)">'+
+    '<div style="font-weight:680;font-size:15px;margin-bottom:4px">Marketing plan</div>'+
+    '<div class="muted" style="font-size:12px;margin-bottom:12px">Fixed weekly rhythm — Mon 2 · Tue 2 · Wed 1 · Thu 1 · Fri 2 · weekend 0 = '+info.expected+' items across 26 weekly campaigns.</div>'+
+    kv('Current campaign key', esc(info.campaign), true)+
+    kv('Items in current plan', info.current+' / '+info.expected, true, info.current===info.expected?'var(--gold)':'var(--amber,#F59E0B)')+
+    kv('Legacy / old seeded items', info.legacy, true, info.legacy?'var(--amber,#F59E0B)':'')+
+    kv('Total marketing items', info.count, true)+
+    kv('Last rebuild', esc(fmtDateTime(info.lastRebuild)), true)+
+    (clean
+      ? '<div class="faint" style="font-size:11px;margin-top:14px;line-height:1.5">Plan looks clean — '+info.expected+' current rows and no legacy items. You can still rebuild to reset.</div>'
+      : '<div class="muted" style="font-size:12px;margin-top:14px;line-height:1.5">Rebuild will delete <b>'+info.deletable+'</b> auto-generated row(s) (legacy campaigns, the bulk content-library, and any untouched current rows), keep <b>'+info.preserved+'</b> published/edited item(s), then reseed the current rhythm to exactly '+info.expected+' rows and verify the day counts.</div>')+
+    '<button class="btn gold" style="margin-top:14px;width:100%;font-weight:640" onclick="rebuildMarketingPlan()">Rebuild Marketing Plan</button>'+
+  '</div>';
+}
+/* Legacy "Rebuild plan" buttons now use the safe, work-preserving rebuild. */
+async function rebuildInsurancePlan(){ return rebuildMarketingPlan(); }
+async function rebuildInsurancePlanLegacyUnused(){
   showSeedingOverlay('Rebuilding your marketing plan…');
   try{
     const prefixes=[MARKETING_CAMPAIGN_KEY, ...PRIOR_CAMPAIGN_KEYS];
@@ -4786,7 +4916,7 @@ async function runSnapshotRestore(){
 function vSettings(){
   const tab=route.tab||'status';
   const outstanding=state.migration_log.filter(m=>['needs_review','error'].includes(m.status)).length;
-  const tabs=[['status','Connection'],['counts','Row counts'],['review','Migration review'+(outstanding?' ('+outstanding+')':'')],['duplicates','Duplicates'],['recovery','Data recovery'],['backup','Backup & Restore']];
+  const tabs=[['status','Connection'],['marketing','Marketing plan'],['counts','Row counts'],['review','Migration review'+(outstanding?' ('+outstanding+')':'')],['duplicates','Duplicates'],['recovery','Data recovery'],['backup','Backup & Restore']];
   let body='';
   if(tab==='status'){
     body='<div class="card">'+
@@ -4815,6 +4945,8 @@ function vSettings(){
     body=vBackupPanel();
   } else if(tab==='duplicates'){
     body=vDuplicatesTab();
+  } else if(tab==='marketing'){
+    body=vMarketingRebuildPanel();
   } else if(tab==='counts'){
     body='<div class="card">'+TABLES.map(t=>kv(t, state[t].length)).join('')+'</div>';
   } else if(tab==='review'){
