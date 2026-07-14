@@ -110,7 +110,7 @@
   .kv:last-child{border-bottom:none}
   .modal-scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;align-items:flex-start;justify-content:center;padding:36px 20px;overflow-y:auto}
   .modal-scrim.show{display:flex}
-  .modal{background:var(--panel);border:1px solid var(--line-s);border-radius:16px;max-width:620px;width:100%;padding:24px}
+  .modal{background:var(--panel);border:1px solid var(--line-s);border-radius:16px;max-width:620px;width:100%;padding:24px;max-height:90vh;overflow-y:auto}
   .modal.wide{max-width:960px}
   .close-x{float:right;cursor:pointer;color:var(--faint);font-size:20px;line-height:1}
   .toast{position:fixed;bottom:22px;right:22px;background:var(--panel2);border:1px solid var(--gold);
@@ -477,13 +477,30 @@ let state = {
 const TABLES = Object.keys(state);
 
 function uid(){return crypto.randomUUID();}
-function today(){return new Date().toISOString().slice(0,10);}
+function today(){
+  const d=new Date();
+  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+day;
+}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function byId(arr,id){return arr.find(x=>x.id===id);}
 function normText(s){return (s==null?'':String(s)).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();}
 function normEmail(s){return (s==null?'':String(s)).toLowerCase().trim();}
 function normDomain(url){ if(!url) return ''; try{ let u=String(url).trim().replace(/^https?:\/\//i,'').replace(/^www\./i,''); return u.split(/[\/?#]/)[0].toLowerCase(); }catch(e){ return ''; } }
 function fmtDate(d){if(!d)return '—';return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}
+function toLocalDateTimeInput(value){
+  if(!value) return '';
+  const d=new Date(value);
+  if(Number.isNaN(d.getTime())) return String(value).slice(0,16);
+  const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');
+  const h=String(d.getHours()).padStart(2,'0'),min=String(d.getMinutes()).padStart(2,'0');
+  return y+'-'+m+'-'+day+'T'+h+':'+min;
+}
+function localInputToIso(value){
+  if(!value) return null;
+  const d=new Date(value);
+  return Number.isNaN(d.getTime())?value:d.toISOString();
+}
 function fmtDateTime(d){ if(!d) return 'Never'; try{ const dt=new Date(d); const t=dt.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}); const isToday=dt.toDateString()===new Date().toDateString(); return (isToday?'Today':dt.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}))+' '+t; }catch(e){ return String(d); } }
 function daysUntil(d){if(!d)return null;const t=new Date(today()),x=new Date(d);return Math.round((x-t)/86400000);}
 function toast(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.getElementById('toastHost').appendChild(el);setTimeout(()=>el.remove(),3200);}
@@ -976,7 +993,7 @@ function todaysMarketingCard(){
   if(!item) return '';
   return '<div class="card" style="border-color:var(--gold);margin-bottom:22px">'+
     '<div class="eyebrow">Today\u2019s Marketing</div>'+
-    '<div style="font-size:15px;font-weight:660;margin:8px 0">Write: '+esc(item.title)+'</div>'+
+    '<div style="font-size:15px;font-weight:660;margin:8px 0">'+esc(item.title)+'</div>'+
     '<div class="muted" style="font-size:12px;margin-bottom:10px">'+esc(item.item_type)+(item.audience?' · '+esc(item.audience):'')+' · '+estimateLabel(item)+'</div>'+
     (item.objective?'<div style="font-size:12.5px;margin-bottom:12px">'+esc(item.objective)+'</div>':'')+
     '<div style="display:flex;gap:8px"><button class="btn gold sm" onclick="openContentForWriting(\''+item.id+'\')">Open Draft</button>'+
@@ -2029,7 +2046,7 @@ function openMeetingForm(orgId,id,prefillDate){
     '<label class="person-pick"><input type="checkbox" class="f_mperson" value="'+p.id+'"'+(selectedPeople.has(p.id)?' checked':'')+'>'+
       personAvatar(p,true)+'<span><strong>'+esc(p.full_name)+'</strong><br><span class="faint">'+esc(p.role||orgName(p.primary_organisation_id)||'Contact')+'</span></span></label>'
   ).join('');
-  const dtValue=m&&m.scheduled_at?String(m.scheduled_at).slice(0,16):(prefillDate?prefillDate+'T09:00':'');
+  const dtValue=m&&m.scheduled_at?toLocalDateTimeInput(m.scheduled_at):(prefillDate?prefillDate+'T09:00':'');
   openModal('<h3>'+(m?'Edit meeting':'New meeting')+'</h3>'+
     '<div class="grid g2">'+
       '<div class="field"><label class="fl">Meeting name</label><input class="input" id="f_mtitle" placeholder="e.g. Mayfair pilot discussion" value="'+esc(m?m.title:'')+'"></div>'+
@@ -2049,7 +2066,7 @@ async function saveMeetingForm(id){
   const payload={
     title: document.getElementById('f_mtitle').value.trim(),
     organisation_id: document.getElementById('f_morg').value||null,
-    scheduled_at: document.getElementById('f_mwhen').value || new Date().toISOString(),
+    scheduled_at: localInputToIso(document.getElementById('f_mwhen').value) || new Date().toISOString(),
     objective: [
       document.getElementById('f_mobjective').value.trim(),
       document.getElementById('f_magenda').value.trim()
@@ -2227,7 +2244,7 @@ function renderFullCalendar(){
   const head='<div class="cal-head-row">'+['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d=>'<div class="cal-head-cell">'+d+'</div>').join('')+'</div>';
   const grid='<div class="cal-grid">'+cells.map(d=>calDayCell(d,calMonth,byDate)).join('')+'</div>';
   return toolbar+head+'<div class="cal-grid-wrap">'+grid+'</div>'+
-    '<div class="faint" style="font-size:11px;margin:10px 2px 0">Click any day for its agenda, or click an item directly. Completed items are hidden by default.</div>';
+    '<div class="faint" style="font-size:11px;margin:10px 2px 0">Click any day for its agenda, or click an item directly. Completed items remain visible by default and can be hidden with the toggle.</div>';
 }
 function vCalendar(){
   return '<div class="page-head"><div><div class="eyebrow">Work</div><div class="page-title">Full Calendar</div>'+
@@ -5301,12 +5318,12 @@ function searchIndex(q){
   groups.push(['Activities', state.activities.filter(a=>hit(a.title)||hit(a.body)).slice(0,8).map(a=>({label:a.title,sub:fmtDate(a.occurred_at),go:a.organisation_id?"go('organisationDetail','"+a.organisation_id+"')":"void(0)"}))]);
   groups.push(['Meetings', state.meetings.filter(m=>hit(m.title)||hit(m.notes)).map(m=>({label:m.title,sub:fmtDate(m.scheduled_at),go:"go('meetingDetail','"+m.id+"')"}))]);
   groups.push(['Tasks', state.tasks.filter(t=>hit(t.title)||hit(t.description)).map(t=>({label:t.title,sub:t.status,go:"openTaskModal('"+t.id+"')"}))]);
-  groups.push(['Assets', state.assets_v2.filter(a=>hit(a.title)||hit(a.file_name)).map(a=>({label:a.title,sub:a.asset_type||'',go:"go('assets')"}))]);
-  groups.push(['Lessons', state.lessons_v2.filter(l=>!l.archived_at && (hit(l.title)||hit(l.summary)||hit(l.detail))).map(l=>({label:deriveLessonTitle(l),sub:l.category||'',go:"go('lessons')"}))]);
+  groups.push(['Assets', state.assets_v2.filter(a=>hit(a.title)||hit(a.file_name)||hit(a.notes)||hit(a.description)).map(a=>({label:a.title,sub:a.asset_type||'',go:"go('assetDetail','"+a.id+"')"}))]);
+  groups.push(['Lessons', state.lessons_v2.filter(l=>!l.archived_at && (hit(l.title)||hit(l.summary)||hit(l.detail))).map(l=>({label:deriveLessonTitle(l),sub:l.category||'',go:"openLessonForm('"+l.id+"')"}))]);
   groups.push(['Knowledge', state.knowledge_sections_v2.filter(k=>hit(k.title)||hit(k.content)).map(k=>({label:k.title,sub:k.category||'',go:"go('knowledge')"}))]);
-  groups.push(['Decisions', state.decisions.filter(d=>!d.archived_at && (hit(d.title)||hit(d.decision))).map(d=>({label:d.title,sub:fmtDate(d.decided_at),go:"go('decisions')"}))]);
-  groups.push(['Objections', state.objections.filter(x=>!x.archived_at && hit(x.objection)).map(x=>({label:(x.objection||'').slice(0,80),sub:x.status,go:x.organisation_id?"go('organisationDetail','"+x.organisation_id+"')":"go('objections')"}))]);
-  groups.push(['Marketing', state.marketing_items.filter(m=>hit(m.title)||hit(m.description)).map(m=>({label:m.title,sub:m.status,go:"go('marketing')"}))]);
+  groups.push(['Decisions', state.decisions.filter(d=>!d.archived_at && (hit(d.title)||hit(d.decision)||hit(d.reason))).map(d=>({label:d.title,sub:fmtDate(d.decided_at),go:"openDecisionForm('"+d.id+"')"}))]);
+  groups.push(['Objections', state.objections.filter(x=>!x.archived_at && (hit(x.objection)||hit(x.response)||hit(x.category))).map(x=>({label:(x.objection||'').slice(0,80),sub:x.status,go:"openObjectionForm('"+(x.organisation_id||'')+"','"+x.id+"')"}))]);
+  groups.push(['Marketing', state.marketing_items.filter(m=>hit(m.title)||hit(m.description)||hit(m.objective)).map(m=>({label:m.title,sub:m.status,go:"openMarketingDetail('"+m.id+"')"}))]);
   groups.push(['Team notes', state.team_messages_v2.filter(m=>hit(m.title)||hit(m.message)).map(m=>({label:m.title,sub:m.status,go:"openTeamNoteDetail('"+m.id+"')"}))]);
   return groups.filter(([,arr])=>arr.length);
 }
