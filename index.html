@@ -3200,8 +3200,10 @@ const CONTENT_LIBRARY=[
    suffix if the plan structure ever changes again, so an old partial run
    never blocks a fresh correct one.
 --------------------------------------------------------------------------- */
-const MARKETING_CAMPAIGN_KEY = 'weekly-rhythm-6mo-v3';
-const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2'];
+const MARKETING_CAMPAIGN_KEY = 'weekly-rhythm-6mo-v4';
+const MARKETING_PLAN_START_DATE = '2026-07-20';
+const MARKETING_FORWARD_RESET_VERSION = 'marketing_forward_reset_2026_07_20_v1';
+const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2','weekly-rhythm-6mo-v3'];
 const WEEKLY_MIGRATION_VERSION = 'weekly_rhythm_v2';
 
 const MONTHLY_THEMES_6MO_V2 = ['The Trust Problem','Insurance','Verification Infrastructure','Customer Stories','Future of Trust','Building the Category'];
@@ -3282,12 +3284,10 @@ function weekdayOf(dateValue){
   return new Date(Number(m[1]), Number(m[2])-1, Number(m[3])).getDay();
 } // 0=Sun..6=Sat, local, no UTC shift
 function firstPlanMonday(from){
-  const d=new Date(from); d.setHours(0,0,0,0);
-  const dow=d.getDay(); // 0=Sun..6=Sat
-  let daysAhead=((1-dow+7)%7);
-  if(daysAhead===0) daysAhead=7; // today IS Monday — never seed onto today, use next week's Monday instead
-  d.setDate(d.getDate()+daysAhead);
-  return d;
+  // This plan deliberately starts on Monday 20 July 2026. Everything before
+  // that date is completed history; every generated task begins from here.
+  const m=MARKETING_PLAN_START_DATE.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
 }
 function campaignKeyForWeek(week){ return 'wk'+String(week+1).padStart(2,'0'); }
 /* Up to three real CRM organisation names, most-recently-touched first, baked
@@ -3580,8 +3580,36 @@ async function migrateToWeeklyCampaignsOnce(){
   try{ await dbInsert('migration_log',{step:WEEKLY_MIGRATION_VERSION, status:'ok', source_table:'system', detail:'Weekly-campaign migration: removed '+removed+' untouched placeholder(s), kept '+kept+' edited/published item(s).'}); }catch(e){}
   if(removed||kept) toast('Marketing upgraded to weekly campaigns — cleared '+removed+' old placeholder(s)'+(kept?', kept '+kept+' you\u2019d worked on':''));
 }
+async function resetGeneratedMarketingFromStartOnce(){
+  if((state.migration_log||[]).some(m=>m.step===MARKETING_FORWARD_RESET_VERSION && m.status==='ok')) return {deleted:0, alreadyDone:true};
+  // Clear every auto-generated row scheduled from 20 July onward, including
+  // rows previously marked complete/published. The user explicitly confirmed
+  // that the prior week is finished and wants a clean forward plan. Manual
+  // marketing records are untouched.
+  const rows=(state.marketing_items||[]).filter(mi=>{
+    const date=String(mi.scheduled_at||'').slice(0,10);
+    return date>=MARKETING_PLAN_START_DATE && itemIsSeeded(mi);
+  });
+  let deleted=0;
+  const ids=rows.map(r=>r.id);
+  for(let i=0;i<ids.length;i+=100){
+    const chunk=ids.slice(i,i+100);
+    const {error}=await sb.from('marketing_items').delete().in('id',chunk);
+    if(error){ console.error('[marketing forward reset] delete failed',error); throw error; }
+    deleted+=chunk.length;
+  }
+  if(ids.length){
+    const gone=new Set(ids);
+    state.marketing_items=state.marketing_items.filter(mi=>!gone.has(mi.id));
+  }
+  try{ await dbInsert('migration_log',{step:MARKETING_FORWARD_RESET_VERSION,status:'ok',source_table:'system',detail:'Cleared '+deleted+' generated marketing row(s) scheduled on/after '+MARKETING_PLAN_START_DATE+' before installing '+MARKETING_CAMPAIGN_KEY+'.'}); }catch(e){}
+  return {deleted, alreadyDone:false};
+}
+
 async function autoSeedMarketingPlanIfNeeded(){
   try{
+    const forwardReset=await resetGeneratedMarketingFromStartOnce();
+    if(forwardReset.deleted) toast('Cleared '+forwardReset.deleted+' old future marketing item(s); rebuilding from 20 July');
     await migrateToWeeklyCampaignsOnce();
     const dedupResult=await dedupeMarketingItemsOnce();
     if(dedupResult.removed || dedupResult.backfilled){
@@ -3750,10 +3778,13 @@ async function rebuildMarketingPlan(){
       (vpre.ok?'':'\nfirst errors:\n'+vpre.errors.slice(0,8).join('\n')));
     if(!vpre.ok){ showDiag('Rebuild stopped at Stage 2 — generator failed (nothing deleted or written)', true); return; }
 
-    const deletable=state.marketing_items.filter(mi=>itemIsSeeded(mi) && !itemIsProtected(mi));
-    const preserved=state.marketing_items.filter(mi=>itemIsSeeded(mi) && itemIsProtected(mi)).length;
+    const deletable=state.marketing_items.filter(mi=>{
+      const date=String(mi.scheduled_at||'').slice(0,10);
+      return itemIsSeeded(mi) && date>=MARKETING_PLAN_START_DATE;
+    });
+    const preserved=state.marketing_items.filter(mi=>itemIsSeeded(mi) && String(mi.scheduled_at||'').slice(0,10)<MARKETING_PLAN_START_DATE).length;
     hideSeedingOverlay();
-    if(!confirm('Generator verified ✓ — '+rows.length+' rows, 26 weeks.\n\nDelete '+deletable.length+' untouched auto-item(s), preserve '+preserved+', then write the plan. Continue?')) return;
+    if(!confirm('Generator verified ✓ — '+rows.length+' rows, 26 weeks.\n\nDelete '+deletable.length+' generated item(s) dated 20 July onward, preserve '+preserved+' historical item(s) before 20 July, then write the plan. Continue?')) return;
 
     // ---- STAGE 3: delete untouched seeded rows --------------------------
     showSeedingOverlay('Deleting old campaign…');
@@ -3851,7 +3882,7 @@ function vMarketingRebuildPanel(){
     kv('Last rebuild', esc(fmtDateTime(info.lastRebuild)), true)+
     (clean
       ? '<div class="faint" style="font-size:11px;margin-top:14px;line-height:1.5">Plan looks clean — '+info.expected+' current rows and no legacy items. You can still rebuild to reset.</div>'
-      : '<div class="muted" style="font-size:12px;margin-top:14px;line-height:1.5">Rebuild will delete <b>'+info.deletable+'</b> auto-generated row(s) (legacy campaigns, the bulk content-library, and any untouched current rows), keep <b>'+info.preserved+'</b> published/edited item(s), then reseed the current rhythm to exactly '+info.expected+' rows and verify the day counts.</div>')+
+      : '<div class="muted" style="font-size:12px;margin-top:14px;line-height:1.5">Rebuild will delete all auto-generated marketing rows dated <b>20 July 2026 onward</b>, keep completed history before that date, then reseed the current rhythm to exactly '+info.expected+' rows and verify the day counts.</div>')+
     '<button class="btn gold" style="margin-top:14px;width:100%;font-weight:640" onclick="rebuildMarketingPlan()">Rebuild Marketing Plan</button>'+
   '</div>';
 }
@@ -4410,7 +4441,7 @@ function getItemCampaign(mi){
 function itemIsDone(mi){ return ['Published','Repurposing'].includes(getContentStage(mi)) || !!mi.completed_at || mi.status==='Published'; }
 function buildCampaignGroups(){
   const map=new Map();
-  state.marketing_items.forEach(mi=>{ const theme=getItemCampaign(mi); if(!theme) return; if(!map.has(theme)) map.set(theme,[]); map.get(theme).push(mi); });
+  state.marketing_items.forEach(mi=>{ if(!itemIsCurrentPlan(mi)) return; const theme=getItemCampaign(mi); if(!theme) return; if(!map.has(theme)) map.set(theme,[]); map.get(theme).push(mi); });
   const meta=t=>CAMPAIGN_THEMES.find(c=>c.theme===t)||{};
   const groups=[...map.entries()].map(([theme,items])=>{
     items.sort((a,b)=>(a.scheduled_at||'zzzz').localeCompare(b.scheduled_at||'zzzz'));
