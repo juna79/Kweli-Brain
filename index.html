@@ -3200,8 +3200,8 @@ const CONTENT_LIBRARY=[
    suffix if the plan structure ever changes again, so an old partial run
    never blocks a fresh correct one.
 --------------------------------------------------------------------------- */
-const MARKETING_CAMPAIGN_KEY = 'weekly-rhythm-6mo-v2';
-const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1'];
+const MARKETING_CAMPAIGN_KEY = 'weekly-rhythm-6mo-v3';
+const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2'];
 const WEEKLY_MIGRATION_VERSION = 'weekly_rhythm_v2';
 
 const MONTHLY_THEMES_6MO_V2 = ['The Trust Problem','Insurance','Verification Infrastructure','Customer Stories','Future of Trust','Building the Category'];
@@ -3217,7 +3217,6 @@ const WEEK_SLOTS = ['article','instagram','linkedin','x','support','distribution
    founder reflection and distribution task derive from the SAME theme, never
    a random topic. Edit these freely — they are just the starting sequence. */
 const CAMPAIGN_THEMES = [
-  {theme:'Claims Leakage', problem:'Insurers lose millions because nobody has time to verify every supporting document.', audience:'Insurance & claims executives', objective:'Start conversations with claims managers.', support:'Case Study', article:'Claims Leakage: The Silent Margin Killer'},
   {theme:'Motor Claims Fraud', problem:'Staged accidents and doctored motor documents drain motor portfolios.', audience:'Motor & general insurers', objective:'Get motor claims teams talking to us.', support:'FAQ', article:'The Staged Accident Problem Nobody Wants to Talk About'},
   {theme:'Hospital & Medical Billing Fraud', problem:'Inflated and fabricated medical bills slip through because documents are trusted on sight.', audience:'Health insurers & medical schemes', objective:'Open conversations with medical claims leads.', support:'Email Version', article:'Why Medical Bills Are the Easiest Thing to Fake'},
   {theme:'Fake Invoices in Claims', problem:'A convincing fake invoice is minutes of work and costs insurers real money.', audience:'Claims & finance leaders', objective:'Show why invoice authenticity matters.', support:'Short Video', article:'A Convincing Fake Invoice Takes Five Minutes'},
@@ -3242,7 +3241,8 @@ const CAMPAIGN_THEMES = [
   {theme:'Growing Up in Kenya: Why Trust Matters', problem:'Where document trust breaks down every day, and why it shaped Kweli.', audience:'Founders & our network', objective:'Personal reach and connection.', support:'Founder Insight', article:'Growing Up Where Documents Can\'t Be Trusted'},
   {theme:'Founder Mistakes We\u2019ve Made', problem:'The wrong turns \u2014 including building an exchange first.', audience:'Founders & operators', objective:'Earn trust through candour.', support:'Founder Insight', article:'We Built an Exchange Before We Understood the Problem'},
   {theme:'Pilot Learnings', problem:'What early pilots taught us about where verification really bites.', audience:'Customers, partners & investors', objective:'Show real, honest progress.', support:'Customer Story', article:'What Our First Pilots Taught Us About Where Verification Bites'},
-  {theme:'The Future of Document Verification', problem:'Where verification infrastructure goes over the next decade.', audience:'CIOs, innovation leaders & investors', objective:'Set the category vision.', support:'Short Video', article:'Where Document Verification Goes Next'}
+  {theme:'The Future of Document Verification', problem:'Where verification infrastructure goes over the next decade.', audience:'CIOs, innovation leaders & investors', objective:'Set the category vision.', support:'Short Video', article:'Where Document Verification Goes Next'},
+  {theme:'Claims Leakage', problem:'Insurers lose millions because nobody has time to verify every supporting document.', audience:'Insurance & claims executives', objective:'Start conversations with claims managers.', support:'Case Study', article:'Claims Leakage: The Silent Margin Killer'}
 ];
 
 /* ---------------------------------------------------------------------------
@@ -3778,32 +3778,47 @@ async function rebuildMarketingPlan(){
       (upErr?'\nSUPABASE ERROR: '+upErr+'\n(if this mentions "no unique or exclusion constraint", the seed_key unique index is missing)':''));
     if(upErr){ showDiag('Rebuild stopped at Stage 4 — upsert failed', true); return; }
 
-    // ---- STAGE 5: reload from Supabase ----------------------------------
-    showSeedingOverlay('Reloading from Supabase…');
-    let reloadErr=null;
-    try{ await loadAll(); }catch(e){ reloadErr=e.message||String(e); }
-    const totalAfter=state.marketing_items.length;
-    const matchAfter=state.marketing_items.filter(mi=>mi.seed_key && mi.seed_key.startsWith(MARKETING_CAMPAIGN_KEY+'-week-')).length;
-    const prefixes={};
-    state.marketing_items.forEach(mi=>{ if(!mi.seed_key) return; const p=mi.seed_key.replace(/-week-.*$/,''); prefixes[p]=(prefixes[p]||0)+1; });
-    const noKey=state.marketing_items.filter(mi=>!mi.seed_key).length;
-    const prefixStr=Object.keys(prefixes).length?Object.entries(prefixes).sort((a,b)=>b[1]-a[1]).map(e=>'  '+e[0]+' → '+e[1]).join('\n'):'  (none)';
-    log('5. Reload phase',
-      'loadAll: '+(reloadErr?'ERROR: '+reloadErr:'ok')+
-      '\nmarketing_items in state: '+totalAfter+
-      '\nrows with NO seed_key: '+noKey+
-      '\nmatching current campaign ('+MARKETING_CAMPAIGN_KEY+'-week-): '+matchAfter+
-      '\nseed_key prefixes present in DB:\n'+prefixStr+
-      (matchAfter===0?'\n⚠️ ZERO rows match after a successful write — the write prefix and/or reload/RLS is the problem, NOT the generator.':''));
-    if(reloadErr){ showDiag('Rebuild stopped at Stage 5 — reload failed', true); return; }
+    // ---- STAGE 5: direct readback from Supabase ----------------------------
+    // Verify the rows returned by the database itself. Do not depend on stale
+    // in-memory state or a broad loadAll() result that may contain legacy rows.
+    showSeedingOverlay('Reading back verified plan…');
+    const readPrefix=MARKETING_CAMPAIGN_KEY+'-week-';
+    let persisted=[], readErr=null, from=0;
+    const READ_PAGE=1000;
+    for(;;){
+      const {data,error}=await sb.from('marketing_items')
+        .select('*')
+        .like('seed_key', readPrefix+'%')
+        .order('seed_key',{ascending:true})
+        .range(from,from+READ_PAGE-1);
+      if(error){ readErr=error.message||error.details||JSON.stringify(error); break; }
+      persisted=persisted.concat(data||[]);
+      if(!data || data.length<READ_PAGE) break;
+      from+=READ_PAGE;
+    }
+    log('5. Direct readback',
+      'query prefix: '+readPrefix+
+      '\nerror: '+(readErr||'none')+
+      '\nrows returned: '+persisted.length+
+      '\nfirst seed_key: '+(persisted[0]?.seed_key||'—')+
+      '\nlast  seed_key: '+(persisted[persisted.length-1]?.seed_key||'—'));
+    if(readErr){ showDiag('Rebuild stopped at Stage 5 — direct readback failed', true); return; }
 
-    // ---- STAGE 6: verify persisted rows ---------------------------------
+    // ---- STAGE 6: verify the exact persisted rows --------------------------
     showSeedingOverlay('Verifying persisted plan…');
-    const vpost=verifyRhythm();
+    const vpost=verifyPlanRows(persisted);
     log('6. Persisted verification',
       'ok: '+vpost.ok+' · matching rows: '+vpost.count+' · weeks: '+vpost.weeks+
-      (vpost.ok?'':'\nfirst errors:\n'+vpost.errors.slice(0,8).join('\n')));
+      (vpost.ok?'':'\nfirst errors:\n'+vpost.errors.slice(0,12).join('\n')));
     if(!vpost.ok){ showDiag('Rebuild stopped at Stage 6 — persisted verification failed (see counts above)', true); return; }
+
+    // Replace only the current campaign slice in local state with the exact
+    // rows just read from Supabase, preserving manual and historical records.
+    state.marketing_items = state.marketing_items
+      .filter(mi=>!(mi.seed_key||'').startsWith(readPrefix))
+      .concat(persisted);
+    renderNav();
+    renderCurrent();
 
     try{ await dbInsert('migration_log',{step:'marketing_rebuild', status:'ok', source_table:'system', detail:'deleted '+deleted+', submitted '+submitted+', returned '+returned+', verified '+vpost.count+'. Campaign '+MARKETING_CAMPAIGN_KEY}); }catch(e){}
     log('✓ Success', vpost.count+' current-plan rows across '+vpost.weeks+' weeks · '+preserved+' preserved · '+deleted+' deleted');
