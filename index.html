@@ -1800,7 +1800,8 @@ async function saveMeetingNotes(id){
 let calMonth=new Date().getMonth(), calYear=new Date().getFullYear();
 let calFilters={tasks:true, meetings:true, marketing:true, team:true};
 let calHideCompleted=false;
-const CAL_TYPE_COLOR={tasks:'var(--blue)', meetings:'var(--green)', marketing:'var(--gold)', team:'var(--amber)'};
+const CAL_TYPE_COLOR={tasks:'var(--blue)', meetings:'var(--green)', marketing:'var(--gold)', team:'var(--amber)', assets:'var(--muted)'};
+const CAL_TYPE_ICON={tasks:'✅', meetings:'📅', marketing:'📢', team:'📌', assets:'📎'};
 
 /* Monday-first month grid, including the leading/trailing days from
    adjacent months needed to fill complete weeks — exact port of V1's
@@ -1844,6 +1845,7 @@ function calendarItemsFor(year,month){
 }
 function calMiniItem(it){
   return '<div class="cal-mini'+(it.overdue?' overdue':'')+(it.done?' done':'')+'" style="border-left-color:'+CAL_TYPE_COLOR[it.type]+'" onclick="event.stopPropagation();'+it.onclick+'">'+
+    '<span style="flex:none;margin-right:3px">'+(CAL_TYPE_ICON[it.type]||'•')+'</span>'+
     (it.done?'<span style="color:var(--green);flex:none">\u2713</span>':'')+
     '<span class="cal-mini-text">'+esc(it.label)+'</span></div>';
 }
@@ -1873,7 +1875,7 @@ function renderFullCalendar(){
     '<button class="btn sm" onclick="calNav(1)">›</button>'+
     '<button class="btn sm" onclick="calToday()">This month</button>'+
     '<div style="display:flex;gap:8px;margin-left:auto;flex-wrap:wrap">'+
-      filterChip('tasks','Tasks')+filterChip('meetings','Meetings')+filterChip('marketing','Marketing')+filterChip('team','Team notes')+
+      filterChip('tasks','✅ Follow-ups')+filterChip('meetings','📅 Meetings')+filterChip('marketing','📢 Marketing')+filterChip('team','📌 Team notes')+
       '<span class="pill" style="cursor:pointer" onclick="calHideCompleted=!calHideCompleted;renderCurrent()">'+(calHideCompleted?'\u2610':'\u2611')+' Show completed tasks</span>'+
     '</div></div>';
   const head='<div class="cal-head-row">'+['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d=>'<div class="cal-head-cell">'+d+'</div>').join('')+'</div>';
@@ -3199,32 +3201,32 @@ const WEEK_SLOTS = ['article','instagram','linkedin','x','support','distribution
    founder reflection and distribution task derive from the SAME theme, never
    a random topic. Edit these freely — they are just the starting sequence. */
 const CAMPAIGN_THEMES = [
-  {theme:'Claims Leakage', problem:'Insurers lose millions because nobody has time to verify every supporting document.', audience:'Insurance & claims executives', objective:'Start conversations with claims managers.', support:'Case Study'},
-  {theme:'Motor Claims Fraud', problem:'Staged accidents and doctored motor documents drain motor portfolios.', audience:'Motor & general insurers', objective:'Get motor claims teams talking to us.', support:'FAQ'},
-  {theme:'Hospital & Medical Billing Fraud', problem:'Inflated and fabricated medical bills slip through because documents are trusted on sight.', audience:'Health insurers & medical schemes', objective:'Open conversations with medical claims leads.', support:'Email Version'},
-  {theme:'Fake Invoices in Claims', problem:'A convincing fake invoice is minutes of work and costs insurers real money.', audience:'Claims & finance leaders', objective:'Show why invoice authenticity matters.', support:'Short Video'},
-  {theme:'Medical Report Verification', problem:'Medical reports get altered between the clinic and the claim.', audience:'Health insurers & assessors', objective:'Surface demand for report verification.', support:'FAQ'},
-  {theme:'Police Abstract & Report Verification', problem:'Police abstracts are routinely forged and rarely checked at source.', audience:'Motor & liability insurers', objective:'Start conversations on abstract verification.', support:'Case Study'},
-  {theme:'Repair Quotation Fraud', problem:'Inflated garage and repair quotes ride on documents no one verifies.', audience:'Motor claims & assessors', objective:'Engage assessors on quote integrity.', support:'Short Video'},
-  {theme:'Why Insurers Still Phone to Verify', problem:'Verification today means someone calling the issuer to ask "is this real?"', audience:'Insurance operations leaders', objective:'Frame Kweli as the end of manual verification.', support:'Founder Insight'},
-  {theme:'Certificate Fraud', problem:'Certificates of all kinds are forged because there is no cheap way to prove issuance.', audience:'Certifiers, insurers & employers', objective:'Broaden the conversation beyond insurance.', support:'FAQ'},
-  {theme:'Import Documentation Trust', problem:'Import paperwork is easy to fake and expensive to check.', audience:'Trade, logistics & compliance leaders', objective:'Open conversations in trade.', support:'Email Version'},
-  {theme:'Export Documentation Trust', problem:'Export documents underpin real money and cross many untrusting hands.', audience:'Exporters & trade finance', objective:'Reach trade & compliance teams.', support:'Case Study'},
-  {theme:'Laboratory Report Integrity', problem:'Lab results are trusted downstream with no proof they were not altered.', audience:'Labs, certifiers & buyers', objective:'Engage the issuer side (labs).', support:'Short Video'},
-  {theme:'Educational Certificate Verification', problem:'Fake degrees and transcripts are normalised and slow to check.', audience:'Employers & institutions', objective:'Show a second clear use case.', support:'FAQ'},
-  {theme:'Procurement & Tender Document Fraud', problem:'Tender and procurement documents are forged where the money is largest.', audience:'Procurement & governance leaders', objective:'Reach corporate governance buyers.', support:'Case Study'},
-  {theme:'Supply Chain Document Trust', problem:'Every handoff in a supply chain assumes documents are genuine.', audience:'Operations & supply-chain leaders', objective:'Position verification across the chain.', support:'Email Version'},
-  {theme:'The Hidden Cost of Manual Verification', problem:'Manual verification is slow, expensive and still misses fakes.', audience:'CIOs, COOs & risk leaders', objective:'Quantify the cost we remove.', support:'Founder Insight'},
-  {theme:'Verification as Infrastructure', problem:'Trust is becoming an infrastructure layer, not a feature.', audience:'CIOs, innovation & risk leaders', objective:'Position Kweli as the verification layer.', support:'Founder Insight'},
-  {theme:'Digital Document Authenticity', problem:'Documents are digital, but proving they are authentic is still analogue.', audience:'Digital transformation leaders', objective:'Own the authenticity conversation.', support:'Short Video'},
-  {theme:'Blockchain Beyond Crypto', problem:'The useful part of blockchain is verifiable issuance, not tokens.', audience:'Technical & innovation leaders', objective:'Reframe blockchain around verification.', support:'FAQ'},
-  {theme:'Why AI Needs Verifiable Documents', problem:'AI amplifies whatever documents it is fed, real or fake.', audience:'CIOs & AI adopters', objective:'Tie verification to AI adoption.', support:'Email Version'},
-  {theme:'Lessons from Customer Conversations', problem:'What 30+ enterprise conversations actually taught us about document trust.', audience:'Founders, operators & our network', objective:'Pull replies from our network.', support:'Customer Story'},
-  {theme:'Building Kweli in Africa', problem:'Why verification infrastructure has to be built here, for here.', audience:'Founders, ecosystem & investors', objective:'Build narrative and investor interest.', support:'Founder Insight'},
-  {theme:'Growing Up in Kenya: Why Trust Matters', problem:'Where document trust breaks down every day, and why it shaped Kweli.', audience:'Founders & our network', objective:'Personal reach and connection.', support:'Founder Insight'},
-  {theme:'Founder Mistakes We\u2019ve Made', problem:'The wrong turns \u2014 including building an exchange first.', audience:'Founders & operators', objective:'Earn trust through candour.', support:'Founder Insight'},
-  {theme:'Pilot Learnings', problem:'What early pilots taught us about where verification really bites.', audience:'Customers, partners & investors', objective:'Show real, honest progress.', support:'Customer Story'},
-  {theme:'The Future of Document Verification', problem:'Where verification infrastructure goes over the next decade.', audience:'CIOs, innovation leaders & investors', objective:'Set the category vision.', support:'Short Video'}
+  {theme:'Claims Leakage', problem:'Insurers lose millions because nobody has time to verify every supporting document.', audience:'Insurance & claims executives', objective:'Start conversations with claims managers.', support:'Case Study', article:'Claims Leakage: The Silent Margin Killer'},
+  {theme:'Motor Claims Fraud', problem:'Staged accidents and doctored motor documents drain motor portfolios.', audience:'Motor & general insurers', objective:'Get motor claims teams talking to us.', support:'FAQ', article:'The Staged Accident Problem Nobody Wants to Talk About'},
+  {theme:'Hospital & Medical Billing Fraud', problem:'Inflated and fabricated medical bills slip through because documents are trusted on sight.', audience:'Health insurers & medical schemes', objective:'Open conversations with medical claims leads.', support:'Email Version', article:'Why Medical Bills Are the Easiest Thing to Fake'},
+  {theme:'Fake Invoices in Claims', problem:'A convincing fake invoice is minutes of work and costs insurers real money.', audience:'Claims & finance leaders', objective:'Show why invoice authenticity matters.', support:'Short Video', article:'A Convincing Fake Invoice Takes Five Minutes'},
+  {theme:'Medical Report Verification', problem:'Medical reports get altered between the clinic and the claim.', audience:'Health insurers & assessors', objective:'Surface demand for report verification.', support:'FAQ', article:'The Medical Report That Changed Between the Clinic and the Claim'},
+  {theme:'Police Abstract & Report Verification', problem:'Police abstracts are routinely forged and rarely checked at source.', audience:'Motor & liability insurers', objective:'Start conversations on abstract verification.', support:'Case Study', article:'Nobody Actually Checks the Police Abstract'},
+  {theme:'Repair Quotation Fraud', problem:'Inflated garage and repair quotes ride on documents no one verifies.', audience:'Motor claims & assessors', objective:'Engage assessors on quote integrity.', support:'Short Video', article:'The Inflated Repair Quote Is a Document Problem'},
+  {theme:'Why Insurers Still Phone to Verify', problem:'Verification today means someone calling the issuer to ask "is this real?"', audience:'Insurance operations leaders', objective:'Frame Kweli as the end of manual verification.', support:'Founder Insight', article:'Your Verification Process Is a Phone Call'},
+  {theme:'Certificate Fraud', problem:'Certificates of all kinds are forged because there is no cheap way to prove issuance.', audience:'Certifiers, insurers & employers', objective:'Broaden the conversation beyond insurance.', support:'FAQ', article:'What a Certificate Actually Proves (And What It Doesn\'t)'},
+  {theme:'Import Documentation Trust', problem:'Import paperwork is easy to fake and expensive to check.', audience:'Trade, logistics & compliance leaders', objective:'Open conversations in trade.', support:'Email Version', article:'The Import Paperwork Nobody Can Verify'},
+  {theme:'Export Documentation Trust', problem:'Export documents underpin real money and cross many untrusting hands.', audience:'Exporters & trade finance', objective:'Reach trade & compliance teams.', support:'Case Study', article:'Export Documents Move Real Money Through Untrusting Hands'},
+  {theme:'Laboratory Report Integrity', problem:'Lab results are trusted downstream with no proof they were not altered.', audience:'Labs, certifiers & buyers', objective:'Engage the issuer side (labs).', support:'Short Video', article:'Can You Trust a Lab Result You Didn\'t Watch Get Made?'},
+  {theme:'Educational Certificate Verification', problem:'Fake degrees and transcripts are normalised and slow to check.', audience:'Employers & institutions', objective:'Show a second clear use case.', support:'FAQ', article:'The Fake Degree Is a Solved Problem We Haven\'t Deployed'},
+  {theme:'Procurement & Tender Document Fraud', problem:'Tender and procurement documents are forged where the money is largest.', audience:'Procurement & governance leaders', objective:'Reach corporate governance buyers.', support:'Case Study', article:'Where the Money Is Largest, the Documents Are Faked'},
+  {theme:'Supply Chain Document Trust', problem:'Every handoff in a supply chain assumes documents are genuine.', audience:'Operations & supply-chain leaders', objective:'Position verification across the chain.', support:'Email Version', article:'Every Handoff Assumes the Document Is Real'},
+  {theme:'The Hidden Cost of Manual Verification', problem:'Manual verification is slow, expensive and still misses fakes.', audience:'CIOs, COOs & risk leaders', objective:'Quantify the cost we remove.', support:'Founder Insight', article:'The Hidden Cost of “We\'ll Just Call to Confirm”'},
+  {theme:'Verification as Infrastructure', problem:'Trust is becoming an infrastructure layer, not a feature.', audience:'CIOs, innovation & risk leaders', objective:'Position Kweli as the verification layer.', support:'Founder Insight', article:'Trust Is Becoming Infrastructure'},
+  {theme:'Digital Document Authenticity', problem:'Documents are digital, but proving they are authentic is still analogue.', audience:'Digital transformation leaders', objective:'Own the authenticity conversation.', support:'Short Video', article:'Your Documents Are Digital. Proving They\'re Real Is Still Analogue.'},
+  {theme:'Blockchain Beyond Crypto', problem:'The useful part of blockchain is verifiable issuance, not tokens.', audience:'Technical & innovation leaders', objective:'Reframe blockchain around verification.', support:'FAQ', article:'The Useful Part of Blockchain Was Never the Coin'},
+  {theme:'Why AI Needs Verifiable Documents', problem:'AI amplifies whatever documents it is fed, real or fake.', audience:'CIOs & AI adopters', objective:'Tie verification to AI adoption.', support:'Email Version', article:'AI Will Happily Believe a Fake Document'},
+  {theme:'Lessons from Customer Conversations', problem:'What 30+ enterprise conversations actually taught us about document trust.', audience:'Founders, operators & our network', objective:'Pull replies from our network.', support:'Customer Story', article:'What Thirty Enterprise Conversations Taught Us About Trust'},
+  {theme:'Building Kweli in Africa', problem:'Why verification infrastructure has to be built here, for here.', audience:'Founders, ecosystem & investors', objective:'Build narrative and investor interest.', support:'Founder Insight', article:'Why We\'re Building Verification Infrastructure in Nairobi'},
+  {theme:'Growing Up in Kenya: Why Trust Matters', problem:'Where document trust breaks down every day, and why it shaped Kweli.', audience:'Founders & our network', objective:'Personal reach and connection.', support:'Founder Insight', article:'Growing Up Where Documents Can\'t Be Trusted'},
+  {theme:'Founder Mistakes We\u2019ve Made', problem:'The wrong turns \u2014 including building an exchange first.', audience:'Founders & operators', objective:'Earn trust through candour.', support:'Founder Insight', article:'We Built an Exchange Before We Understood the Problem'},
+  {theme:'Pilot Learnings', problem:'What early pilots taught us about where verification really bites.', audience:'Customers, partners & investors', objective:'Show real, honest progress.', support:'Customer Story', article:'What Our First Pilots Taught Us About Where Verification Bites'},
+  {theme:'The Future of Document Verification', problem:'Where verification infrastructure goes over the next decade.', audience:'CIOs, innovation leaders & investors', objective:'Set the category vision.', support:'Short Video', article:'Where Document Verification Goes Next'}
 ];
 
 /* ---------------------------------------------------------------------------
@@ -3248,14 +3250,39 @@ function firstPlanMonday(from){
   return d;
 }
 function campaignKeyForWeek(week){ return 'wk'+String(week+1).padStart(2,'0'); }
+/* Up to three real CRM organisation names, most-recently-touched first, baked
+   into the distribution task title so it is self-contained. Falls back
+   cleanly when the CRM is empty. Recomputed each rebuild. */
+function seedDistributionNames(){
+  const orgs=(state.organisations||[]).filter(o=>!o.archived_at)
+    .sort((a,b)=>String(b.last_interaction_at||b.next_action_date||'').localeCompare(String(a.last_interaction_at||a.next_action_date||'')))
+    .map(o=>o.name).filter(Boolean).slice(0,3);
+  if(!orgs.length) return 'relevant CRM contacts';
+  if(orgs.length===1) return orgs[0];
+  if(orgs.length===2) return orgs[0]+' and '+orgs[1];
+  return orgs[0]+', '+orgs[1]+' and '+orgs[2];
+}
+function supportTaskTitle(support, theme){
+  const t=theme.toLowerCase();
+  switch(support){
+    case 'Founder Insight': return 'Founder insight: what researching '+t+' taught me';
+    case 'Case Study': return 'Case study: '+theme+' in practice';
+    case 'FAQ': return 'FAQ: '+theme+' — the questions buyers actually ask';
+    case 'Customer Story': return 'Customer story: '+theme;
+    case 'Short Video': return 'Short video: '+theme+' in 60 seconds';
+    default: return support+': '+theme;
+  }
+}
 function buildInsurancePlanRows(){
   const rows=[];
+  const crmNames=seedDistributionNames();
   let cursor = firstPlanMonday(new Date());
 
   for(let week=0; week<26; week++){
     const weekNum = String(week+1).padStart(2,'0');
     const c = CAMPAIGN_THEMES[week % CAMPAIGN_THEMES.length];
     const theme = c.theme;
+    const art = c.article || theme;
     const support = c.support || 'Founder Insight';
     const mon = new Date(cursor);
     const tue = new Date(cursor); tue.setDate(tue.getDate()+1);
@@ -3268,34 +3295,34 @@ function buildInsurancePlanRows(){
       title, item_type:type, audience:c.audience||null, objective:c.objective||null,
       status:STAGE_TO_DB_STATUS['Planned'], priority:'Normal', owner_user_id:myProfile.id,
       scheduled_at: date.toISOString().slice(0,10),
-      description:serializeContentFields('Planned',{campaign:theme, topic:theme, notes:note})
+      description:serializeContentFields('Planned',{campaign:theme, topic:theme, sourceTitle:art, notes:note})
     });
 
-    // MONDAY — the source asset + its Instagram carousel.
-    rows.push(mk('article','Article: '+theme, 'Article', mon,
-      'THE source asset for the week.\nProblem: '+c.problem+'\nAudience: '+c.audience+'\nObjective: '+c.objective+'\n\nResearch and write ONE high-quality article on '+theme.toLowerCase()+'. Everything else this week is derived from it.'));
-    rows.push(mk('instagram','Instagram carousel: '+theme, 'Instagram Carousel', mon,
-      'Turn the '+theme+' article into a carousel \u2014 one idea per slide, cover \u2192 problem \u2192 how it happens \u2192 the shift \u2192 CTA. Clean navy/gold, few words per slide.'));
+    // MONDAY — write the article + build its Instagram carousel.
+    rows.push(mk('article','Write article: \u201c'+art+'\u201d', 'Article', mon,
+      'THE source asset for the week.\nProblem: '+c.problem+'\nAudience: '+c.audience+'\nObjective: '+c.objective+'\n\nResearch and write this one article. Everything else this week is derived from it.'));
+    rows.push(mk('instagram','Create Instagram carousel from \u201c'+art+'\u201d', 'Instagram Carousel', mon,
+      'Turn \u201c'+art+'\u201d into a carousel \u2014 one idea per slide, cover \u2192 problem \u2192 how it happens \u2192 the shift \u2192 CTA. Clean navy/gold, few words per slide.'));
 
-    // TUESDAY — two repurposes, same idea.
-    rows.push(mk('linkedin','LinkedIn post: '+theme, 'LinkedIn Post', tue,
-      'Repurpose the '+theme+' article into ONE LinkedIn post. Same idea, not a new one. Sharp hook, end with a question that invites a claims/ops person to reply.'));
-    rows.push(mk('x','X post: '+theme, 'X Post', tue,
-      'Repurpose the '+theme+' article into ONE X post (or a short thread). Blunter and more conversational than LinkedIn.'));
+    // TUESDAY — publish the two repurposes of the article.
+    rows.push(mk('linkedin','Publish LinkedIn version of \u201c'+art+'\u201d', 'LinkedIn Post', tue,
+      'Repurpose \u201c'+art+'\u201d into ONE LinkedIn post. Same idea, not a new one. Sharp hook; end with a question that invites a reply.'));
+    rows.push(mk('x','Publish X version of \u201c'+art+'\u201d', 'X Post', tue,
+      'Repurpose \u201c'+art+'\u201d into ONE X post (or a short thread). Blunter and more conversational than LinkedIn.'));
 
-    // WEDNESDAY — exactly ONE rotating support task, chosen for this campaign.
-    rows.push(mk('support', support+': '+theme, support, wed,
-      'This week\u2019s single supporting activity: a '+support.toLowerCase()+' built from the '+theme+' article. Just this one \u2014 nothing else scheduled today.'));
+    // WEDNESDAY — exactly ONE supporting asset for this campaign.
+    rows.push(mk('support', supportTaskTitle(support, theme), support, wed,
+      'This week\u2019s single supporting asset, built from \u201c'+art+'\u201d. Just this one \u2014 nothing else scheduled today.'));
 
-    // THURSDAY — distribution only, no new content.
-    rows.push(mk('distribution','Distribute: '+theme, 'Distribution', thu,
-      'Distribution day \u2014 no new content.\n\n\u2022 Send the '+theme+' article to the most relevant people in your CRM (see suggestions in the campaign / Today view).\n\u2022 Comment on 1\u20132 industry posts about '+theme.toLowerCase()+'.\n\u2022 Follow up with prospects who should see this content.'));
+    // THURSDAY — distribution only, self-contained with real CRM names.
+    rows.push(mk('distribution','Send this week\u2019s '+theme+' article to '+crmNames, 'Distribution', thu,
+      'Distribution only \u2014 no new content.\n\n\u2022 Send \u201c'+art+'\u201d to the most relevant people in your CRM (live suggestions are in this task and on Today).\n\u2022 Comment on 1\u20132 industry posts about '+theme.toLowerCase()+'.\n\u2022 Follow up with anyone who engaged.'));
 
-    // FRIDAY — exactly two tasks: Founder Friday post + weekly review.
-    rows.push(mk('friday','Founder Friday: '+theme, 'Founder Friday', fri,
+    // FRIDAY — Founder Friday post + weekly review (exactly two).
+    rows.push(mk('friday','Founder Friday: a personal note from the '+theme+' week', 'Founder Friday', fri,
       'One personal post \u2014 what I learnt this week, the biggest customer lesson, building Kweli, a startup mistake, why trust matters, or a conversation from this week. Keep it personal and honest. No fabricated pilot claims.'));
-    rows.push(mk('review','Weekly review: '+theme, 'Weekly Review', fri,
-      'Close out the week:\n\u2022 Article published?  LinkedIn published?  X published?\n\u2022 Distribution completed?\n\u2022 What conversations happened this week? Who engaged?\n\u2022 Pick next week\u2019s campaign theme.'));
+    rows.push(mk('review','Weekly review: '+theme+' campaign', 'Weekly Review', fri,
+      'Close out the week:\n\u2022 Article \u201c'+art+'\u201d published?  LinkedIn published?  X published?\n\u2022 Distribution completed?\n\u2022 What conversations happened this week? Who engaged?\n\u2022 Pick next week\u2019s campaign theme.'));
 
     cursor.setDate(cursor.getDate()+7);
   }
