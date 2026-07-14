@@ -3272,7 +3272,15 @@ function addCalendarDays(base, days){
   d.setDate(d.getDate()+days);
   return d;
 }
-function weekdayOf(dateStr){ const p=String(dateStr).split('-'); return new Date(+p[0], (+p[1])-1, +p[2]).getDay(); } // 0=Sun..6=Sat, local, no UTC shift
+function weekdayOf(dateValue){
+  // Supabase may return a DATE as "YYYY-MM-DD" or a timestamp such as
+  // "YYYY-MM-DDT00:00:00+00:00". Always read only the calendar-date part;
+  // parsing the full timestamp can shift weekdays by timezone, while splitting
+  // without trimming makes the day component NaN (e.g. "20T00:00:00").
+  const m=String(dateValue||'').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(!m) return NaN;
+  return new Date(Number(m[1]), Number(m[2])-1, Number(m[3])).getDay();
+} // 0=Sun..6=Sat, local, no UTC shift
 function firstPlanMonday(from){
   const d=new Date(from); d.setHours(0,0,0,0);
   const dow=d.getDay(); // 0=Sun..6=Sat
