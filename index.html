@@ -230,6 +230,28 @@
   .insight-label{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-bottom:4px}
   .entity-stack{display:flex;gap:5px;flex-wrap:wrap;margin-top:10px}
 
+
+  /* live collaboration + Team HQ */
+  .presence-strip{display:flex;align-items:center;gap:7px;margin-left:auto}
+  .presence-label{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin-right:2px}
+  .presence-avatar{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;font-size:9.5px;font-weight:800;
+    color:#fff;border:1px solid rgba(255,255,255,.16);position:relative;cursor:default;box-shadow:0 5px 14px rgba(0,0,0,.22)}
+  .presence-avatar:after{content:"";position:absolute;right:-2px;bottom:-2px;width:8px;height:8px;border-radius:50%;
+    background:var(--green);border:2px solid var(--bg)}
+  .presence-more{font-size:10px;color:var(--muted);padding:4px 7px;border-radius:10px;background:var(--panel2);border:1px solid var(--line)}
+  .team-hq-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:16px}
+  .team-hq-members{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}
+  .team-member-chip{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:11px;background:var(--panel2);border:1px solid var(--line)}
+  .team-member-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px rgba(70,185,138,.55)}
+  .corkboard{background:
+    radial-gradient(circle at 20% 20%,rgba(255,255,255,.04),transparent 35%),
+    linear-gradient(135deg,#6d4d2f,#3f2d1f);border:8px solid #2b1d14;border-radius:16px;padding:22px;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 18px 40px rgba(0,0,0,.35)}
+  .corkboard .board-grid{gap:18px}
+  .cork-pin{position:absolute;top:-7px;left:50%;transform:translateX(-50%);width:13px;height:13px;border-radius:50%;
+    background:radial-gradient(circle at 35% 30%,#fff3b0,#c7372f 35%,#6d100d 72%);box-shadow:0 3px 5px rgba(0,0,0,.4);z-index:2}
+  .team-empty{color:rgba(255,255,255,.7);text-align:center;padding:34px 15px;border:1px dashed rgba(255,255,255,.22);border-radius:12px}
+
   /* mini calendar (Today) */
   .mini-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
   .mini-cal .mc-h{font-size:8.5px;color:var(--faint);text-align:center;text-transform:uppercase}
@@ -401,6 +423,7 @@
         <input id="globalSearch" placeholder="Search everything…" oninput="onSearchInput(this.value)" />
         <div class="search-panel" id="searchPanel" style="display:none"></div>
       </div>
+      <div class="presence-strip" id="presenceStrip"></div>
       <button class="btn sm" onclick="openTeamBoard()">Team Board <span id="tbUnreadBadge"></span></button>
       <span class="mono muted" id="whoami" style="font-size:11.5px"></span>
     </div>
@@ -427,6 +450,8 @@ const MIGRATION_STEP_PREFIX = "kweli_brain_v1_to_v2_2026_07:";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let currentUser = null, myProfile = null;
 let realtimeStatus = 'connecting', dbStatus = 'connecting';
+let presenceChannel = null;
+let onlineMembers = [];
 const signedUrlCache = {}; // path -> {url, expires}
 
 /* ---------------------------------------------------------------------------
@@ -484,6 +509,7 @@ async function onSignedIn(session){
   await loadAll();
   await autoSeedMarketingPlanIfNeeded();
   subscribeRealtime();
+  subscribePresence();
   renderNav();
   go('today');
 }
@@ -491,6 +517,58 @@ async function onSignedIn(session){
   const {data}=await sb.auth.getSession();
   if(data.session) await onSignedIn(data.session);
 })();
+
+
+/* ---------------------------------------------------------------------------
+   LIVE PRESENCE — Supabase Presence, no database table required.
+--------------------------------------------------------------------------- */
+function presenceInitials(name){
+  return initials(name||'?');
+}
+function renderPresence(){
+  const el=document.getElementById('presenceStrip'); if(!el) return;
+  const members=onlineMembers.filter((m,i,a)=>a.findIndex(x=>x.user_id===m.user_id)===i);
+  if(!members.length){ el.innerHTML=''; return; }
+  const shown=members.slice(0,4);
+  el.innerHTML='<span class="presence-label">Online</span>'+
+    shown.map(m=>{
+      const bg=IDENTITY_GRADIENTS[stableVisualIndex(m.display_name||m.user_id,IDENTITY_GRADIENTS.length)];
+      const title=(m.display_name||'Team member')+(m.page?' · '+m.page.replace(/([A-Z])/g,' $1'):'');
+      return '<div class="presence-avatar" style="background:'+bg+'" title="'+esc(title)+'">'+esc(presenceInitials(m.display_name))+'</div>';
+    }).join('')+
+    (members.length>shown.length?'<span class="presence-more">+'+(members.length-shown.length)+'</span>':'');
+}
+function flattenPresenceState(raw){
+  const rows=[];
+  Object.values(raw||{}).forEach(entries=>(entries||[]).forEach(e=>rows.push(e)));
+  return rows;
+}
+async function subscribePresence(){
+  if(!currentUser || !myProfile || presenceChannel) return;
+  presenceChannel=sb.channel('kweli-brain-presence',{config:{presence:{key:currentUser.id}}});
+  presenceChannel
+    .on('presence',{event:'sync'},()=>{
+      onlineMembers=flattenPresenceState(presenceChannel.presenceState());
+      renderPresence();
+    })
+    .on('presence',{event:'join'},()=>{})
+    .on('presence',{event:'leave'},()=>{})
+    .subscribe(async status=>{
+      if(status==='SUBSCRIBED') await updatePresence();
+    });
+}
+async function updatePresence(){
+  if(!presenceChannel || !myProfile || !currentUser) return;
+  try{
+    await presenceChannel.track({
+      user_id:currentUser.id,
+      display_name:myProfile.display_name,
+      page:route.page,
+      record_id:route.id||null,
+      online_at:new Date().toISOString()
+    });
+  }catch(e){ console.warn('Presence update failed',e); }
+}
 
 /* ---------------------------------------------------------------------------
    DATA LAYER
@@ -803,6 +881,7 @@ function renderNav(){
 function go(page,id){
   route={page,id:id||null,tab:null};
   trackLastViewed(page,id);
+  updatePresence();
   renderNav();
   renderCurrent();
   toggleSidebar(false);
@@ -5118,21 +5197,36 @@ function refreshUnreadBadge(){
 }
 function openTeamBoard(){
   const filter=route.tbFilter||'pinned';
-  const pinned=filter==='pinned'?state.team_messages_v2.filter(m=>m.is_pinned):state.team_messages_v2;
-  openModal('<h3>Team Board</h3><div class="muted" style="font-size:12px;margin-bottom:14px">Yellow = open · Red = important/urgent · Green = done</div>'+
+  const notes=(filter==='pinned'?state.team_messages_v2.filter(m=>m.is_pinned):state.team_messages_v2)
+    .sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  const members=onlineMembers.filter((m,i,a)=>a.findIndex(x=>x.user_id===m.user_id)===i);
+  const memberHtml=members.length?members.map(m=>
+    '<div class="team-member-chip"><span class="team-member-dot"></span><div><div style="font-size:12px;font-weight:650">'+esc(m.display_name||'Team member')+'</div>'+
+    '<div class="faint" style="font-size:10px">'+esc((m.page||'online').replace(/([A-Z])/g,' $1'))+'</div></div></div>'
+  ).join(''):'<div class="faint" style="font-size:11.5px">Only you are online right now.</div>';
+
+  const notesHtml=notes.length?notes.map(m=>{
+    const unread=!state.team_message_reads.some(r=>r.team_message_id===m.id && r.user_id===myProfile.id);
+    return '<div class="sticky '+tbColor(m)+'" style="transform:rotate('+stickyTilt(m.id)+'deg);min-height:145px" onclick="openTeamNoteDetail(\''+m.id+'\')">'+
+      '<span class="cork-pin"></span>'+
+      (unread?'<span style="position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:#fff;box-shadow:0 0 6px rgba(255,255,255,.7)"></span>':'')+
+      '<div style="font-size:10.5px;color:#070E14;font-weight:800">@'+esc(m.assigned_to_user_id?userDisplay(m.assigned_to_user_id):'Team')+'</div>'+
+      '<div style="font-size:13px;color:#070E14;font-weight:720;margin-top:8px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">'+esc(m.title)+'</div>'+
+      (m.message?'<div style="font-size:10.5px;color:#070E14;opacity:.75;margin-top:7px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+esc(m.message)+'</div>':'')+
+      (m.organisation_id?'<div style="font-size:9.5px;color:#070E14;opacity:.65;margin-top:8px">'+esc(orgName(m.organisation_id))+'</div>':'')+
+      '<div style="position:absolute;left:12px;bottom:9px;font-size:9px;color:#070E14;opacity:.58">'+esc(m.status||'To Do')+'</div>'+
+    '</div>';
+  }).join(''):'<div class="team-empty">No pinned notes yet. Add one to bring the corkboard to life.</div>';
+
+  openModal('<div class="team-hq-head"><div><div class="eyebrow">Collaboration</div><h3 style="margin:5px 0 3px">Team HQ</h3>'+
+    '<div class="muted" style="font-size:12px">See who is online and keep shared priorities visible.</div></div>'+
+    '<button class="btn gold sm" onclick="openTeamNoteForm()">+ New note</button></div>'+
+    '<div class="insight-label">Online now</div><div class="team-hq-members">'+memberHtml+'</div>'+
     '<div style="display:flex;gap:8px;margin-bottom:14px">'+
-      '<button class="btn sm gold" onclick="openTeamNoteForm()">+ New note</button>'+
-      '<button class="btn sm'+(filter==='pinned'?' active':'')+'" onclick="route.tbFilter=\'pinned\';openTeamBoard()">Pinned</button>'+
-      '<button class="btn sm'+(filter==='all'?' active':'')+'" onclick="route.tbFilter=\'all\';openTeamBoard()">History</button></div>'+
-    '<div class="board-grid">'+pinned.map(m=>{
-      const unread=!state.team_message_reads.some(r=>r.team_message_id===m.id && r.user_id===myProfile.id);
-      return '<div class="sticky '+tbColor(m)+'" style="transform:rotate('+stickyTilt(m.id)+'deg)" onclick="openTeamNoteDetail(\''+m.id+'\')">'+
-        (unread?'<span style="position:absolute;top:8px;right:8px;width:8px;height:8px;border-radius:50%;background:#fff;box-shadow:0 0 6px rgba(255,255,255,.7)"></span>':'')+
-        '<div style="font-size:10.5px;color:#070E14;font-weight:700">@'+esc(m.assigned_to_user_id?userDisplay(m.assigned_to_user_id):'Team')+'</div>'+
-        '<div style="font-size:12.5px;color:#070E14;font-weight:640;margin-top:6px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">'+esc(m.title)+'</div>'+
-        (m.organisation_id?'<div style="font-size:9.5px;color:#070E14;opacity:.65;margin-top:6px">'+esc(orgName(m.organisation_id))+'</div>':'')+
-        '</div>';
-    }).join('')+(pinned.length?'':'<div class="empty">Nothing here.</div>')+'</div>', true);
+      '<button class="btn sm'+(filter==='pinned'?' active':'')+'" onclick="route.tbFilter=\'pinned\';openTeamBoard()">📌 Corkboard</button>'+
+      '<button class="btn sm'+(filter==='all'?' active':'')+'" onclick="route.tbFilter=\'all\';openTeamBoard()">History</button>'+
+    '</div>'+
+    '<div class="corkboard"><div class="board-grid">'+notesHtml+'</div></div>', true);
 }
 function openTeamNoteForm(){
   openModal('<h3>New team note</h3>'+
