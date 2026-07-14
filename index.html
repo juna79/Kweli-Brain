@@ -795,45 +795,55 @@ function goMarketingPlatform(pf){ route.mkTab='library'; route.mkLibFilter={q:''
    would need live web data is left to a manually-created research task. */
 function todaysMarketingDashboard(){
   if(!state.marketing_items.length) return '';
-  const active=state.marketing_items.filter(mi=>!['Published','Archived','Repurposing'].includes(getContentStage(mi)));
+  const active=state.marketing_items.filter(mi=>!itemIsDone(mi));
   const dueToday=active.filter(mi=>mi.scheduled_at===today());
   const overdue=active.filter(mi=>mi.scheduled_at && mi.scheduled_at<today());
-  const counts=marketingStageCounts();
-  const row=(mi)=>'<div class="drow'+(mi.scheduled_at&&mi.scheduled_at<today()?' alert':'')+'" onclick="openMarketingDetail(\''+mi.id+'\')">'+
+  const row=(mi)=>'<div class="drow'+(mi.scheduled_at&&mi.scheduled_at<today()?' alert':'')+(mi.scheduled_at===today()?' ':'')+'" onclick="openMarketingDetail(\''+mi.id+'\')">'+
     '<span class="drow-icon">'+marketingIcon(mi.item_type)+'</span>'+
     '<div class="drow-main"><div class="drow-title">'+esc(mi.title)+'</div>'+
     '<div class="drow-meta">'+esc(mi.item_type)+' · '+esc(getContentStage(mi))+'</div></div>'+
     '<div class="drow-right">'+(mi.scheduled_at?fmtDate(mi.scheduled_at):'')+'</div></div>';
 
-  const chip=(label,n,stage)=>'<div class="qa-chip" onclick="goMarketingStage(\''+stage+'\')">'+label+': <b>'+n+'</b></div>';
-  const pipeline='<div class="quick-actions" style="margin-bottom:12px">'+
-    chip('To write', counts.Planned+counts.Researching+counts.Drafting,'Drafting')+
-    chip('To design', counts.Designed,'Designed')+
-    chip('In review', counts.Review,'Review')+
-    chip('Scheduled', counts.Scheduled,'Scheduled')+
-    chip('To repurpose', counts.Published+counts.Repurposing,'Repurposing')+
-  '</div>';
+  // Lead with THIS WEEK's campaign — one theme, its deliverables, today's focus.
+  const camp=currentCampaign();
+  let campaignBlock='';
+  if(camp){
+    const deliverables=camp.items.map(mi=>{
+      const done=itemIsDone(mi), isToday=mi.scheduled_at===today(), isOver=mi.scheduled_at&&mi.scheduled_at<today()&&!done;
+      return '<div class="drow'+(isOver?' alert':'')+'" style="'+(isToday?'background:rgba(212,175,55,.06);':'')+'" onclick="openMarketingDetail(\''+mi.id+'\')">'+
+        '<span class="drow-icon">'+(done?'✅':marketingIcon(mi.item_type))+'</span>'+
+        '<div class="drow-main"><div class="drow-title">'+esc(mi.title)+(isToday?' <span class="faint" style="font-size:10px">· today</span>':'')+'</div>'+
+        '<div class="drow-meta">'+esc(mi.item_type)+' · '+esc(getContentStage(mi))+'</div></div>'+
+        '<div class="drow-right">'+(mi.scheduled_at?fmtDate(mi.scheduled_at):'')+'</div></div>';
+    }).join('');
+    const distDueNow=camp.items.some(mi=>/distribut/i.test(mi.item_type||'') && !itemIsDone(mi) && mi.scheduled_at && mi.scheduled_at<=today());
+    campaignBlock='<div class="card" style="border-color:var(--gold);margin-bottom:14px">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:4px">'+
+        '<div><div class="faint" style="font-size:10px;letter-spacing:.08em;text-transform:uppercase">This week’s campaign</div>'+
+        '<div style="font-size:15px;font-weight:680">'+esc(camp.theme)+'</div></div>'+
+        '<div class="mono" style="font-size:12px;color:var(--gold)">'+camp.pct+'%</div></div>'+
+      (camp.objective?'<div class="muted" style="font-size:12px;margin-bottom:10px">🎯 '+esc(camp.objective)+'</div>':'')+
+      '<div class="dlist">'+deliverables+'</div>'+
+      (distDueNow?'<div style="margin-top:10px"><div class="faint" style="font-size:11px;margin-bottom:6px">Distribution — send this week’s article to:</div>'+distributionSuggestionHtml()+'</div>':'')+
+    '</div>';
+  }
 
-  const platBlocks=['LinkedIn','Twitter/X','Instagram'].map(pf=>{
-    const items=[...overdue,...dueToday].filter(mi=>contentPlatform(mi.item_type)===pf);
-    if(!items.length) return '';
-    return '<div class="dsec"><div class="dsec-h"><h2>'+pf+' today</h2><span class="count">'+items.length+'</span></div><div class="dlist">'+items.map(row).join('')+'</div></div>';
-  }).join('');
-
-  const engage=active.filter(mi=>/engag|comment|reply|networking|outreach/i.test(mi.item_type||'') && mi.scheduled_at && mi.scheduled_at<=today());
-  const engageBlock=engage.length?'<div class="dsec"><div class="dsec-h"><h2>Engagement &amp; networking</h2><span class="count">'+engage.length+'</span></div><div class="dlist">'+engage.map(row).join('')+'</div></div>':'';
+  // Anything scheduled today/overdue that ISN'T in the current campaign block.
+  const inCamp=new Set(camp?camp.items.map(i=>i.id):[]);
+  const otherDue=[...overdue,...dueToday].filter(mi=>!inCamp.has(mi.id));
+  const otherBlock=otherDue.length?'<div class="dsec"><div class="dsec-h"><h2>Other marketing due</h2><span class="count">'+otherDue.length+'</span></div><div class="dlist">'+otherDue.map(row).join('')+'</div></div>':'';
 
   const followOrgs=state.organisations.filter(o=>!o.archived_at && o.next_action_date && o.next_action_date<=today())
     .sort((a,b)=>(a.next_action_date||'').localeCompare(b.next_action_date||'')).slice(0,5);
   const followBlock=followOrgs.length?'<div class="dsec"><div class="dsec-h"><h2>Relationships to follow up</h2><span class="count">'+followOrgs.length+'</span></div><div class="dlist">'+
     followOrgs.map(o=>'<div class="drow'+(o.next_action_date<today()?' alert':'')+'" onclick="go(\'organisationDetail\',\''+o.id+'\')"><span class="drow-icon">⌂</span><div class="drow-main"><div class="drow-title">'+esc(o.name)+'</div><div class="drow-meta">'+esc(o.next_action_summary||'Follow up')+'</div></div><div class="drow-right">'+fmtDate(o.next_action_date)+'</div></div>').join('')+'</div></div>':'';
 
-  const anyToday=platBlocks||engageBlock;
   return '<div class="dsec"><div class="dsec-h"><h2>Marketing today</h2>'+
     '<span class="count faint" style="font-family:inherit;text-transform:none;letter-spacing:0">'+dueToday.length+' due · '+overdue.length+' overdue</span>'+
-    '<button class="btn sm" style="margin-left:auto" onclick="go(\'marketing\')">Open Marketing →</button></div>'+
-    pipeline+
-    (anyToday?platBlocks+engageBlock:'<div class="dempty">Nothing platform-specific due today — check the pipeline above.</div>')+
+    '<button class="btn sm" style="margin-left:auto" onclick="route.mkTab=\'campaigns\';go(\'marketing\')">Campaigns →</button></div>'+
+    campaignBlock+
+    (!camp&&!otherDue.length?'<div class="dempty">No campaign scheduled for this week — open Marketing → Campaigns.</div>':'')+
+    otherBlock+
     followBlock+
   '</div>';
 }
@@ -3171,77 +3181,60 @@ const CONTENT_LIBRARY=[
    suffix if the plan structure ever changes again, so an old partial run
    never blocks a fresh correct one.
 --------------------------------------------------------------------------- */
-const MARKETING_CAMPAIGN_KEY = 'insurance-verification-6mo-v2';
+const MARKETING_CAMPAIGN_KEY = 'weekly-campaigns-6mo-v1';
+const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2'];
+const WEEKLY_MIGRATION_VERSION = 'weekly_campaigns_v1';
 
-const CORE_ARTICLE_TOPICS = [
-  'Claims fraud: what it actually costs insurers',
-  'Claims leakage — the silent margin killer',
-  'Fake invoices are easier to produce than ever. Verification is the answer.',
-  'Hospital billing fraud and how document integrity stops it',
-  'Why medical reports get manipulated — and how to make that impossible',
-  'Authorisation letters: the weakest link in claims processing',
-  'Why insurers still phone hospitals to confirm a document is real',
-  'Where trust actually breaks down in the claims process',
-  'AI can spot patterns. It cannot prove a document is authentic.',
-  'What building a verification gate into claims intake actually looks like',
-  'Certificate fraud is a bigger problem than most institutions admit',
-  'The true cost of document fraud to African insurers',
-  'What Verification Infrastructure actually means',
-  'Verification is becoming the next digital infrastructure layer',
-  'Why every enterprise will eventually need a verification layer',
-  "Blockchain isn't the product. Verification is.",
-  'Digital trust has an infrastructure problem, not a technology problem',
-  'Why enterprises need more trust, not more documents',
-  'The Verification Infrastructure Thesis',
-  'Why Digital Trust Is Broken',
-  "Insurance Doesn't Have a Fraud Problem. It Has a Verification Problem.",
-  'Verification Infrastructure: The Next Enterprise Software Category',
-  'Why AI Needs Verifiable Documents',
-  'The Hidden Cost of Document Fraud',
-  'The Future of Enterprise Verification',
-  'What We Learned From 30 Enterprise Conversations',
-  'Why We Pivoted from Carbon to Verification Infrastructure',
-  'The Business Case for Verification Infrastructure',
-  'What Every CIO Should Know About Document Integrity'
-];
-const FOUNDER_JOURNEY_TOPICS = [
-  'The conversation that made me realise verification was the real problem',
-  'Growing up in Kenya where trust was never guaranteed',
-  'The fake invoice that cost $70,000',
-  'Why I stopped building an exchange',
-  'The hardest lesson from 30 enterprise meetings',
-  'Why we changed our entire business model',
-  "The land title that wasn't real",
-  'Watching fake university certificates become normal',
-  'The phishing invoice that sparked an idea',
-  'Why trust is expensive',
-  'The meeting with Paul that changed our thinking',
-  'The insurance conversation that confirmed our beachhead',
-  'Why we killed our original business model',
-  'What Kentaste taught us',
-  'What CropNuts taught us',
-  'The best investor advice we\u2019ve received'
-];
 const MONTHLY_THEMES_6MO_V2 = ['The Trust Problem','Insurance','Verification Infrastructure','Customer Stories','Future of Trust','Building the Category'];
-const WEEK_SLOTS = ['monday','tuesday','wednesday','thursday','friday','twitter','instagram','founder'];
+/* ONE campaign per week. Five derived deliverables, not eight unrelated
+   pieces: research+write one article, repurpose it to LinkedIn, reflect on it
+   as a founder, distribute it into real conversations, then review. */
+const WEEK_SLOTS = ['article','linkedin','founder','distribution','review'];
 
-function expandTopicsToTarget(topics, target){
-  const out=[]; let cycle=1, idx=0;
-  while(out.length<target){
-    const base=topics[idx % topics.length];
-    out.push(cycle===1 ? base : base+' — Part '+cycle);
-    idx++; if(idx % topics.length===0) cycle++;
-  }
-  return out.slice(0,target);
-}
+/* 26 weekly campaigns = a 6-month thematic arc. Each is ONE message driven
+   into the market for a week. Audience/objective seed the deliverables; the
+   founder reflection and distribution task derive from the SAME theme, never
+   a random topic. Edit these freely — they are just the starting sequence. */
+const CAMPAIGN_THEMES = [
+  {theme:'Claims Leakage', problem:'Insurers lose millions because nobody has time to verify every supporting document.', audience:'Insurance & claims executives', objective:'Start conversations with claims managers.'},
+  {theme:'Motor Claims Fraud', problem:'Staged accidents and doctored motor documents drain motor portfolios.', audience:'Motor & general insurers', objective:'Get motor claims teams talking to us.'},
+  {theme:'Hospital & Medical Billing Fraud', problem:'Inflated and fabricated medical bills slip through because documents are trusted on sight.', audience:'Health insurers & medical schemes', objective:'Open conversations with medical claims leads.'},
+  {theme:'Fake Invoices in Claims', problem:'A convincing fake invoice is minutes of work and costs insurers real money.', audience:'Claims & finance leaders', objective:'Show why invoice authenticity matters.'},
+  {theme:'Medical Report Verification', problem:'Medical reports get altered between the clinic and the claim.', audience:'Health insurers & assessors', objective:'Surface demand for report verification.'},
+  {theme:'Police Abstract & Report Verification', problem:'Police abstracts are routinely forged and rarely checked at source.', audience:'Motor & liability insurers', objective:'Start conversations on abstract verification.'},
+  {theme:'Repair Quotation Fraud', problem:'Inflated garage and repair quotes ride on documents no one verifies.', audience:'Motor claims & assessors', objective:'Engage assessors on quote integrity.'},
+  {theme:'Why Insurers Still Phone to Verify', problem:'Verification today means someone calling the issuer to ask "is this real?"', audience:'Insurance operations leaders', objective:'Frame Kweli as the end of manual verification.'},
+  {theme:'Certificate Fraud', problem:'Certificates of all kinds are forged because there is no cheap way to prove issuance.', audience:'Certifiers, insurers & employers', objective:'Broaden the conversation beyond insurance.'},
+  {theme:'Import Documentation Trust', problem:'Import paperwork is easy to fake and expensive to check.', audience:'Trade, logistics & compliance leaders', objective:'Open conversations in trade.'},
+  {theme:'Export Documentation Trust', problem:'Export documents underpin real money and cross many untrusting hands.', audience:'Exporters & trade finance', objective:'Reach trade & compliance teams.'},
+  {theme:'Laboratory Report Integrity', problem:'Lab results are trusted downstream with no proof they were not altered.', audience:'Labs, certifiers & buyers', objective:'Engage the issuer side (labs).'},
+  {theme:'Educational Certificate Verification', problem:'Fake degrees and transcripts are normalised and slow to check.', audience:'Employers & institutions', objective:'Show a second clear use case.'},
+  {theme:'Procurement & Tender Document Fraud', problem:'Tender and procurement documents are forged where the money is largest.', audience:'Procurement & governance leaders', objective:'Reach corporate governance buyers.'},
+  {theme:'Supply Chain Document Trust', problem:'Every handoff in a supply chain assumes documents are genuine.', audience:'Operations & supply-chain leaders', objective:'Position verification across the chain.'},
+  {theme:'The Hidden Cost of Manual Verification', problem:'Manual verification is slow, expensive and still misses fakes.', audience:'CIOs, COOs & risk leaders', objective:'Quantify the cost we remove.'},
+  {theme:'Verification as Infrastructure', problem:'Trust is becoming an infrastructure layer, not a feature.', audience:'CIOs, innovation & risk leaders', objective:'Position Kweli as the verification layer.'},
+  {theme:'Digital Document Authenticity', problem:'Documents are digital, but proving they are authentic is still analogue.', audience:'Digital transformation leaders', objective:'Own the authenticity conversation.'},
+  {theme:'Blockchain Beyond Crypto', problem:'The useful part of blockchain is verifiable issuance, not tokens.', audience:'Technical & innovation leaders', objective:'Reframe blockchain around verification.'},
+  {theme:'Why AI Needs Verifiable Documents', problem:'AI amplifies whatever documents it is fed, real or fake.', audience:'CIOs & AI adopters', objective:'Tie verification to AI adoption.'},
+  {theme:'Lessons from Customer Conversations', problem:'What 30+ enterprise conversations actually taught us about document trust.', audience:'Founders, operators & our network', objective:'Pull replies from our network.'},
+  {theme:'Building Kweli in Africa', problem:'Why verification infrastructure has to be built here, for here.', audience:'Founders, ecosystem & investors', objective:'Build narrative and investor interest.'},
+  {theme:'Growing Up in Kenya: Why Trust Matters', problem:'Where document trust breaks down every day, and why it shaped Kweli.', audience:'Founders & our network', objective:'Personal reach and connection.'},
+  {theme:'Founder Mistakes We\u2019ve Made', problem:'The wrong turns \u2014 including building an exchange first.', audience:'Founders & operators', objective:'Earn trust through candour.'},
+  {theme:'Pilot Learnings', problem:'What early pilots taught us about where verification really bites.', audience:'Customers, partners & investors', objective:'Show real, honest progress.'},
+  {theme:'The Future of Document Verification', problem:'Where verification infrastructure goes over the next decade.', audience:'CIOs, innovation leaders & investors', objective:'Set the category vision.'}
+];
+const FOUNDER_REFLECTION_TEMPLATES = [
+  'What surprised me while researching ',
+  'A conversation that changed how I think about ',
+  'What most people get wrong about ',
+  'Why I keep coming back to '
+];
 
 /* ---------------------------------------------------------------------------
    Every row gets a deterministic seed_key of the form
-   'insurance-verification-6mo-v2-week-01-monday'. This — not the
-   human-readable "[[campaign:...]]" tag still kept in `description` for
-   readability — is the actual uniqueness mechanism, enforced by a real
-   unique index (06_marketing_seed_key.sql). Building this list is pure,
-   deterministic, offline computation; no network call happens here.
+   'weekly-campaigns-6mo-v1-week-01-article'. This is the uniqueness
+   mechanism (real unique index). Building this list is pure, deterministic,
+   offline computation; no network call happens here.
 --------------------------------------------------------------------------- */
 /* The very next Monday strictly AFTER today — never today itself, even if
    today happens to be a Monday. Weekend rollover (Sat/Sun -> Monday) falls
@@ -3257,44 +3250,44 @@ function firstPlanMonday(from){
   d.setDate(d.getDate()+daysAhead);
   return d;
 }
+function campaignKeyForWeek(week){ return 'wk'+String(week+1).padStart(2,'0'); }
 function buildInsurancePlanRows(){
   const rows=[];
-  const monArticles = expandTopicsToTarget(CORE_ARTICLE_TOPICS, 26);
-  const wedTopics = expandTopicsToTarget(FOUNDER_JOURNEY_TOPICS, 26);
   let cursor = firstPlanMonday(new Date());
 
   for(let week=0; week<26; week++){
     const weekNum = String(week+1).padStart(2,'0');
-    const monday = new Date(cursor);
-    const tuesday = new Date(cursor); tuesday.setDate(tuesday.getDate()+1);
-    const wednesday = new Date(cursor); wednesday.setDate(wednesday.getDate()+2);
-    const thursday = new Date(cursor); thursday.setDate(thursday.getDate()+3);
-    const friday = new Date(cursor); friday.setDate(friday.getDate()+4);
+    const c = CAMPAIGN_THEMES[week % CAMPAIGN_THEMES.length];
+    const theme = c.theme;
+    const mon = new Date(cursor);
+    const tue = new Date(cursor); tue.setDate(tue.getDate()+1);
+    const wed = new Date(cursor); wed.setDate(wed.getDate()+2);
+    const thu = new Date(cursor); thu.setDate(thu.getDate()+3);
+    const fri = new Date(cursor); fri.setDate(fri.getDate()+4);
 
-    const monthIdx = Math.min(5, Math.floor(week/4.345));
-    const theme = MONTHLY_THEMES_6MO_V2[monthIdx];
-    const articleTopic = monArticles[week];
-    const founderTopic = wedTopics[week];
-
-    const mk=(slot,title,type,date,audience,objective)=>({
+    // Every deliverable carries the campaign identity in the structured
+    // content-fields (Campaign + Topic), so the whole week groups together
+    // and stays parseable/editable through the normal detail form.
+    const mk=(slot,title,type,date,note)=>({
       seed_key: MARKETING_CAMPAIGN_KEY+'-week-'+weekNum+'-'+slot,
-      title, item_type:type, audience:audience||null, objective:objective||null,
-      status:'Scheduled', priority:'Normal', owner_user_id:myProfile.id,
+      title, item_type:type, audience:c.audience||null, objective:c.objective||null,
+      status:STAGE_TO_DB_STATUS['Planned'], priority:'Normal', owner_user_id:myProfile.id,
       scheduled_at: date.toISOString().slice(0,10),
-      description:'[[campaign:'+MARKETING_CAMPAIGN_KEY+']] [[stage:Scheduled]]\nMonth theme: '+theme
+      description:serializeContentFields('Planned',{campaign:theme, topic:theme, notes:note})
     });
 
-    rows.push(mk('monday','Article: '+articleTopic, 'Article', monday, 'CIO, COO, Claims Directors, Innovation teams', 'Write the core long-form piece for the week.'));
-    rows.push(mk('tuesday','LinkedIn: '+articleTopic, 'LinkedIn Post', tuesday, null, 'Repurpose Monday\u2019s article into a LinkedIn post.'));
-    rows.push(mk('wednesday',(week%2===0?'Insight: ':'Founder Story: ')+founderTopic, week%2===0?'Insight':'Founder Story', wednesday, null, 'Shorter, more personal piece.'));
-    rows.push(mk('thursday','Engage & distribute this week\u2019s content', 'Engagement', thursday, null, 'Reply, share, and distribute what\u2019s been published this week.'));
-    rows.push(mk('friday','Review performance & plan next topic', 'Review & Planning', friday, null, 'Check what worked this week and confirm next week\u2019s article topic.'));
-    // Multi-platform coordination on the SAME weekly topic — additive slots,
-    // new seed_keys, existing LinkedIn rows untouched. Twitter Wed, Instagram
-    // Thu, founder note Fri. Draft-stage so they surface as work to write.
-    rows.push(mk('twitter','Twitter/X: '+articleTopic, 'Twitter Thread', wednesday, null, 'Turn this week\u2019s topic into a thread or a few standalone tweets \u2014 looser, more conversational than LinkedIn.'));
-    rows.push(mk('instagram','Instagram: '+articleTopic, 'Instagram Carousel', thursday, null, 'A visual explainer or carousel version of this week\u2019s topic \u2014 one idea per slide.'));
-    rows.push(mk('founder','Founder note: '+founderTopic, 'Founder Story', friday, null, 'A short, personal founder observation or weekly reflection. No fabricated pilot claims.'));
+    const reflect = FOUNDER_REFLECTION_TEMPLATES[week % FOUNDER_REFLECTION_TEMPLATES.length] + theme.toLowerCase();
+
+    rows.push(mk('article','Article: '+theme, 'Article', mon,
+      'THE source asset for the week.\nProblem: '+c.problem+'\nAudience: '+c.audience+'\nObjective: '+c.objective+'\n\nResearch and write ONE high-quality article on '+theme.toLowerCase()+'. Everything else this week is derived from it.'));
+    rows.push(mk('linkedin','LinkedIn: '+theme, 'LinkedIn Post', tue,
+      'Repurpose the '+theme+' article into a LinkedIn post. Same idea, not a new one. Lead with the sharpest point; end with a question that invites a claims/ops person to reply.'));
+    rows.push(mk('founder','Founder reflection: '+theme, 'Founder Story', wed,
+      'A personal founder reflection tied to this week\u2019s theme \u2014 not another article.\n\nStarting angle: \u201c'+reflect+'\u201d\n\nKeep it honest and specific. No fabricated pilot claims.'));
+    rows.push(mk('distribution','Distribute: '+theme, 'Distribution', thu,
+      'Distribution day \u2014 use the article, don\u2019t make new content.\n\n\u2022 Send the '+theme+' article to the most relevant people in your CRM (see suggestions in the campaign / Today view).\n\u2022 Comment on 1\u20132 industry posts about '+theme.toLowerCase()+'.\n\u2022 Reply to comments on your own posts.\n\u2022 Reconnect with one relevant prospect.'));
+    rows.push(mk('review','Weekly review: '+theme, 'Review & Planning', fri,
+      'Review the '+theme+' campaign.\n\n\u2022 Article published?  LinkedIn posted?  Founder reflection out?  Outreach done?\n\u2022 What worked? What conversations started? Who engaged?\n\u2022 Confirm next week\u2019s theme.'));
 
     cursor.setDate(cursor.getDate()+7);
   }
@@ -3442,8 +3435,37 @@ async function dedupeMarketingItemsOnce(){
    indexed query returning ~130 text values) — so a plan that was left
    incomplete by a prior failed batch is topped up automatically, with no
    user action, on the very next login from any device. */
+/* One-time, versioned migration from the previous (8-slot daily) plan to
+   weekly campaigns. Removes ONLY untouched auto-generated placeholders from
+   the old campaign key(s); anything Published or edited is preserved. Guarded
+   by a migration_log flag so it never repeats on reload. */
+async function migrateToWeeklyCampaignsOnce(){
+  if(state.migration_log.some(m=>m.step===WEEKLY_MIGRATION_VERSION && m.status==='ok')) return;
+  const priorPrefixes=PRIOR_CAMPAIGN_KEYS.map(k=>k+'-week-');
+  const prior=state.marketing_items.filter(mi=>mi.seed_key && priorPrefixes.some(p=>mi.seed_key.startsWith(p)));
+  let removed=0, kept=0;
+  if(prior.length){
+    const untouched=prior.filter(mi=>{
+      const edited=mi.updated_at && mi.created_at && (new Date(mi.updated_at)-new Date(mi.created_at)>5000);
+      const published=(mi.status==='Published')||['Published','Repurposing'].includes(getContentStage(mi));
+      return !edited && !published && !mi.completed_at;
+    });
+    kept=prior.length-untouched.length;
+    const ids=untouched.map(mi=>mi.id);
+    for(let i=0;i<ids.length;i+=100){
+      const chunk=ids.slice(i,i+100);
+      const {error}=await sb.from('marketing_items').delete().in('id',chunk);
+      if(error){ console.error('[weekly migration] delete failed',error); break; }
+      removed+=chunk.length;
+    }
+    if(removed){ const gone=new Set(ids.slice(0,removed)); state.marketing_items=state.marketing_items.filter(mi=>!gone.has(mi.id)); }
+  }
+  try{ await dbInsert('migration_log',{step:WEEKLY_MIGRATION_VERSION, status:'ok', source_table:'system', detail:'Weekly-campaign migration: removed '+removed+' untouched placeholder(s), kept '+kept+' edited/published item(s).'}); }catch(e){}
+  if(removed||kept) toast('Marketing upgraded to weekly campaigns — cleared '+removed+' old placeholder(s)'+(kept?', kept '+kept+' you\u2019d worked on':''));
+}
 async function autoSeedMarketingPlanIfNeeded(){
   try{
+    await migrateToWeeklyCampaignsOnce();
     const dedupResult=await dedupeMarketingItemsOnce();
     if(dedupResult.removed || dedupResult.backfilled){
       const parts=[];
@@ -3483,19 +3505,22 @@ function hideSeedingOverlay(){ const el=document.getElementById('seedingOverlay'
    campaign (matched by seed_key prefix — a real, RLS-permitted bulk
    delete, one network call) then reseeds the full expected set fresh. */
 async function rebuildInsurancePlan(){
-  if(!confirm('Rebuild the 6-month marketing plan? This removes every item in the current plan and recreates it fresh — any manual edits to those items will be lost.')) return;
+  if(!confirm('Rebuild the 6-month marketing plan? This removes every item in the current (and previous) auto-plan and recreates it fresh as weekly campaigns — any manual edits to those items will be lost.')) return;
   showSeedingOverlay('Rebuilding your marketing plan…');
   try{
-    const {data:toDelete,error:selErr} = await sb.from('marketing_items').select('id').like('seed_key', MARKETING_CAMPAIGN_KEY+'-week-%');
-    if(selErr){ toast('Rebuild failed: '+selErr.message); throw selErr; }
-    if(toDelete && toDelete.length){
-      const {error:delErr} = await sb.from('marketing_items').delete().like('seed_key', MARKETING_CAMPAIGN_KEY+'-week-%');
-      if(delErr){ toast('Rebuild failed: '+delErr.message); throw delErr; }
-      const idsToRemove=new Set(toDelete.map(r=>r.id));
-      state.marketing_items = state.marketing_items.filter(mi=>!idsToRemove.has(mi.id));
+    const prefixes=[MARKETING_CAMPAIGN_KEY, ...PRIOR_CAMPAIGN_KEYS];
+    for(const key of prefixes){
+      const {data:toDelete,error:selErr} = await sb.from('marketing_items').select('id').like('seed_key', key+'-week-%');
+      if(selErr){ toast('Rebuild failed: '+selErr.message); throw selErr; }
+      if(toDelete && toDelete.length){
+        const {error:delErr} = await sb.from('marketing_items').delete().like('seed_key', key+'-week-%');
+        if(delErr){ toast('Rebuild failed: '+delErr.message); throw delErr; }
+        const idsToRemove=new Set(toDelete.map(r=>r.id));
+        state.marketing_items = state.marketing_items.filter(mi=>!idsToRemove.has(mi.id));
+      }
     }
     const r=await seedInsurancePlanBatched();
-    toast('Rebuilt — '+r.created+' pieces scheduled');
+    toast('Rebuilt — '+r.created+' pieces scheduled across 26 weekly campaigns');
   } finally {
     hideSeedingOverlay();
     renderCurrent();
@@ -3620,6 +3645,9 @@ function marketingIcon(type){
   if(t.includes('instagram caption')) return '📸';
   if(t.includes('quote card')) return '❝';
   if(t.includes('founder video')) return '🎥';
+  if(t.includes('distribut')) return '🤝';
+  if(t.includes('article')) return '✍️';
+  if(t.includes('review')) return '📊';
   if(t.includes('linkedin article')) return '📰';
   if(t.includes('case study')) return '📁';
   if(t.includes('business case')) return '💼';
@@ -3644,7 +3672,7 @@ function contentPlatform(type){
   if(/instagram|carousel|caption|reel|story|behind-the-scenes|bts/.test(t)) return 'Instagram';
   if(/founder video|video/.test(t)) return 'Video';
   if(/linkedin|article|insight|post|opinion|long-form|comment|founder story/.test(t)) return 'LinkedIn';
-  if(/engagement|engage|review|planning|outreach|networking/.test(t)) return 'Cross-platform';
+  if(/engagement|engage|review|planning|outreach|networking|distribut/.test(t)) return 'Cross-platform';
   return 'Other';
 }
 const CONTENT_PLATFORMS=['LinkedIn','Twitter/X','Instagram','Video','Cross-platform','Other'];
@@ -4004,6 +4032,93 @@ function openContentForWriting(id){
 --------------------------------------------------------------------------- */
 function dismissMarketingOnboarding(){ route.marketingOnboardingDismissed=true; renderCurrent(); }
 
+function campaignWeekIndex(mi){
+  const pfx=MARKETING_CAMPAIGN_KEY+'-week-';
+  const sk=mi.seed_key||'';
+  if(!sk.startsWith(pfx)) return null;
+  const n=parseInt(sk.slice(pfx.length, pfx.length+2),10);
+  return isNaN(n)?null:n-1;
+}
+function getItemCampaign(mi){
+  const f=parseContentFields(mi.description);
+  if(f.campaign) return f.campaign;
+  const wi=campaignWeekIndex(mi);
+  if(wi!=null && CAMPAIGN_THEMES[wi]) return CAMPAIGN_THEMES[wi].theme;
+  return null;
+}
+function itemIsDone(mi){ return ['Published','Repurposing'].includes(getContentStage(mi)) || !!mi.completed_at || mi.status==='Published'; }
+function buildCampaignGroups(){
+  const map=new Map();
+  state.marketing_items.forEach(mi=>{ const theme=getItemCampaign(mi); if(!theme) return; if(!map.has(theme)) map.set(theme,[]); map.get(theme).push(mi); });
+  const meta=t=>CAMPAIGN_THEMES.find(c=>c.theme===t)||{};
+  const groups=[...map.entries()].map(([theme,items])=>{
+    items.sort((a,b)=>(a.scheduled_at||'zzzz').localeCompare(b.scheduled_at||'zzzz'));
+    const dates=items.map(i=>i.scheduled_at).filter(Boolean).sort();
+    const done=items.filter(itemIsDone).length;
+    const m=meta(theme);
+    const firstAud=(items.find(i=>i.audience)||{}).audience;
+    const firstObj=(items.find(i=>i.objective)||{}).objective;
+    return {theme, items, audience:m.audience||firstAud||'', objective:m.objective||firstObj||'', problem:m.problem||'',
+      start:dates[0]||null, end:dates[dates.length-1]||null, done, total:items.length,
+      pct:items.length?Math.round(done/items.length*100):0, next:items.find(mi=>!itemIsDone(mi))};
+  });
+  groups.sort((a,b)=>(a.start||'zzzz').localeCompare(b.start||'zzzz'));
+  return groups;
+}
+function currentCampaign(){
+  const t=today();
+  const groups=buildCampaignGroups();
+  return groups.find(g=>g.start&&g.end&&t>=g.start&&t<=g.end) || groups.find(g=>g.start&&g.start>=t) || null;
+}
+/* Distribution suggestions come straight from the CRM — real organisations
+   and their primary contacts, most-recently-touched first. No invented names. */
+function distributionSuggestions(limit){
+  limit=limit||6;
+  const orgs=state.organisations.filter(o=>!o.archived_at)
+    .sort((a,b)=>String(b.last_interaction_at||b.next_action_date||'').localeCompare(String(a.last_interaction_at||a.next_action_date||'')));
+  const out=[];
+  for(const o of orgs){
+    const person=state.people.find(p=>!p.archived_at && p.primary_organisation_id===o.id);
+    out.push({id:o.id, label:o.name, sub:person?person.full_name:(o.relationship_stage||'')});
+    if(out.length>=limit) break;
+  }
+  return out;
+}
+function distributionSuggestionHtml(){
+  const sugg=distributionSuggestions(6);
+  if(!sugg.length) return '<div class="faint" style="font-size:11px">No organisations in the CRM yet to suggest recipients.</div>';
+  return '<div class="dlist">'+sugg.map(s=>'<div class="drow" onclick="go(\'organisationDetail\',\''+s.id+'\')"><span class="drow-icon">🤝</span><div class="drow-main"><div class="drow-title">'+esc(s.label)+'</div>'+(s.sub?'<div class="drow-meta">'+esc(s.sub)+'</div>':'')+'</div><div class="drow-right faint" style="font-size:10px">send article</div></div>').join('')+'</div>';
+}
+function vCampaignsTab(){
+  const groups=buildCampaignGroups();
+  if(!groups.length) return '<div class="empty">No campaigns yet. Use “Rebuild plan”, or “+ New item” with a Campaign set.</div>';
+  const t=today();
+  return '<div class="page-sub" style="margin-bottom:14px">'+groups.length+' weekly campaign(s) · one theme a week, repurposed into '+WEEK_SLOTS.length+' deliverables and driven into real conversations.</div>'+
+  groups.map(g=>{
+    const current = g.start && g.end ? (t>=g.start && t<=g.end) : false;
+    const upcoming = g.start && g.start>t;
+    const dfmt = g.start? fmtDate(g.start)+(g.end&&g.end!==g.start?' – '+fmtDate(g.end):'') : 'Unscheduled';
+    const deliverables=g.items.map(mi=>{
+      const done=itemIsDone(mi);
+      return '<div class="drow" style="align-items:flex-start" onclick="openMarketingDetail(\''+mi.id+'\')">'+
+        '<span class="drow-icon">'+(done?'✅':marketingIcon(mi.item_type))+'</span>'+
+        '<div class="drow-main"><div class="drow-title">'+esc(mi.title)+'</div>'+
+        '<div class="drow-meta">'+esc(mi.item_type)+' · '+esc(getContentStage(mi))+'</div></div>'+
+        '<div class="drow-right">'+(mi.scheduled_at?fmtDate(mi.scheduled_at):'')+'</div></div>';
+    }).join('');
+    return '<div class="card" style="margin-bottom:16px'+(current?';border-color:var(--gold)':'')+'">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px">'+
+        '<div><div style="font-size:15px;font-weight:680">'+esc(g.theme)+'</div>'+
+        '<div class="faint" style="font-size:11px;margin-top:2px">'+dfmt+(current?' · THIS WEEK':(upcoming?' · upcoming':''))+'</div></div>'+
+        '<div class="mono" style="font-size:12px;color:var(--gold)">'+g.pct+'%</div></div>'+
+      (g.problem?'<div class="muted" style="font-size:12px;margin-bottom:6px">'+esc(g.problem)+'</div>':'')+
+      '<div class="faint" style="font-size:11px;margin-bottom:10px">'+(g.audience?'🎯 '+esc(g.audience):'')+(g.objective?'  ·  '+esc(g.objective):'')+'</div>'+
+      '<div style="height:4px;background:var(--panel2);border-radius:2px;overflow:hidden;margin-bottom:12px"><div style="width:'+g.pct+'%;height:100%;background:var(--gold)"></div></div>'+
+      '<div class="dlist">'+deliverables+'</div>'+
+      (g.next?'<div class="faint" style="font-size:11px;margin-top:10px">Next action: '+esc(g.next.title)+'</div>':'<div style="font-size:11px;margin-top:10px;color:var(--green,#4ADE80)">Campaign complete ✓</div>')+
+    '</div>';
+  }).join('');
+}
 function vMarketing(){
   if(!state.marketing_items.length && !route.marketingOnboardingDismissed){
     return '<div class="page-head"><div><div class="eyebrow">Growth</div><div class="page-title">Marketing Assistant</div>'+
@@ -4014,8 +4129,8 @@ function vMarketing(){
       '<button class="btn" onclick="dismissMarketingOnboarding()">Start Empty</button></div>';
   }
 
-  const tab=route.mkTab||'today';
-  const tabs=[['today','Today'],['pillars','Content Pillars'],['library','Content Library'],['calendar','Editorial Calendar']];
+  const tab=route.mkTab||'campaigns';
+  const tabs=[['campaigns','Campaigns'],['today','Today'],['library','Content Library'],['calendar','Editorial Calendar']];
   const header='<div class="page-head"><div><div class="eyebrow">Growth</div><div class="page-title">Marketing Assistant</div>'+
     '<div class="page-sub">'+state.marketing_items.length+' items in the system — '+state.marketing_items.filter(mi=>mi.scheduled_at && mi.status!=='Published').length+' scheduled, '+
     state.marketing_items.filter(mi=>!mi.scheduled_at && getContentStage(mi)==='Planned').length+' unscheduled in the library</div></div>'+
@@ -4024,6 +4139,7 @@ function vMarketing(){
     '<button class="btn gold" onclick="openMarketingForm()">+ New item</button></div></div>'+
     '<div class="seg" style="margin-bottom:20px">'+tabs.map(([id,label])=>'<button class="'+(tab===id?'active':'')+'" onclick="route.mkTab=\''+id+'\';renderCurrent()">'+label+'</button>').join('')+'</div>';
 
+  if(tab==='campaigns') return header+vCampaignsTab();
   if(tab==='pillars') return header+vContentPillars();
   if(tab==='library') return header+vContentLibraryTab();
   if(tab==='calendar') return header+vEditorialCalendarTab();
@@ -4145,6 +4261,7 @@ function openMarketingDetail(id){
   openModal('<h3>'+marketingIcon(mi.item_type)+' '+esc(mi.title)+'</h3>'+
     '<div class="muted" style="font-size:12px;margin-bottom:14px">'+esc(mi.item_type)+(mi.scheduled_at?' · '+fmtDate(mi.scheduled_at):'')+'</div>'+
     (fields.sourceTitle?'<div class="pill" style="margin-bottom:12px">↳ From article: '+esc(fields.sourceTitle)+'</div>':'')+
+    (/distribut/i.test(mi.item_type||'')?'<div class="card" style="margin-bottom:12px"><div style="font-weight:640;font-size:13px;margin-bottom:8px">Suggested recipients (from your CRM)</div>'+distributionSuggestionHtml()+'<div class="faint" style="font-size:10px;margin-top:8px">Most-recently-touched organisations first. Tap to open the record.</div></div>':'')+
     '<div class="grid g2">'+
       '<div class="field"><label class="fl">Audience</label><input class="input" id="f_mdaudience" value="'+esc(mi.audience||'')+'"></div>'+
       '<div class="field"><label class="fl">Priority</label><select class="select" id="f_mdpriority">'+['Low','Normal','High'].map(p=>'<option'+(mi.priority===p?' selected':'')+'>'+p+'</option>').join('')+'</select></div>'+
