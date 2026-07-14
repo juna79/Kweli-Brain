@@ -3250,9 +3250,11 @@ const CONTENT_LIBRARY=[
    suffix if the plan structure ever changes again, so an old partial run
    never blocks a fresh correct one.
 --------------------------------------------------------------------------- */
-const MARKETING_CAMPAIGN_KEY = 'weekly-rhythm-6mo-v3';
-const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2'];
+const MARKETING_CAMPAIGN_KEY = 'weekly-rhythm-6mo-v4';
+const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2','weekly-rhythm-6mo-v3'];
 const WEEKLY_MIGRATION_VERSION = 'weekly_rhythm_v2';
+const FORWARD_MARKETING_RESET_VERSION = 'forward_marketing_reset_2026_07_20_v2';
+const FORWARD_MARKETING_START = '2026-07-20';
 
 const MONTHLY_THEMES_6MO_V2 = ['The Trust Problem','Insurance','Verification Infrastructure','Customer Stories','Future of Trust','Building the Category'];
 /* FIXED operating rhythm — identical every week, only the theme changes.
@@ -3444,7 +3446,7 @@ function createFridayTasks(cp){
   ];
 }
 function buildInsurancePlanRows(){
-  const firstMonday = firstPlanMonday(new Date()); // immutable anchor
+  const firstMonday = new Date(2026, 6, 20); // fixed Monday anchor: 20 July 2026
   const crmNames = seedDistributionNames();
   // 1) Build exactly one campaign per week.
   const campaigns=[];
@@ -3630,8 +3632,41 @@ async function migrateToWeeklyCampaignsOnce(){
   try{ await dbInsert('migration_log',{step:WEEKLY_MIGRATION_VERSION, status:'ok', source_table:'system', detail:'Weekly-campaign migration: removed '+removed+' untouched placeholder(s), kept '+kept+' edited/published item(s).'}); }catch(e){}
   if(removed||kept) toast('Marketing upgraded to weekly campaigns — cleared '+removed+' old placeholder(s)'+(kept?', kept '+kept+' you\u2019d worked on':''));
 }
+async function resetForwardGeneratedMarketingOnce(){
+  // One-time cleanup after the visual-polish deployment. Earlier v3 and v4
+  // files could both seed the same forward calendar, producing exact pairs.
+  // Remove only auto-generated campaign rows from 20 July 2026 onward;
+  // manual marketing records and all earlier completed history are untouched.
+  if(state.migration_log.some(m=>m.step===FORWARD_MARKETING_RESET_VERSION && m.status==='ok')) return {removed:0, alreadyDone:true};
+  const generatedPrefixes=['insurance-verification-6mo-','weekly-campaigns-6mo-','weekly-rhythm-6mo-'];
+  const eligible=state.marketing_items.filter(mi=>{
+    if(!mi.scheduled_at || String(mi.scheduled_at).slice(0,10)<FORWARD_MARKETING_START) return false;
+    const keyed=!!mi.seed_key && generatedPrefixes.some(p=>String(mi.seed_key).startsWith(p));
+    const tagged=(mi.description||'').includes('[[campaign:');
+    return keyed || tagged;
+  });
+  let removed=0;
+  const ids=eligible.map(mi=>mi.id);
+  for(let i=0;i<ids.length;i+=100){
+    const chunk=ids.slice(i,i+100);
+    const {error}=await sb.from('marketing_items').delete().in('id',chunk);
+    if(error){ console.error('[forward marketing reset] delete failed',error); throw error; }
+    removed+=chunk.length;
+  }
+  if(ids.length){
+    const gone=new Set(ids);
+    state.marketing_items=state.marketing_items.filter(mi=>!gone.has(mi.id));
+  }
+  try{
+    await dbInsert('migration_log',{step:FORWARD_MARKETING_RESET_VERSION,status:'ok',source_table:'system',detail:'Removed '+removed+' generated marketing row(s) scheduled from '+FORWARD_MARKETING_START+' onward before installing '+MARKETING_CAMPAIGN_KEY+'.'});
+  }catch(e){ console.warn('[forward marketing reset] could not record migration marker',e); }
+  return {removed, alreadyDone:false};
+}
+
 async function autoSeedMarketingPlanIfNeeded(){
   try{
+    const reset=await resetForwardGeneratedMarketingOnce();
+    if(reset.removed) toast('Marketing calendar cleaned — removed '+reset.removed+' duplicate/legacy generated item(s)');
     await migrateToWeeklyCampaignsOnce();
     const dedupResult=await dedupeMarketingItemsOnce();
     if(dedupResult.removed || dedupResult.backfilled){
