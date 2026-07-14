@@ -182,6 +182,32 @@
   .identity-head{display:flex;align-items:center;gap:14px}
   .identity-copy{min-width:0}
 
+
+  /* richer list sections + card/table views */
+  .view-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+  .view-toggle{display:inline-flex;background:var(--panel2);border:1px solid var(--line-s);border-radius:10px;padding:3px;gap:3px}
+  .view-toggle button{border:none;background:transparent;color:var(--muted);padding:7px 12px;border-radius:7px;cursor:pointer;font:inherit;font-size:12px}
+  .view-toggle button.active{background:var(--raise);color:var(--txt)}
+  .metric-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px}
+  .metric-tile{background:linear-gradient(145deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:12px;padding:13px}
+  .metric-tile .metric-value{font-size:19px;font-weight:750}
+  .metric-tile .metric-label{font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+  .rich-card{position:relative;overflow:hidden;cursor:pointer;min-height:168px}
+  .rich-card:before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent,var(--gold))}
+  .rich-card:hover{border-color:var(--accent,var(--gold));transform:translateY(-2px)}
+  .rich-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+  .rich-icon{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;flex:none;background:var(--gold-soft);color:var(--gold);font-size:19px;border:1px solid rgba(201,162,75,.25)}
+  .rich-title{font-size:14.5px;font-weight:700;line-height:1.35}
+  .rich-sub{font-size:11.5px;color:var(--muted);margin-top:3px}
+  .rich-body{font-size:12.5px;color:var(--muted);margin-top:12px;line-height:1.5}
+  .rich-foot{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-top:14px;padding-top:10px;border-top:1px solid var(--line);font-size:10.5px;color:var(--faint)}
+  .data-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .data-table th{text-align:left;padding:11px 14px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:650;border-bottom:1px solid var(--line)}
+  .data-table td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  .data-table tr{transition:background .12s}
+  .data-table tbody tr:hover{background:var(--panel2)}
+  .status-chip{display:inline-flex;align-items:center;padding:3px 8px;border-radius:20px;font-size:10px;font-weight:650;border:1px solid var(--line-s);background:var(--panel2)}
+
   /* mini calendar (Today) */
   .mini-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
   .mini-cal .mc-h{font-size:8.5px;color:var(--faint);text-align:center;text-transform:uppercase}
@@ -1576,13 +1602,39 @@ async function savePersonForm(){
 --------------------------------------------------------------------------- */
 function vOpportunities(){
   const opps=[...state.opportunities].filter(o=>!o.archived_at).sort((a,b)=>(b.priority||0)-(a.priority||0));
-  return '<div class="page-head"><div><div class="eyebrow">Pipeline</div><div class="page-title">Opportunities</div>'+
-    '<div class="page-sub">'+opps.length+' open commercial initiatives</div></div></div>'+
-    '<div class="grid g-auto">'+opps.map(op=>'<div class="card" style="cursor:pointer" onclick="go(\'opportunityDetail\',\''+op.id+'\')">'+
-      '<div class="pill">'+esc(op.stage)+'</div>'+
-      '<div style="font-size:14.5px;font-weight:640;margin-top:8px">'+esc(op.title)+'</div>'+
-      '<div class="muted" style="font-size:12px;margin-top:3px">'+esc(orgName(op.organisation_id))+'</div>'+
-      '<div class="faint" style="font-size:11px;margin-top:8px">'+esc(op.next_action_summary||'')+'</div></div>').join('')+'</div>';
+  const view=route.opportunitiesView=route.opportunitiesView||'card';
+  const active=opps.filter(o=>!['Won','Lost'].includes(o.stage)).length;
+  const pilots=opps.filter(o=>/pilot/i.test(o.stage||'')).length;
+  const due=opps.filter(o=>o.next_action_date && o.next_action_date<=today()).length;
+  const header='<div class="page-head"><div><div class="eyebrow">Pipeline</div><div class="page-title">Opportunities</div>'+
+    '<div class="page-sub">'+opps.length+' commercial initiatives</div></div><button class="btn gold" onclick="openOppForm()">+ New opportunity</button></div>'+
+    '<div class="metric-strip">'+
+      '<div class="metric-tile"><div class="metric-value">'+active+'</div><div class="metric-label">Active</div></div>'+
+      '<div class="metric-tile"><div class="metric-value">'+pilots+'</div><div class="metric-label">Pilot-stage</div></div>'+
+      '<div class="metric-tile"><div class="metric-value">'+due+'</div><div class="metric-label">Action due</div></div>'+
+    '</div><div class="view-toolbar"><div class="faint" style="font-size:11.5px">Prioritised by opportunity score</div>'+twoViewSwitcher('opportunitiesView',view)+'</div>';
+  if(!opps.length) return header+'<div class="empty"><div class="empty-ico">◈</div>No opportunities yet.</div>';
+  if(view==='table'){
+    return header+'<div class="card" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>'+
+      ['Opportunity','Organisation','Stage','Priority','Next action','Due'].map(h=>'<th>'+h+'</th>').join('')+
+      '</tr></thead><tbody>'+opps.map(op=>'<tr style="cursor:pointer" onclick="go(\'opportunityDetail\',\''+op.id+'\')">'+
+        '<td><strong>'+esc(op.title)+'</strong><div class="faint" style="font-size:11px;margin-top:3px">'+esc((op.problem||'').slice(0,90))+'</div></td>'+
+        '<td>'+esc(orgName(op.organisation_id)||'—')+'</td>'+
+        '<td><span class="status-chip">'+esc(op.stage||'—')+'</span></td>'+
+        '<td>'+String(op.priority||0)+'</td>'+
+        '<td>'+esc(op.next_action_summary||'—')+'</td>'+
+        '<td class="mono faint">'+fmtDate(op.next_action_date)+'</td></tr>').join('')+
+      '</tbody></table></div>';
+  }
+  return header+'<div class="grid g-auto">'+opps.map(op=>{
+    const accent=/won/i.test(op.stage||'')?'var(--green)':/lost/i.test(op.stage||'')?'var(--red)':/pilot/i.test(op.stage||'')?'var(--gold)':'var(--blue)';
+    return '<div class="card rich-card" style="--accent:'+accent+'" onclick="go(\'opportunityDetail\',\''+op.id+'\')">'+
+      '<div class="rich-card-head"><div style="display:flex;gap:11px;min-width:0"><div class="rich-icon">◈</div><div style="min-width:0">'+
+      '<div class="rich-title">'+esc(op.title)+'</div><div class="rich-sub">'+esc(orgName(op.organisation_id)||'No organisation')+'</div></div></div>'+
+      '<span class="status-chip">'+esc(op.stage||'—')+'</span></div>'+
+      '<div class="rich-body">'+esc((op.problem||op.kweli_angle||'No problem statement added yet.').slice(0,170))+'</div>'+
+      '<div class="rich-foot"><span>Priority '+String(op.priority||0)+'</span><span>'+(op.next_action_date?'Next '+fmtDate(op.next_action_date):'No next action')+'</span></div></div>';
+  }).join('')+'</div>';
 }
 /* Opportunities are permitted to be deleted under RLS, confirmed against
    the real policy file. Warning is stronger than the asset one — an
@@ -1662,15 +1714,36 @@ function vTasks(){
   const list = filter==='open' ? openTasks() : filter==='waiting' ? state.tasks.filter(t=>t.status==='Waiting for Response') :
                filter==='overdue' ? openTasks().filter(t=>t.due_at&&t.due_at<today()) : state.tasks;
   const sorted=[...list].sort((a,b)=>(a.due_at||'9999').localeCompare(b.due_at||'9999'));
-  return '<div class="page-head"><div><div class="eyebrow">Relationship workflow</div><div class="page-title">Follow-ups</div>'+
+  const view=route.tasksView=route.tasksView||'card';
+  const overdue=sorted.filter(t=>t.due_at&&t.due_at<today()&&!['Completed','Cancelled','Closed / Lost'].includes(t.status)).length;
+  const waiting=sorted.filter(t=>t.status==='Waiting for Response').length;
+  const header='<div class="page-head"><div><div class="eyebrow">Relationship workflow</div><div class="page-title">Follow-ups</div>'+
     '<div class="page-sub">'+sorted.length+' shown</div></div><button class="btn gold" onclick="openTaskForm()">+ New follow-up</button></div>'+
-    '<div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap">'+
-      [['open','Open'],['overdue','Overdue'],['waiting','Waiting'],['all','All (history)']].map(([id,l])=>
-        '<button class="btn sm'+(filter===id?' active':'')+'" onclick="route.taskFilter=\''+id+'\';renderCurrent()">'+l+'</button>').join('')+'</div>'+
-    (sorted.length?sorted.map(t=>'<div class="row-item'+(t.due_at&&t.due_at<today()&&!['Completed','Cancelled','Closed / Lost'].includes(t.status)?' alert':'')+'" onclick="openTaskModal(\''+t.id+'\')">'+
-      '<span class="udot" style="background:'+priorityColor(t.priority)+'"></span>'+
-      '<div class="row-main"><div class="row-title">'+esc(t.title)+'</div><div class="row-meta">'+esc(orgName(t.organisation_id))+' · '+t.status+'</div></div>'+
-      '<div class="row-right">'+fmtDate(t.due_at)+'</div></div>').join(''):'<div class="empty">Nothing here.</div>');
+    '<div class="metric-strip"><div class="metric-tile"><div class="metric-value">'+sorted.length+'</div><div class="metric-label">Shown</div></div>'+
+    '<div class="metric-tile"><div class="metric-value">'+overdue+'</div><div class="metric-label">Overdue</div></div>'+
+    '<div class="metric-tile"><div class="metric-value">'+waiting+'</div><div class="metric-label">Waiting</div></div></div>'+
+    '<div class="view-toolbar"><div style="display:flex;gap:8px;flex-wrap:wrap">'+
+      [['open','Open'],['overdue','Overdue'],['waiting','Waiting'],['all','All history']].map(([id,l])=>
+        '<button class="btn sm'+(filter===id?' active':'')+'" onclick="route.taskFilter=\''+id+'\';renderCurrent()">'+l+'</button>').join('')+
+      '</div>'+twoViewSwitcher('tasksView',view)+'</div>';
+  if(!sorted.length) return header+'<div class="empty"><div class="empty-ico">✓</div>Nothing here.</div>';
+  if(view==='table'){
+    return header+'<div class="card" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>'+
+      ['Follow-up','Organisation','Status','Priority','Due'].map(h=>'<th>'+h+'</th>').join('')+
+      '</tr></thead><tbody>'+sorted.map(t=>'<tr style="cursor:pointer" onclick="openTaskModal(\''+t.id+'\')">'+
+        '<td><strong>'+esc(t.title)+'</strong></td><td>'+esc(orgName(t.organisation_id)||'—')+'</td>'+
+        '<td><span class="status-chip">'+esc(t.status)+'</span></td>'+
+        '<td>'+esc(t.priority||'Normal')+'</td><td class="mono '+(t.due_at&&t.due_at<today()?'':'faint')+'">'+fmtDate(t.due_at)+'</td></tr>').join('')+
+      '</tbody></table></div>';
+  }
+  return header+'<div class="grid g-auto">'+sorted.map(t=>{
+    const late=t.due_at&&t.due_at<today()&&!['Completed','Cancelled','Closed / Lost'].includes(t.status);
+    return '<div class="card rich-card" style="--accent:'+(late?'var(--red)':priorityColor(t.priority))+'" onclick="openTaskModal(\''+t.id+'\')">'+
+      '<div class="rich-card-head"><div style="display:flex;gap:11px"><div class="rich-icon">✓</div><div><div class="rich-title">'+esc(t.title)+'</div>'+
+      '<div class="rich-sub">'+esc(orgName(t.organisation_id)||'No organisation')+'</div></div></div><span class="status-chip">'+esc(t.status)+'</span></div>'+
+      '<div class="rich-body">'+(late?'Overdue follow-up requiring attention.':'Priority: '+esc(t.priority||'Normal'))+'</div>'+
+      '<div class="rich-foot"><span>'+esc(t.priority||'Normal')+' priority</span><span>'+fmtDate(t.due_at)+'</span></div></div>';
+  }).join('')+'</div>';
 }
 function openTaskForm(orgId,personId,opportunityId){
   const orgOpts='<option value="">—</option>'+state.organisations.map(o=>'<option value="'+o.id+'"'+(orgId===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('');
@@ -1777,9 +1850,32 @@ async function completeTask(id){
 --------------------------------------------------------------------------- */
 function vMeetings(){
   const meetings=[...state.meetings].sort((a,b)=>new Date(b.scheduled_at)-new Date(a.scheduled_at));
-  return '<div class="page-head"><div><div class="eyebrow">Work</div><div class="page-title">Meetings</div>'+
+  const view=route.meetingsView=route.meetingsView||'card';
+  const upcoming=meetings.filter(m=>new Date(m.scheduled_at)>=new Date() && m.meeting_status==='Scheduled').length;
+  const completed=meetings.filter(m=>m.meeting_status==='Completed').length;
+  const header='<div class="page-head"><div><div class="eyebrow">Work</div><div class="page-title">Meetings</div>'+
     '<div class="page-sub">'+meetings.length+' meetings</div></div><button class="btn gold" onclick="openMeetingForm()">+ New meeting</button></div>'+
-    (meetings.length?meetings.map(m=>'<div class="row-item" onclick="go(\'meetingDetail\',\''+m.id+'\')"><div class="row-main"><div class="row-title">'+esc(m.title)+'</div><div class="row-meta">'+esc(orgName(m.organisation_id))+' · '+m.meeting_status+'</div></div><div class="row-right">'+fmtDate(m.scheduled_at)+'</div></div>').join(''):'<div class="empty">No meetings yet.</div>');
+    '<div class="metric-strip"><div class="metric-tile"><div class="metric-value">'+upcoming+'</div><div class="metric-label">Upcoming</div></div>'+
+    '<div class="metric-tile"><div class="metric-value">'+completed+'</div><div class="metric-label">Completed</div></div>'+
+    '<div class="metric-tile"><div class="metric-value">'+meetings.length+'</div><div class="metric-label">Total history</div></div></div>'+
+    '<div class="view-toolbar"><div class="faint" style="font-size:11.5px">Meeting history and upcoming conversations</div>'+twoViewSwitcher('meetingsView',view)+'</div>';
+  if(!meetings.length) return header+'<div class="empty"><div class="empty-ico">▤</div>No meetings yet.</div>';
+  if(view==='table'){
+    return header+'<div class="card" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>'+
+      ['Meeting','Organisation','Status','Date'].map(h=>'<th>'+h+'</th>').join('')+
+      '</tr></thead><tbody>'+meetings.map(m=>'<tr style="cursor:pointer" onclick="go(\'meetingDetail\',\''+m.id+'\')">'+
+        '<td><strong>'+esc(m.title)+'</strong></td><td>'+esc(orgName(m.organisation_id)||'—')+'</td>'+
+        '<td><span class="status-chip">'+esc(m.meeting_status||'—')+'</span></td><td class="mono faint">'+fmtDate(m.scheduled_at)+'</td></tr>').join('')+
+      '</tbody></table></div>';
+  }
+  return header+'<div class="grid g-auto">'+meetings.map(m=>{
+    const upcomingItem=new Date(m.scheduled_at)>=new Date() && m.meeting_status==='Scheduled';
+    return '<div class="card rich-card" style="--accent:'+(upcomingItem?'var(--blue)':'var(--green)')+'" onclick="go(\'meetingDetail\',\''+m.id+'\')">'+
+      '<div class="rich-card-head"><div style="display:flex;gap:11px"><div class="rich-icon">▤</div><div><div class="rich-title">'+esc(m.title)+'</div>'+
+      '<div class="rich-sub">'+esc(orgName(m.organisation_id)||'No organisation')+'</div></div></div><span class="status-chip">'+esc(m.meeting_status||'—')+'</span></div>'+
+      '<div class="rich-body">'+esc((m.agenda||m.notes||'Open the meeting to see agenda, notes and outcomes.').slice(0,170))+'</div>'+
+      '<div class="rich-foot"><span>'+(upcomingItem?'Upcoming':'History')+'</span><span>'+fmtDate(m.scheduled_at)+'</span></div></div>';
+  }).join('')+'</div>';
 }
 function vMeetingDetail(){
   const m=byId(state.meetings,route.id);
@@ -1976,6 +2072,13 @@ function linkLabel(l){
   if(l.target_type==='decision') { const d=byId(state.decisions,l.target_id); return d?d.title:'decision'; }
   return l.target_type;
 }
+
+function twoViewSwitcher(routeKey,current){
+  return '<div class="view-toggle">'+
+    [['card','▦ Cards'],['table','≡ Table']].map(v=>'<button class="'+(current===v[0]?'active':'')+'" onclick="route.'+routeKey+'=\''+v[0]+'\';renderCurrent()">'+v[1]+'</button>').join('')+
+  '</div>';
+}
+
 function viewSwitcher(routeKey,current){
   return '<div class="seg" style="margin-bottom:16px">'+
     ['card','table','timeline'].map(v=>'<button class="'+(current===v?'active':'')+'" onclick="route.'+routeKey+'=\''+v+'\';renderCurrent()">'+v.charAt(0).toUpperCase()+v.slice(1)+'</button>').join('')+
@@ -2157,12 +2260,30 @@ async function deleteObjectionConfirm(id){
 
 function vDecisions(){
   const items=[...state.decisions].filter(d=>!d.archived_at).sort((a,b)=>new Date(b.decided_at)-new Date(a.decided_at));
-  return '<div class="page-head"><div><div class="eyebrow">Knowledge</div><div class="page-title">Decisions</div><div class="page-sub">'+items.length+' company decisions</div></div>'+
+  const view=route.decisionsView=route.decisionsView||'card';
+  const header='<div class="page-head"><div><div class="eyebrow">Knowledge</div><div class="page-title">Decisions</div><div class="page-sub">'+items.length+' company decisions</div></div>'+
     '<button class="btn gold" onclick="openDecisionForm()">+ New decision</button></div>'+
-    (items.length?items.map(d=>{
-      const links=state.entity_links.filter(el=>el.source_type==='decision'&&el.source_id===d.id);
-      return '<div class="row-item" onclick="openDecisionForm(\''+d.id+'\')"><div class="row-main"><div class="row-title">'+esc(d.title)+'</div><div class="row-meta">'+esc((d.decision||'').slice(0,180))+(links.length?' · linked to '+links.map(linkLabel).join(', '):'')+'</div></div><div class="row-right">'+fmtDate(d.decided_at)+'</div></div>';
-    }).join(''):'<div class="empty">No decisions recorded.</div>');
+    '<div class="metric-strip"><div class="metric-tile"><div class="metric-value">'+items.length+'</div><div class="metric-label">Recorded</div></div>'+
+    '<div class="metric-tile"><div class="metric-value">'+items.filter(d=>state.entity_links.some(el=>el.source_type==='decision'&&el.source_id===d.id)).length+'</div><div class="metric-label">Linked</div></div></div>'+
+    '<div class="view-toolbar"><div class="faint" style="font-size:11.5px">A visible record of why Kweli chose what it chose</div>'+twoViewSwitcher('decisionsView',view)+'</div>';
+  if(!items.length) return header+'<div class="empty"><div class="empty-ico">⚑</div>No decisions recorded.</div>';
+  if(view==='table'){
+    return header+'<div class="card" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>'+
+      ['Decision','Reason','Linked to','Date'].map(h=>'<th>'+h+'</th>').join('')+
+      '</tr></thead><tbody>'+items.map(d=>{
+        const links=state.entity_links.filter(el=>el.source_type==='decision'&&el.source_id===d.id);
+        return '<tr style="cursor:pointer" onclick="openDecisionForm(\''+d.id+'\')"><td><strong>'+esc(d.title)+'</strong><div class="faint" style="font-size:11px;margin-top:3px">'+esc((d.decision||'').slice(0,100))+'</div></td>'+
+          '<td>'+esc((d.reason||'—').slice(0,110))+'</td><td>'+(links.length?links.map(linkLabel).join(', '):'—')+'</td><td class="mono faint">'+fmtDate(d.decided_at)+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+  }
+  return header+'<div class="grid g-auto">'+items.map(d=>{
+    const links=state.entity_links.filter(el=>el.source_type==='decision'&&el.source_id===d.id);
+    return '<div class="card rich-card" style="--accent:var(--purple)" onclick="openDecisionForm(\''+d.id+'\')">'+
+      '<div class="rich-card-head"><div style="display:flex;gap:11px"><div class="rich-icon">⚑</div><div><div class="rich-title">'+esc(d.title)+'</div>'+
+      '<div class="rich-sub">'+fmtDate(d.decided_at)+'</div></div></div></div>'+
+      '<div class="rich-body">'+esc((d.decision||'').slice(0,180))+'</div>'+
+      '<div class="rich-foot"><span>'+(links.length?'Linked to '+links.map(linkLabel).join(', '):'Not linked yet')+'</span><span>Open</span></div></div>';
+  }).join('')+'</div>';
 }
 function openDecisionForm(id,orgId,personId){
   const d=id?byId(state.decisions,id):null;
@@ -2612,31 +2733,45 @@ function investorContext(c){
 }
 function vInvestors(){
   const candidates=investorCandidates();
-  return '<div class="page-head"><div><div class="eyebrow">Fundraising</div><div class="page-title">Investors</div>'+
-    '<div class="page-sub">'+candidates.length+' investor relationship'+(candidates.length===1?'':'s')+' — includes organisations flagged as investors even without a full profile yet</div></div>'+
+  const view=route.investorsView=route.investorsView||'card';
+  const profiled=candidates.filter(c=>c.profile).length;
+  const withNext=candidates.filter(c=>c.profile&&c.profile.next_action_date).length;
+  const header='<div class="page-head"><div><div class="eyebrow">Fundraising</div><div class="page-title">Investors</div>'+
+    '<div class="page-sub">'+candidates.length+' investor relationship'+(candidates.length===1?'':'s')+'</div></div>'+
     '<div style="display:flex;gap:8px"><button class="btn" onclick="openLinkExistingInvestor()">Link existing organisation</button>'+
     '<button class="btn gold" onclick="openInvestorForm()">+ New investor profile</button></div></div>'+
-    (candidates.length?candidates.map(c=>{
-      const name=c.org?c.org.name:(c.person?c.person.full_name:'Investor');
-      const ctx=investorContext(c);
-      const thesis=(c.profile&&c.profile.thesis)||(c.profile&&c.profile.notes)||(ctx.opp&&(ctx.opp.kweli_angle||ctx.opp.problem))||'';
-      const recentActivity=ctx.acts[0];
-      return '<div class="card" style="margin-bottom:14px">'+
-        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'+
-          '<div><div style="font-size:15px;font-weight:640">'+esc(name)+'</div>'+
-          '<div class="muted" style="font-size:12px;margin-top:3px">'+esc((c.profile&&c.profile.stage)||(c.org&&c.org.pipeline_stage)||'No stage recorded')+
-            (c.profile&&c.profile.investor_type?' · '+esc(c.profile.investor_type):'')+'</div></div>'+
-          (c.org?'<button class="btn sm" onclick="go(\'organisationDetail\',\''+c.org.id+'\')">Full history →</button>':'')+
-        '</div>'+
-        (thesis?'<div style="font-size:12.5px;margin-top:12px;white-space:pre-wrap">'+esc(thesis).slice(0,400)+'</div>':'')+
-        '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:11px;color:var(--faint)">'+
-          '<span>'+ctx.acts.length+' activities</span><span>'+ctx.decisions.length+' decisions</span><span>'+ctx.objections.length+' objections</span>'+
-          (c.profile&&c.profile.next_action_date?'<span style="color:var(--gold)">Next: '+fmtDate(c.profile.next_action_date)+'</span>':'')+
-        '</div>'+
-        (recentActivity?'<div class="drow" style="margin-top:12px;cursor:default"><span class="drow-icon">•</span><div class="drow-main"><div class="drow-title">'+esc(recentActivity.title)+'</div><div class="drow-meta" style="white-space:normal">'+esc((recentActivity.body||'').slice(0,160))+'</div></div><div class="drow-right">'+fmtDate(recentActivity.occurred_at)+'</div></div>':'')+
-        (!c.profile?'<div style="margin-top:12px"><button class="btn sm gold" onclick="promoteToInvestorProfile(\''+(c.org?c.org.id:'')+'\')">Create full investor profile</button></div>':'')+
+    '<div class="metric-strip"><div class="metric-tile"><div class="metric-value">'+candidates.length+'</div><div class="metric-label">Relationships</div></div>'+
+    '<div class="metric-tile"><div class="metric-value">'+profiled+'</div><div class="metric-label">Full profiles</div></div>'+
+    '<div class="metric-tile"><div class="metric-value">'+withNext+'</div><div class="metric-label">Next actions set</div></div></div>'+
+    '<div class="view-toolbar"><div class="faint" style="font-size:11.5px">Capital relationships with context, history and next steps</div>'+twoViewSwitcher('investorsView',view)+'</div>';
+  if(!candidates.length) return header+'<div class="empty"><div class="empty-ico">$</div>No investor relationships found yet.</div>';
+  if(view==='table'){
+    return header+'<div class="card" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>'+
+      ['Investor','Stage','Type','Activities','Next action','Profile'].map(h=>'<th>'+h+'</th>').join('')+
+      '</tr></thead><tbody>'+candidates.map(c=>{
+        const name=c.org?c.org.name:(c.person?c.person.full_name:'Investor');
+        const ctx=investorContext(c);
+        return '<tr style="cursor:pointer" '+(c.org?('onclick="go(\'organisationDetail\',\''+c.org.id+'\')"'):'')+'>'+
+          '<td><strong>'+esc(name)+'</strong></td>'+
+          '<td><span class="status-chip">'+esc((c.profile&&c.profile.stage)||(c.org&&c.org.pipeline_stage)||'No stage')+'</span></td>'+
+          '<td>'+esc((c.profile&&c.profile.investor_type)||'—')+'</td><td>'+ctx.acts.length+'</td>'+
+          '<td class="mono faint">'+fmtDate(c.profile&&c.profile.next_action_date)+'</td><td>'+(c.profile?'Complete':'Basic')+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+  }
+  return header+'<div class="grid g-auto">'+candidates.map(c=>{
+    const name=c.org?c.org.name:(c.person?c.person.full_name:'Investor');
+    const ctx=investorContext(c);
+    const thesis=(c.profile&&c.profile.thesis)||(c.profile&&c.profile.notes)||(ctx.opp&&(ctx.opp.kweli_angle||ctx.opp.problem))||'No thesis or context added yet.';
+    const emblem=c.org?orgEmblem(c.org,false):personAvatar(c.person||{full_name:name},false);
+    return '<div class="card rich-card" style="--accent:var(--gold)">'+
+      '<div class="rich-card-head"><div style="display:flex;gap:11px;min-width:0">'+emblem+'<div style="min-width:0"><div class="rich-title">'+esc(name)+'</div>'+
+      '<div class="rich-sub">'+esc((c.profile&&c.profile.stage)||(c.org&&c.org.pipeline_stage)||'No stage recorded')+'</div></div></div>'+
+      (c.org?'<button class="btn sm" onclick="go(\'organisationDetail\',\''+c.org.id+'\')">Open →</button>':'')+'</div>'+
+      '<div class="rich-body">'+esc(thesis.slice(0,180))+'</div>'+
+      '<div class="rich-foot"><span>'+ctx.acts.length+' activities · '+ctx.decisions.length+' decisions</span><span>'+(c.profile&&c.profile.next_action_date?'Next '+fmtDate(c.profile.next_action_date):'No next action')+'</span></div>'+
+      (!c.profile?'<div style="margin-top:12px"><button class="btn sm gold" onclick="promoteToInvestorProfile(\''+(c.org?c.org.id:'')+'\')">Create full profile</button></div>':'')+
       '</div>';
-    }).join(''):'<div class="empty"><div class="empty-ico">$</div>No investor relationships found yet.</div>');
+  }).join('')+'</div>';
 }
 async function promoteToInvestorProfile(orgId){
   if(!orgId) return;
