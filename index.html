@@ -1983,7 +1983,7 @@ function vMeetings(){
     return '<div class="card rich-card" style="--accent:'+(upcomingItem?'var(--blue)':'var(--green)')+'" onclick="go(\'meetingDetail\',\''+m.id+'\')">'+
       '<div class="rich-card-head"><div style="display:flex;gap:11px"><div class="rich-icon">▤</div><div><div class="rich-title">'+esc(m.title)+'</div>'+
       '<div class="rich-sub">'+esc(orgName(m.organisation_id)||'No organisation')+'</div></div></div><span class="status-chip">'+esc(m.meeting_status||'—')+'</span></div>'+
-      '<div class="rich-body">'+esc((m.agenda||m.notes||'Open the meeting to see agenda, notes and outcomes.').slice(0,170))+'</div>'+
+      '<div class="rich-body">'+esc((m.objective||m.notes||'Open the meeting to see preparation, notes and outcomes.').slice(0,170))+'</div>'+
       '<div class="rich-foot"><span>'+(upcomingItem?'Upcoming':'History')+'</span><span>'+fmtDate(m.scheduled_at)+'</span></div></div>';
   }).join('')+'</div>';
 }
@@ -2006,8 +2006,8 @@ function vMeetingDetail(){
         kv('Date & time',fmtDateTime(m.scheduled_at))+
         kv('Organisation',orgName(m.organisation_id)||'—')+
         kv('Attendees',attendeeNames.length?attendeeNames.join(', '):'—')+
-        kv('Objective',m.objective||'—')+
-        kv('Agenda',m.agenda||'—')+
+        kv('Objective',String(m.objective||'—').split('\n\nPreparation / agenda:\n')[0]||'—')+
+        kv('Preparation / agenda',String(m.objective||'').includes('\n\nPreparation / agenda:\n')?String(m.objective||'').split('\n\nPreparation / agenda:\n').slice(1).join('\n\nPreparation / agenda:\n'):'—')+
       '</div>'+
       '<div class="card"><div class="sec-h"><h2>After the meeting</h2></div>'+
         '<div class="fl">Notes / comments</div><div style="font-size:12.5px;white-space:pre-wrap;margin-bottom:16px">'+esc(m.notes||'No notes yet.')+'</div>'+
@@ -2040,8 +2040,8 @@ function openMeetingForm(orgId,id,prefillDate){
       (peopleHtml||'<div class="faint">No people have been added yet.</div>')+'</div></div>'+
     '<div class="field"><label class="fl">Other attendees</label><input class="input" id="f_mexternal" placeholder="Comma-separated names" value="'+esc(existingAttendees.filter(a=>a.external_name).map(a=>a.external_name).join(', '))+'"></div>'+
     '<div class="grid g2">'+
-      '<div class="field"><label class="fl">Objective</label><textarea class="input" id="f_mobjective" rows="3" placeholder="What should this meeting achieve?">'+esc(m?m.objective||'':'')+'</textarea></div>'+
-      '<div class="field"><label class="fl">Agenda / preparation</label><textarea class="input" id="f_magenda" rows="3" placeholder="Topics, questions, documents to prepare">'+esc(m?m.agenda||'':'')+'</textarea></div>'+
+      '<div class="field"><label class="fl">Objective</label><textarea class="input" id="f_mobjective" rows="3" placeholder="What should this meeting achieve?">'+esc(m?String(m.objective||'').split('\n\nPreparation / agenda:\n')[0]:'')+'</textarea></div>'+
+      '<div class="field"><label class="fl">Agenda / preparation</label><textarea class="input" id="f_magenda" rows="3" placeholder="Topics, questions, documents to prepare">'+esc(m&&String(m.objective||'').includes('\n\nPreparation / agenda:\n')?String(m.objective||'').split('\n\nPreparation / agenda:\n').slice(1).join('\n\nPreparation / agenda:\n'):'')+'</textarea></div>'+
     '</div>'+
     '<button class="btn gold" onclick="saveMeetingForm(\''+(m?m.id:'')+'\')">'+(m?'Save changes':'Create meeting')+'</button>', true);
 }
@@ -2050,8 +2050,12 @@ async function saveMeetingForm(id){
     title: document.getElementById('f_mtitle').value.trim(),
     organisation_id: document.getElementById('f_morg').value||null,
     scheduled_at: document.getElementById('f_mwhen').value || new Date().toISOString(),
-    objective: document.getElementById('f_mobjective').value.trim()||null,
-    agenda: document.getElementById('f_magenda').value.trim()||null
+    objective: [
+      document.getElementById('f_mobjective').value.trim(),
+      document.getElementById('f_magenda').value.trim()
+        ? 'Preparation / agenda:\n'+document.getElementById('f_magenda').value.trim()
+        : ''
+    ].filter(Boolean).join('\n\n') || null
   };
   if(!payload.title){toast('Meeting name required');return;}
   if(!document.getElementById('f_mwhen').value){toast('Please choose a date and time');return;}
