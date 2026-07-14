@@ -169,6 +169,19 @@
   .empty{color:var(--faint);font-size:12.5px;padding:34px 20px;text-align:center;border:1px dashed var(--line-s);border-radius:12px}
   .empty-ico{font-size:22px;margin-bottom:8px;opacity:.5}
 
+
+  /* organisation and people identity polish */
+  .org-identity{display:flex;align-items:center;gap:12px;min-width:0}
+  .org-emblem{width:46px;height:46px;border-radius:13px;flex:none;display:grid;place-items:center;font-size:22px;font-weight:800;
+    border:1px solid rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.22)}
+  .org-emblem.lg{width:58px;height:58px;border-radius:16px;font-size:28px}
+  .org-title-wrap{min-width:0}
+  .person-avatar{width:48px;height:48px;border-radius:15px;flex:none;display:grid;place-items:center;font-weight:800;font-size:14px;
+    color:white;border:1px solid rgba(255,255,255,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 8px 20px rgba(0,0,0,.2)}
+  .person-avatar.sm{width:38px;height:38px;border-radius:12px;font-size:12px}
+  .identity-head{display:flex;align-items:center;gap:14px}
+  .identity-copy{min-width:0}
+
   /* mini calendar (Today) */
   .mini-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
   .mini-cal .mc-h{font-size:8.5px;color:var(--faint);text-align:center;text-transform:uppercase}
@@ -583,6 +596,43 @@ function deriveLessonTitle(l){
   return candidate;
 }
 
+
+function stableVisualIndex(text,mod){
+  let h=0; const s=String(text||'');
+  for(let i=0;i<s.length;i++) h=((h<<5)-h+s.charCodeAt(i))|0;
+  return Math.abs(h)%mod;
+}
+const IDENTITY_GRADIENTS=[
+  'linear-gradient(145deg,#234D3C,#2E9E6B)',
+  'linear-gradient(145deg,#263F63,#4FA3D1)',
+  'linear-gradient(145deg,#4C355F,#9B7FD4)',
+  'linear-gradient(145deg,#624B20,#C9A24B)',
+  'linear-gradient(145deg,#5D2E2C,#E0654B)',
+  'linear-gradient(145deg,#244A50,#42A5A8)'
+];
+function orgIdentityIcon(o){
+  const t=((o&&o.name)||'')+' '+((o&&o.sector)||'')+' '+((o&&o.organisation_type)||'');
+  const s=t.toLowerCase();
+  if(/kentaste|agricultur|farm|crop|coconut|beekeep|food/.test(s)) return '🌿';
+  if(/spencer west|law|legal|advocate/.test(s)) return '⚖';
+  if(/verst|carbon|climate|environment|conservation|forest|elephant/.test(s)) return '🌍';
+  if(/insurance|mayfair|apa|tausi|turaco|claims/.test(s)) return '🛡';
+  if(/school|education|moringa|university|training/.test(s)) return '🎓';
+  if(/health|pharmacy|medical|hospital|goodlife|lab/.test(s)) return '✚';
+  if(/bank|finance|credit|invest|capital|ventures/.test(s)) return '◈';
+  if(/technology|software|digital|auditdashboard|sonic/.test(s)) return '⚙';
+  if(/government|regulator|governance|election/.test(s)) return '◆';
+  return ((o&&o.name)||'?').trim().charAt(0).toUpperCase()||'⌂';
+}
+function orgEmblem(o,large){
+  const bg=IDENTITY_GRADIENTS[stableVisualIndex((o&&o.name)||'',IDENTITY_GRADIENTS.length)];
+  return '<div class="org-emblem'+(large?' lg':'')+'" style="background:'+bg+'" title="'+esc((o&&o.sector)||(o&&o.organisation_type)||'Organisation')+'">'+orgIdentityIcon(o)+'</div>';
+}
+function personAvatar(p,small){
+  const bg=IDENTITY_GRADIENTS[stableVisualIndex((p&&p.full_name)||'',IDENTITY_GRADIENTS.length)];
+  return '<div class="person-avatar'+(small?' sm':'')+'" style="background:'+bg+'">'+esc(initials((p&&p.full_name)||''))+'</div>';
+}
+
 function warmthClass(w){
   if(!w) return 'warmth-default';
   const s=w.toLowerCase();
@@ -959,10 +1009,10 @@ function vOrganisations(){
       const overdue=state.tasks.some(t=>t.organisation_id===o.id && t.due_at && t.due_at<today() && !['Completed','Cancelled','Closed / Lost'].includes(t.status));
       const priorityPct=Math.round(((o.priority||0)/maxPriority)*100);
       return '<div class="card org-card" onclick="go(\'organisationDetail\',\''+o.id+'\')">'+
-        '<div class="org-card-top"><div>'+
+        '<div class="org-card-top"><div class="org-identity">'+orgEmblem(o,false)+'<div class="org-title-wrap">'+
           '<div class="badge-org-type pill-editable" onclick="openPillPopover(event,\''+o.id+'\',\'organisation_type\')">'+esc(o.organisation_type)+(o.sector?' · '+esc(o.sector):'')+'</div>'+
           '<div class="org-card-name">'+esc(o.name)+'</div>'+
-        '</div>'+(overdue?'<span class="flag waiting" style="background:rgba(224,101,75,.15);color:var(--red);border-color:rgba(224,101,75,.3)">⚠ Overdue</span>':'')+'</div>'+
+        '</div></div>'+(overdue?'<span class="flag waiting" style="background:rgba(224,101,75,.15);color:var(--red);border-color:rgba(224,101,75,.3)">⚠ Overdue</span>':'')+'</div>'+
         '<div class="org-card-meta">'+
           '<span class="pill pill-editable" title="✏ Edit stage" onclick="openPillPopover(event,\''+o.id+'\',\'pipeline_stage\')">'+esc(o.pipeline_stage||'No stage')+'</span>'+
           '<span class="pill pill-editable" title="✏ Edit status" onclick="openPillPopover(event,\''+o.id+'\',\'relationship_status\')">'+esc(o.relationship_status||'—')+'</span>'+
@@ -1089,7 +1139,7 @@ function vOrganisationDetail(){
       const pMeetingCount=state.meetings.filter(m=>m.organisation_id===o.id).length;
       const pNextTask=state.tasks.filter(t=>t.person_id===p.id && !['Completed','Cancelled','Closed / Lost'].includes(t.status))[0];
       return '<div class="card person-card" onclick="go(\'personDetail\',\''+p.id+'\')">'+
-        '<div class="avatar">'+initials(p.full_name)+'</div>'+
+        personAvatar(p,true)+
         '<div style="min-width:0;flex:1">'+
           '<div style="font-size:14px;font-weight:640">'+esc(p.full_name)+'</div>'+
           '<div class="muted" style="font-size:11.5px;margin-top:2px">'+esc(p.role||'—')+(p.relationship_to_kweli?' · '+esc(p.relationship_to_kweli):'')+'</div>'+
@@ -1126,12 +1176,12 @@ function vOrganisationDetail(){
     body=orgTeamNotes.length?orgTeamNotes.map(m=>'<div class="row-item" onclick="openTeamNoteDetail(\''+m.id+'\')"><div class="row-main"><div class="row-title">'+esc(m.title)+'</div><div class="row-meta">'+m.status+'</div></div></div>').join(''):'<div class="empty">No team notes linked.</div>';
   }
 
-  return '<div class="page-head"><div><div class="eyebrow">'+esc(o.organisation_type)+'</div><div class="page-title">'+esc(o.name)+'</div>'+
+  return '<div class="page-head"><div class="identity-head">'+orgEmblem(o,true)+'<div class="identity-copy"><div class="eyebrow">'+esc(o.organisation_type)+'</div><div class="page-title">'+esc(o.name)+'</div>'+
     '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+
       getOrgMeta(o).tags.map(t=>'<span class="pill">'+esc(t)+'</span>').join('')+
       '<span class="pill pill-editable" onclick="openTagPopover(event,\''+o.id+'\')">+ tags</span>'+
     '</div>'+
-    '<div class="page-sub">'+esc(o.next_action_summary||'No next action set')+(o.next_action_date?' · due '+fmtDate(o.next_action_date):'')+'</div></div></div>'+
+    '<div class="page-sub">'+esc(o.next_action_summary||'No next action set')+(o.next_action_date?' · due '+fmtDate(o.next_action_date):'')+'</div></div></div></div>'+
     orgQuickActionBar(o)+
     '<div class="tabs">'+tabs.map(([id,label])=>'<div class="tab'+(tab===id?' active':'')+'" onclick="route.tab=\''+id+'\';renderCurrent()">'+label+'</div>').join('')+'</div>'+
     body;
@@ -1358,11 +1408,11 @@ function vPeople(){
     const currentOpp=state.opportunities.find(o=>o.organisation_id===p.primary_organisation_id && o.status==='Active');
     const overdue=nextTask && nextTask.due_at && nextTask.due_at<today();
     return '<div class="ent-card'+(overdue?' alert':'')+'" onclick="go(\'personDetail\',\''+p.id+'\')">'+
-      '<div class="ent-top"><div>'+
+      '<div class="ent-top"><div class="org-identity">'+personAvatar(p,false)+'<div class="org-title-wrap">'+
         '<div class="ent-name">'+esc(p.full_name)+'</div>'+
         '<div class="ent-sub">'+esc(p.role||'—')+(p.primary_organisation_id?' · '+esc(orgName(p.primary_organisation_id)):'')+'</div>'+
         (p.relationship_to_kweli||p.relationship_description?'<div class="ent-line" style="margin-top:5px"><span class="pill">'+esc(p.relationship_to_kweli||p.relationship_description)+'</span></div>':'')+
-      '</div>'+
+      '</div></div>'+
       (p.warmth?'<span class="warmth-pill '+warmthClass(p.warmth)+'">'+esc(p.warmth)+'</span>':'')+
       '</div>'+
       (currentOpp?'<div class="ent-line"><span class="pill">'+esc(currentOpp.stage)+'</span></div>':'')+
@@ -1467,8 +1517,8 @@ function vPersonDetail(){
     body+='<button class="btn sm" style="margin-top:8px" onclick="openDecisionForm(null,\''+(p.primary_organisation_id||'')+'\',\''+p.id+'\')">+ Add decision</button>';
   }
 
-  return '<div class="page-head"><div><div class="eyebrow">'+esc(p.primary_organisation_id?orgName(p.primary_organisation_id):'Person')+'</div>'+
-    '<div class="page-title">'+esc(p.full_name)+'</div><div class="page-sub">'+esc(p.role||'')+(p.warmth?' · '+esc(p.warmth):'')+'</div></div></div>'+
+  return '<div class="page-head"><div class="identity-head">'+personAvatar(p,false)+'<div class="identity-copy"><div class="eyebrow">'+esc(p.primary_organisation_id?orgName(p.primary_organisation_id):'Person')+'</div>'+
+    '<div class="page-title">'+esc(p.full_name)+'</div><div class="page-sub">'+esc(p.role||'')+(p.warmth?' · '+esc(p.warmth):'')+'</div></div></div></div>'+
     personQuickActionBar(p)+
     '<div class="tabs">'+tabs.map(([id,label])=>'<div class="tab'+(tab===id?' active':'')+'" onclick="route.tab=\''+id+'\';renderCurrent()">'+label+'</div>').join('')+'</div>'+
     body;
@@ -3200,10 +3250,8 @@ const CONTENT_LIBRARY=[
    suffix if the plan structure ever changes again, so an old partial run
    never blocks a fresh correct one.
 --------------------------------------------------------------------------- */
-const MARKETING_CAMPAIGN_KEY = 'weekly-rhythm-6mo-v4';
-const MARKETING_PLAN_START_DATE = '2026-07-20';
-const MARKETING_FORWARD_RESET_VERSION = 'marketing_forward_reset_2026_07_20_v1';
-const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2','weekly-rhythm-6mo-v3'];
+const MARKETING_CAMPAIGN_KEY = 'weekly-rhythm-6mo-v3';
+const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2'];
 const WEEKLY_MIGRATION_VERSION = 'weekly_rhythm_v2';
 
 const MONTHLY_THEMES_6MO_V2 = ['The Trust Problem','Insurance','Verification Infrastructure','Customer Stories','Future of Trust','Building the Category'];
@@ -3284,10 +3332,12 @@ function weekdayOf(dateValue){
   return new Date(Number(m[1]), Number(m[2])-1, Number(m[3])).getDay();
 } // 0=Sun..6=Sat, local, no UTC shift
 function firstPlanMonday(from){
-  // This plan deliberately starts on Monday 20 July 2026. Everything before
-  // that date is completed history; every generated task begins from here.
-  const m=MARKETING_PLAN_START_DATE.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
+  const d=new Date(from); d.setHours(0,0,0,0);
+  const dow=d.getDay(); // 0=Sun..6=Sat
+  let daysAhead=((1-dow+7)%7);
+  if(daysAhead===0) daysAhead=7; // today IS Monday — never seed onto today, use next week's Monday instead
+  d.setDate(d.getDate()+daysAhead);
+  return d;
 }
 function campaignKeyForWeek(week){ return 'wk'+String(week+1).padStart(2,'0'); }
 /* Up to three real CRM organisation names, most-recently-touched first, baked
@@ -3580,36 +3630,8 @@ async function migrateToWeeklyCampaignsOnce(){
   try{ await dbInsert('migration_log',{step:WEEKLY_MIGRATION_VERSION, status:'ok', source_table:'system', detail:'Weekly-campaign migration: removed '+removed+' untouched placeholder(s), kept '+kept+' edited/published item(s).'}); }catch(e){}
   if(removed||kept) toast('Marketing upgraded to weekly campaigns — cleared '+removed+' old placeholder(s)'+(kept?', kept '+kept+' you\u2019d worked on':''));
 }
-async function resetGeneratedMarketingFromStartOnce(){
-  if((state.migration_log||[]).some(m=>m.step===MARKETING_FORWARD_RESET_VERSION && m.status==='ok')) return {deleted:0, alreadyDone:true};
-  // Clear every auto-generated row scheduled from 20 July onward, including
-  // rows previously marked complete/published. The user explicitly confirmed
-  // that the prior week is finished and wants a clean forward plan. Manual
-  // marketing records are untouched.
-  const rows=(state.marketing_items||[]).filter(mi=>{
-    const date=String(mi.scheduled_at||'').slice(0,10);
-    return date>=MARKETING_PLAN_START_DATE && itemIsSeeded(mi);
-  });
-  let deleted=0;
-  const ids=rows.map(r=>r.id);
-  for(let i=0;i<ids.length;i+=100){
-    const chunk=ids.slice(i,i+100);
-    const {error}=await sb.from('marketing_items').delete().in('id',chunk);
-    if(error){ console.error('[marketing forward reset] delete failed',error); throw error; }
-    deleted+=chunk.length;
-  }
-  if(ids.length){
-    const gone=new Set(ids);
-    state.marketing_items=state.marketing_items.filter(mi=>!gone.has(mi.id));
-  }
-  try{ await dbInsert('migration_log',{step:MARKETING_FORWARD_RESET_VERSION,status:'ok',source_table:'system',detail:'Cleared '+deleted+' generated marketing row(s) scheduled on/after '+MARKETING_PLAN_START_DATE+' before installing '+MARKETING_CAMPAIGN_KEY+'.'}); }catch(e){}
-  return {deleted, alreadyDone:false};
-}
-
 async function autoSeedMarketingPlanIfNeeded(){
   try{
-    const forwardReset=await resetGeneratedMarketingFromStartOnce();
-    if(forwardReset.deleted) toast('Cleared '+forwardReset.deleted+' old future marketing item(s); rebuilding from 20 July');
     await migrateToWeeklyCampaignsOnce();
     const dedupResult=await dedupeMarketingItemsOnce();
     if(dedupResult.removed || dedupResult.backfilled){
@@ -3778,13 +3800,10 @@ async function rebuildMarketingPlan(){
       (vpre.ok?'':'\nfirst errors:\n'+vpre.errors.slice(0,8).join('\n')));
     if(!vpre.ok){ showDiag('Rebuild stopped at Stage 2 — generator failed (nothing deleted or written)', true); return; }
 
-    const deletable=state.marketing_items.filter(mi=>{
-      const date=String(mi.scheduled_at||'').slice(0,10);
-      return itemIsSeeded(mi) && date>=MARKETING_PLAN_START_DATE;
-    });
-    const preserved=state.marketing_items.filter(mi=>itemIsSeeded(mi) && String(mi.scheduled_at||'').slice(0,10)<MARKETING_PLAN_START_DATE).length;
+    const deletable=state.marketing_items.filter(mi=>itemIsSeeded(mi) && !itemIsProtected(mi));
+    const preserved=state.marketing_items.filter(mi=>itemIsSeeded(mi) && itemIsProtected(mi)).length;
     hideSeedingOverlay();
-    if(!confirm('Generator verified ✓ — '+rows.length+' rows, 26 weeks.\n\nDelete '+deletable.length+' generated item(s) dated 20 July onward, preserve '+preserved+' historical item(s) before 20 July, then write the plan. Continue?')) return;
+    if(!confirm('Generator verified ✓ — '+rows.length+' rows, 26 weeks.\n\nDelete '+deletable.length+' untouched auto-item(s), preserve '+preserved+', then write the plan. Continue?')) return;
 
     // ---- STAGE 3: delete untouched seeded rows --------------------------
     showSeedingOverlay('Deleting old campaign…');
@@ -3882,7 +3901,7 @@ function vMarketingRebuildPanel(){
     kv('Last rebuild', esc(fmtDateTime(info.lastRebuild)), true)+
     (clean
       ? '<div class="faint" style="font-size:11px;margin-top:14px;line-height:1.5">Plan looks clean — '+info.expected+' current rows and no legacy items. You can still rebuild to reset.</div>'
-      : '<div class="muted" style="font-size:12px;margin-top:14px;line-height:1.5">Rebuild will delete all auto-generated marketing rows dated <b>20 July 2026 onward</b>, keep completed history before that date, then reseed the current rhythm to exactly '+info.expected+' rows and verify the day counts.</div>')+
+      : '<div class="muted" style="font-size:12px;margin-top:14px;line-height:1.5">Rebuild will delete <b>'+info.deletable+'</b> auto-generated row(s) (legacy campaigns, the bulk content-library, and any untouched current rows), keep <b>'+info.preserved+'</b> published/edited item(s), then reseed the current rhythm to exactly '+info.expected+' rows and verify the day counts.</div>')+
     '<button class="btn gold" style="margin-top:14px;width:100%;font-weight:640" onclick="rebuildMarketingPlan()">Rebuild Marketing Plan</button>'+
   '</div>';
 }
@@ -4441,7 +4460,7 @@ function getItemCampaign(mi){
 function itemIsDone(mi){ return ['Published','Repurposing'].includes(getContentStage(mi)) || !!mi.completed_at || mi.status==='Published'; }
 function buildCampaignGroups(){
   const map=new Map();
-  state.marketing_items.forEach(mi=>{ if(!itemIsCurrentPlan(mi)) return; const theme=getItemCampaign(mi); if(!theme) return; if(!map.has(theme)) map.set(theme,[]); map.get(theme).push(mi); });
+  state.marketing_items.forEach(mi=>{ const theme=getItemCampaign(mi); if(!theme) return; if(!map.has(theme)) map.set(theme,[]); map.get(theme).push(mi); });
   const meta=t=>CAMPAIGN_THEMES.find(c=>c.theme===t)||{};
   const groups=[...map.entries()].map(([theme,items])=>{
     items.sort((a,b)=>(a.scheduled_at||'zzzz').localeCompare(b.scheduled_at||'zzzz'));
