@@ -435,7 +435,23 @@ async function onSignedIn(session){
    DATA LAYER
 --------------------------------------------------------------------------- */
 async function loadAll(){
-  const results = await Promise.all(TABLES.map(t=>sb.from(t).select('*')));
+  // PostgREST caps a plain select('*') at 1000 rows. marketing_items can
+  // exceed that with legacy campaigns + the content library, which truncated
+  // the reload and made freshly-written rows look absent. Paginate every table.
+  const PAGE=1000;
+  const loadTable=async(t)=>{
+    let all=[], from=0, err=null;
+    for(;;){
+      const {data,error}=await sb.from(t).select('*').range(from, from+PAGE-1);
+      if(error){ err=error; break; }
+      all=all.concat(data||[]);
+      if(!data || data.length<PAGE) break;
+      from+=PAGE;
+      if(from>100000) break; // hard safety cap
+    }
+    return {data:all, error:err};
+  };
+  const results = await Promise.all(TABLES.map(loadTable));
   let anyError=false;
   TABLES.forEach((t,i)=>{
     if(results[i].error){console.error('Load failed:',t,results[i].error);anyError=true;state[t]=state[t]||[];}
@@ -3289,61 +3305,101 @@ function supportTaskTitle(support, theme){
     default: return support+': '+theme;
   }
 }
+/* ---------------------------------------------------------------------------
+   CAMPAIGN MODEL. Each week is ONE campaign object. Every one of its eight
+   tasks is derived from that single object and stamps the campaign's identity
+   (theme + article title) into its own fields. Tasks are NEVER assembled from
+   parallel articles[]/linkedin[]/x[] arrays and zipped together afterwards —
+   that is what let references drift across weeks. Build campaigns[], then for
+   each campaign create its Mon/Tue/Wed/Thu/Fri tasks in place.
+--------------------------------------------------------------------------- */
+function buildCampaignForWeek(week, firstMonday){
+  const c = CAMPAIGN_THEMES[week % CAMPAIGN_THEMES.length];
+  const weekNum = String(week+1).padStart(2,'0');
+  const weekMonday = addCalendarDays(firstMonday, week*7);
+  return {
+    id: MARKETING_CAMPAIGN_KEY+'-week-'+weekNum,   // stable campaign id → seed_key prefix
+    weekNum,
+    theme: c.theme,
+    title: c.article || c.theme,                   // article headline = campaign title
+    audience: c.audience || null,
+    objective: c.objective || null,
+    problem: c.problem || '',
+    support: c.support || 'Founder Insight',
+    dates: {
+      mon: addCalendarDays(weekMonday, 0),
+      tue: addCalendarDays(weekMonday, 1),
+      wed: addCalendarDays(weekMonday, 2),
+      thu: addCalendarDays(weekMonday, 3),
+      fri: addCalendarDays(weekMonday, 4)
+    }
+  };
+}
+/* Every task inherits title/audience/objective + campaign identity from the
+   parent campaign object it is passed. It cannot reference any other week. */
+function mkCampaignTask(cp, slot, title, type, date, note){
+  return {
+    seed_key: cp.id+'-'+slot,
+    title, item_type:type,
+    audience: cp.audience, objective: cp.objective,
+    status:STAGE_TO_DB_STATUS['Planned'], priority:'Normal', owner_user_id:myProfile.id,
+    scheduled_at: dateKeyLocal(date),
+    // campaign = theme (identity), sourceTitle = article headline. Both are
+    // read back by the per-week single-campaign verification.
+    description:serializeContentFields('Planned',{campaign:cp.theme, topic:cp.theme, sourceTitle:cp.title, notes:note})
+  };
+}
+function createMondayTasks(cp){
+  return [
+    mkCampaignTask(cp,'article','Write article: \u201c'+cp.title+'\u201d', 'Article', cp.dates.mon,
+      'THE source asset for the week.\nProblem: '+cp.problem+'\nAudience: '+cp.audience+'\nObjective: '+cp.objective+'\n\nResearch and write this one article. Everything else this week is derived from it.'),
+    mkCampaignTask(cp,'instagram','Create Instagram carousel from \u201c'+cp.title+'\u201d', 'Instagram Carousel', cp.dates.mon,
+      'Turn \u201c'+cp.title+'\u201d into a carousel \u2014 one idea per slide, cover \u2192 problem \u2192 how it happens \u2192 the shift \u2192 CTA. Clean navy/gold, few words per slide.')
+  ];
+}
+function createTuesdayTasks(cp){
+  return [
+    mkCampaignTask(cp,'linkedin','Publish LinkedIn version of \u201c'+cp.title+'\u201d', 'LinkedIn Post', cp.dates.tue,
+      'Repurpose \u201c'+cp.title+'\u201d into ONE LinkedIn post. Same idea, not a new one. Sharp hook; end with a question that invites a reply.'),
+    mkCampaignTask(cp,'x','Publish X version of \u201c'+cp.title+'\u201d', 'X Post', cp.dates.tue,
+      'Repurpose \u201c'+cp.title+'\u201d into ONE X post (or a short thread). Blunter and more conversational than LinkedIn.')
+  ];
+}
+function createWednesdayTask(cp){
+  return [
+    mkCampaignTask(cp,'support', supportTaskTitle(cp.support, cp.theme), cp.support, cp.dates.wed,
+      'This week\u2019s single supporting asset, built from \u201c'+cp.title+'\u201d. Just this one \u2014 nothing else scheduled today.')
+  ];
+}
+function createThursdayTask(cp, crmNames){
+  return [
+    mkCampaignTask(cp,'distribution','Send this week\u2019s '+cp.theme+' article to '+crmNames, 'Distribution', cp.dates.thu,
+      'Distribution only \u2014 no new content.\n\n\u2022 Send \u201c'+cp.title+'\u201d to the most relevant people in your CRM (live suggestions are in this task and on Today).\n\u2022 Comment on 1\u20132 industry posts about '+cp.theme.toLowerCase()+'.\n\u2022 Follow up with anyone who engaged.')
+  ];
+}
+function createFridayTasks(cp){
+  return [
+    mkCampaignTask(cp,'friday','Founder Friday: a personal note from the '+cp.theme+' week', 'Founder Friday', cp.dates.fri,
+      'One personal post \u2014 what I learnt this week, the biggest customer lesson, building Kweli, a startup mistake, why trust matters, or a conversation from this week. Keep it personal and honest. No fabricated pilot claims.'),
+    mkCampaignTask(cp,'review','Weekly review: '+cp.theme+' campaign', 'Weekly Review', cp.dates.fri,
+      'Close out the week:\n\u2022 Article \u201c'+cp.title+'\u201d published?  LinkedIn published?  X published?\n\u2022 Distribution completed?\n\u2022 What conversations happened this week? Who engaged?\n\u2022 Pick next week\u2019s campaign theme.')
+  ];
+}
 function buildInsurancePlanRows(){
+  const firstMonday = firstPlanMonday(new Date()); // immutable anchor
+  const crmNames = seedDistributionNames();
+  // 1) Build exactly one campaign per week.
+  const campaigns=[];
+  for(let week=0; week<26; week++) campaigns.push(buildCampaignForWeek(week, firstMonday));
+  // 2) Derive all eight tasks per campaign, in place, from that one object.
   const rows=[];
-  const crmNames=seedDistributionNames();
-  const firstMonday = firstPlanMonday(new Date()); // immutable anchor — never mutated below
-
-  for(let week=0; week<26; week++){
-    const weekNum = String(week+1).padStart(2,'0');
-    const c = CAMPAIGN_THEMES[week % CAMPAIGN_THEMES.length];
-    const theme = c.theme;
-    const art = c.article || theme;
-    const support = c.support || 'Founder Insight';
-    // Each week is anchored to firstMonday + w*7; each weekday is derived
-    // INDEPENDENTLY from that week's Monday — never from the previous day,
-    // never from a mutated shared cursor, never from last week's Friday.
-    const weekMonday = addCalendarDays(firstMonday, week*7);
-    const mon = addCalendarDays(weekMonday, 0);
-    const tue = addCalendarDays(weekMonday, 1);
-    const wed = addCalendarDays(weekMonday, 2);
-    const thu = addCalendarDays(weekMonday, 3);
-    const fri = addCalendarDays(weekMonday, 4);
-
-    const mk=(slot,title,type,date,note)=>({
-      seed_key: MARKETING_CAMPAIGN_KEY+'-week-'+weekNum+'-'+slot,
-      title, item_type:type, audience:c.audience||null, objective:c.objective||null,
-      status:STAGE_TO_DB_STATUS['Planned'], priority:'Normal', owner_user_id:myProfile.id,
-      scheduled_at: dateKeyLocal(date),
-      description:serializeContentFields('Planned',{campaign:theme, topic:theme, sourceTitle:art, notes:note})
-    });
-
-    // MONDAY — write the article + build its Instagram carousel.
-    rows.push(mk('article','Write article: \u201c'+art+'\u201d', 'Article', mon,
-      'THE source asset for the week.\nProblem: '+c.problem+'\nAudience: '+c.audience+'\nObjective: '+c.objective+'\n\nResearch and write this one article. Everything else this week is derived from it.'));
-    rows.push(mk('instagram','Create Instagram carousel from \u201c'+art+'\u201d', 'Instagram Carousel', mon,
-      'Turn \u201c'+art+'\u201d into a carousel \u2014 one idea per slide, cover \u2192 problem \u2192 how it happens \u2192 the shift \u2192 CTA. Clean navy/gold, few words per slide.'));
-
-    // TUESDAY — publish the two repurposes of the article.
-    rows.push(mk('linkedin','Publish LinkedIn version of \u201c'+art+'\u201d', 'LinkedIn Post', tue,
-      'Repurpose \u201c'+art+'\u201d into ONE LinkedIn post. Same idea, not a new one. Sharp hook; end with a question that invites a reply.'));
-    rows.push(mk('x','Publish X version of \u201c'+art+'\u201d', 'X Post', tue,
-      'Repurpose \u201c'+art+'\u201d into ONE X post (or a short thread). Blunter and more conversational than LinkedIn.'));
-
-    // WEDNESDAY — exactly ONE supporting asset for this campaign.
-    rows.push(mk('support', supportTaskTitle(support, theme), support, wed,
-      'This week\u2019s single supporting asset, built from \u201c'+art+'\u201d. Just this one \u2014 nothing else scheduled today.'));
-
-    // THURSDAY — distribution only, self-contained with real CRM names.
-    rows.push(mk('distribution','Send this week\u2019s '+theme+' article to '+crmNames, 'Distribution', thu,
-      'Distribution only \u2014 no new content.\n\n\u2022 Send \u201c'+art+'\u201d to the most relevant people in your CRM (live suggestions are in this task and on Today).\n\u2022 Comment on 1\u20132 industry posts about '+theme.toLowerCase()+'.\n\u2022 Follow up with anyone who engaged.'));
-
-    // FRIDAY — Founder Friday post + weekly review (exactly two).
-    rows.push(mk('friday','Founder Friday: a personal note from the '+theme+' week', 'Founder Friday', fri,
-      'One personal post \u2014 what I learnt this week, the biggest customer lesson, building Kweli, a startup mistake, why trust matters, or a conversation from this week. Keep it personal and honest. No fabricated pilot claims.'));
-    rows.push(mk('review','Weekly review: '+theme+' campaign', 'Weekly Review', fri,
-      'Close out the week:\n\u2022 Article \u201c'+art+'\u201d published?  LinkedIn published?  X published?\n\u2022 Distribution completed?\n\u2022 What conversations happened this week? Who engaged?\n\u2022 Pick next week\u2019s campaign theme.'));
-  }
+  campaigns.forEach(cp=>{
+    createMondayTasks(cp).forEach(t=>rows.push(t));
+    createTuesdayTasks(cp).forEach(t=>rows.push(t));
+    createWednesdayTask(cp).forEach(t=>rows.push(t));
+    createThursdayTask(cp, crmNames).forEach(t=>rows.push(t));
+    createFridayTasks(cp).forEach(t=>rows.push(t));
+  });
   return rows;
 }
 function expectedSeedKeys(){
@@ -3630,6 +3686,22 @@ function verifyRhythmItems(items){
     [1,2,3,4,5,6,0].forEach(dow=>{ const got=b.days[dow]||0; if(got!==expect[dow]) errors.push('Week '+wk+': '+dayName[dow]+' has '+got+' (expected '+expect[dow]+')'); });
   });
   const weeks=Object.keys(byWeek).length;
+  // PERMANENT GUARD: every task in a week must reference the SAME campaign.
+  // Extract each task's campaign identity (theme) + article title and assert
+  // exactly one distinct value per week. This blocks the "repurpose references
+  // the previous week's campaign" class of bug before anything is written.
+  const weekCampaign={};
+  plan.forEach(mi=>{
+    const m=mi.seed_key.match(/-week-(\d\d)-/); if(!m) return;
+    const wk=m[1];
+    const f=parseContentFields(mi.description||'');
+    const identity=(f.campaign||'(none)')+' :: '+(f.sourceTitle||'(no article)');
+    (weekCampaign[wk]=weekCampaign[wk]||new Set()).add(identity);
+  });
+  Object.keys(weekCampaign).sort().forEach(wk=>{
+    const set=weekCampaign[wk];
+    if(set.size!==1) errors.push('Week '+wk+': tasks reference '+set.size+' different campaigns — must be exactly 1:\n    '+[...set].join('\n    '));
+  });
   if(plan.length!==208) errors.push('Total plan rows = '+plan.length+' (expected 208)');
   if(weeks!==26) errors.push('Weeks present = '+weeks+' (expected 26)');
   return { weeks, count:plan.length, ok:errors.length===0, errors };
@@ -3638,65 +3710,109 @@ function verifyRhythm(){ return verifyRhythmItems(state.marketing_items); }
 function verifyPlanRows(rows){ return verifyRhythmItems(rows); }
 function showRebuildError(msg){ hideSeedingOverlay(); openModal('<h3 style="color:var(--danger,#F87171)">Rebuild stopped</h3><div class="muted" style="font-size:12.5px;white-space:pre-wrap;line-height:1.5">'+esc(msg)+'</div>', true); renderCurrent(); }
 async function rebuildMarketingPlan(){
-  // 1. Build all 208 candidate rows in memory.
-  showSeedingOverlay('Generating plan…');
-  const rows=buildInsurancePlanRows();
-  // 2. Verify all 26 weeks BEFORE touching the database. If the generator is
-  //    wrong, nothing is deleted and nothing is written.
-  const vpre=verifyPlanRows(rows);
-  hideSeedingOverlay();
-  if(!vpre.ok){
-    showRebuildError('Generator verification failed — NOTHING was deleted or changed.\n\n'+vpre.errors.slice(0,14).join('\n')+(vpre.errors.length>14?'\n… ('+(vpre.errors.length-14)+' more)':''));
-    return;
-  }
-  const deletable=state.marketing_items.filter(mi=>itemIsSeeded(mi) && !itemIsProtected(mi));
-  const preserved=state.marketing_items.filter(mi=>itemIsSeeded(mi) && itemIsProtected(mi)).length;
-  if(!confirm('Generator verified ✓ — '+rows.length+' rows, 26 weeks, Mon–Fri only.\n\nThis will delete '+deletable.length+' untouched auto-generated item(s) and reseed the plan. '+preserved+' published/edited item(s) will be preserved.\n\nContinue?')) return;
+  const dbg=[];
+  const log=(stage,detail)=>{ dbg.push({stage,detail:String(detail)}); try{ console.log('[rebuild] '+stage+'\n'+detail); }catch(e){} };
+  const showDiag=(title,failed)=>{
+    hideSeedingOverlay();
+    const body=dbg.map(d=>'<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)">'+
+      '<div style="font-weight:660;font-size:12px;color:'+(failed?'var(--muted)':'var(--gold)')+'">'+esc(d.stage)+'</div>'+
+      '<div class="mono" style="font-size:11px;white-space:pre-wrap;line-height:1.5;color:var(--muted);margin-top:2px">'+esc(d.detail)+'</div></div>').join('');
+    openModal('<h3'+(failed?' style="color:var(--danger,#F87171)"':'')+'>'+esc(title)+'</h3>'+
+      '<div style="max-height:460px;overflow:auto;margin-top:6px">'+body+'</div>', true);
+    renderCurrent();
+  };
   try{
-    // 3. Only now that the generator is verified — delete untouched seeded rows.
+    // ---- STAGE 1: build candidate rows in memory -------------------------
+    showSeedingOverlay('Generating plan…');
+    const rows=buildInsurancePlanRows();
+    const keys=rows.map(r=>r.seed_key);
+    const rowPrefix=keys[0]?keys[0].replace(/-week-.*$/,''):'(none)';
+    log('1. Candidate rows built',
+      'count: '+rows.length+
+      '\nfirst seed_key: '+(keys[0]||'—')+
+      '\nlast  seed_key: '+(keys[keys.length-1]||'—')+
+      '\nwrite prefix:    '+rowPrefix+
+      '\nverifier prefix: '+MARKETING_CAMPAIGN_KEY+'-week-'+
+      '\nprefixes match:  '+(rowPrefix===MARKETING_CAMPAIGN_KEY?'YES':'NO ⚠️ (this alone would make the verifier report 0)'));
+
+    // ---- STAGE 2: verify in-memory (nothing written yet) ----------------
+    const vpre=verifyPlanRows(rows);
+    log('2. In-memory verification',
+      'ok: '+vpre.ok+' · rows: '+vpre.count+' · weeks: '+vpre.weeks+
+      (vpre.ok?'':'\nfirst errors:\n'+vpre.errors.slice(0,8).join('\n')));
+    if(!vpre.ok){ showDiag('Rebuild stopped at Stage 2 — generator failed (nothing deleted or written)', true); return; }
+
+    const deletable=state.marketing_items.filter(mi=>itemIsSeeded(mi) && !itemIsProtected(mi));
+    const preserved=state.marketing_items.filter(mi=>itemIsSeeded(mi) && itemIsProtected(mi)).length;
+    hideSeedingOverlay();
+    if(!confirm('Generator verified ✓ — '+rows.length+' rows, 26 weeks.\n\nDelete '+deletable.length+' untouched auto-item(s), preserve '+preserved+', then write the plan. Continue?')) return;
+
+    // ---- STAGE 3: delete untouched seeded rows --------------------------
     showSeedingOverlay('Deleting old campaign…');
-    const ids=deletable.map(mi=>mi.id); let deleted=0;
-    for(let i=0;i<ids.length;i+=100){
-      const chunk=ids.slice(i,i+100);
+    const delIds=deletable.map(mi=>mi.id); let deleted=0, delErr=null;
+    for(let i=0;i<delIds.length;i+=100){
+      const chunk=delIds.slice(i,i+100);
       const {error}=await sb.from('marketing_items').delete().in('id',chunk);
-      if(error){ showRebuildError('Delete failed: '+error.message); return; }
+      if(error){ delErr=error.message||JSON.stringify(error); break; }
       deleted+=chunk.length;
     }
-    const gone=new Set(ids);
-    state.marketing_items=state.marketing_items.filter(mi=>!gone.has(mi.id));
+    log('3. Delete phase', 'attempted: '+delIds.length+' · deleted: '+deleted+(delErr?'\nSUPABASE ERROR: '+delErr:''));
+    if(delErr){ showDiag('Rebuild stopped at Stage 3 — delete failed', true); return; }
+    const goneSet=new Set(delIds);
+    state.marketing_items=state.marketing_items.filter(mi=>!goneSet.has(mi.id));
 
-    // 4. Insert/upsert the verified rows (ignoreDuplicates keeps preserved slots).
+    // ---- STAGE 4: upsert the verified rows ------------------------------
     showSeedingOverlay('Writing new plan…');
-    const weeks={};
-    rows.forEach(r=>{ const m=r.seed_key.match(/-week-(\d\d)-/); const wk=m?m[1]:'00'; (weeks[wk]=weeks[wk]||[]).push(r); });
-    let created=0;
-    for(const wk of Object.keys(weeks).sort()){
-      showSeedingOverlay('Building Week '+parseInt(wk,10)+'…');
-      const {data,error}=await sb.from('marketing_items').upsert(weeks[wk],{onConflict:'seed_key',ignoreDuplicates:true}).select();
-      if(error){ showRebuildError('Seeding failed on week '+wk+': '+error.message); return; }
-      (data||[]).forEach(row=>{ if(!byId(state.marketing_items,row.id)) state.marketing_items.push(row); });
-      created+=(data||[]).length;
+    let submitted=0, returned=0, upErr=null;
+    for(let i=0;i<rows.length;i+=100){
+      const chunk=rows.slice(i,i+100);
+      submitted+=chunk.length;
+      const {data,error}=await sb.from('marketing_items').upsert(chunk,{onConflict:'seed_key',ignoreDuplicates:true}).select();
+      if(error){ upErr=error.message||error.details||JSON.stringify(error); break; }
+      returned+=(data||[]).length;
     }
+    log('4. Upsert phase',
+      'submitted: '+submitted+
+      '\nreturned by Supabase (newly inserted): '+returned+
+      '\nnote: rows that already existed are skipped by ignoreDuplicates, so returned<submitted is normal after preserving edited slots'+
+      (upErr?'\nSUPABASE ERROR: '+upErr+'\n(if this mentions "no unique or exclusion constraint", the seed_key unique index is missing)':''));
+    if(upErr){ showDiag('Rebuild stopped at Stage 4 — upsert failed', true); return; }
 
-    // 5. Reload from Supabase so Today / Calendar / Marketing reflect the truth.
-    showSeedingOverlay('Reloading…');
-    await loadAll();
+    // ---- STAGE 5: reload from Supabase ----------------------------------
+    showSeedingOverlay('Reloading from Supabase…');
+    let reloadErr=null;
+    try{ await loadAll(); }catch(e){ reloadErr=e.message||String(e); }
+    const totalAfter=state.marketing_items.length;
+    const matchAfter=state.marketing_items.filter(mi=>mi.seed_key && mi.seed_key.startsWith(MARKETING_CAMPAIGN_KEY+'-week-')).length;
+    const prefixes={};
+    state.marketing_items.forEach(mi=>{ if(!mi.seed_key) return; const p=mi.seed_key.replace(/-week-.*$/,''); prefixes[p]=(prefixes[p]||0)+1; });
+    const noKey=state.marketing_items.filter(mi=>!mi.seed_key).length;
+    const prefixStr=Object.keys(prefixes).length?Object.entries(prefixes).sort((a,b)=>b[1]-a[1]).map(e=>'  '+e[0]+' → '+e[1]).join('\n'):'  (none)';
+    log('5. Reload phase',
+      'loadAll: '+(reloadErr?'ERROR: '+reloadErr:'ok')+
+      '\nmarketing_items in state: '+totalAfter+
+      '\nrows with NO seed_key: '+noKey+
+      '\nmatching current campaign ('+MARKETING_CAMPAIGN_KEY+'-week-): '+matchAfter+
+      '\nseed_key prefixes present in DB:\n'+prefixStr+
+      (matchAfter===0?'\n⚠️ ZERO rows match after a successful write — the write prefix and/or reload/RLS is the problem, NOT the generator.':''));
+    if(reloadErr){ showDiag('Rebuild stopped at Stage 5 — reload failed', true); return; }
 
-    // 6. Verify the PERSISTED rows again.
+    // ---- STAGE 6: verify persisted rows ---------------------------------
     showSeedingOverlay('Verifying persisted plan…');
     const vpost=verifyRhythm();
-    if(!vpost.ok){ showRebuildError('Persisted verification failed after write:\n\n'+vpost.errors.slice(0,14).join('\n')+(vpost.errors.length>14?'\n… ('+(vpost.errors.length-14)+' more)':'')); return; }
+    log('6. Persisted verification',
+      'ok: '+vpost.ok+' · matching rows: '+vpost.count+' · weeks: '+vpost.weeks+
+      (vpost.ok?'':'\nfirst errors:\n'+vpost.errors.slice(0,8).join('\n')));
+    if(!vpost.ok){ showDiag('Rebuild stopped at Stage 6 — persisted verification failed (see counts above)', true); return; }
 
-    // 7. Success only if the persisted verification passed.
-    try{ await dbInsert('migration_log',{step:'marketing_rebuild', status:'ok', source_table:'system', detail:'Deleted '+deleted+' untouched seeded item(s), preserved '+preserved+', created '+created+'. Campaign '+MARKETING_CAMPAIGN_KEY}); }catch(e){}
-    const total=vpost.count;
-    hideSeedingOverlay();
-    openModal('<h3>Marketing plan rebuilt successfully</h3>'+
-      '<div class="muted" style="font-size:13px;line-height:1.7;margin-bottom:12px">Old campaigns removed.<br>26-week operating rhythm installed and verified.</div>'+
-      '<div class="mono" style="font-size:12px;color:var(--gold)">'+total+' items · '+vpost.weeks+' weeks verified ✓'+(preserved?' · '+preserved+' preserved':'')+'</div>', true);
-    toast('Marketing plan rebuilt — deleted '+deleted+', created '+created+' ('+total+' rows)');
-    renderCurrent();
-  }catch(e){ showRebuildError('Rebuild failed: '+(e.message||e)); }
+    try{ await dbInsert('migration_log',{step:'marketing_rebuild', status:'ok', source_table:'system', detail:'deleted '+deleted+', submitted '+submitted+', returned '+returned+', verified '+vpost.count+'. Campaign '+MARKETING_CAMPAIGN_KEY}); }catch(e){}
+    log('✓ Success', vpost.count+' current-plan rows across '+vpost.weeks+' weeks · '+preserved+' preserved · '+deleted+' deleted');
+    showDiag('Marketing plan rebuilt successfully ✓', false);
+    toast('Rebuilt — deleted '+deleted+', wrote '+submitted+', verified '+vpost.count+' rows');
+  }catch(e){
+    log('EXCEPTION', (e&&(e.message||e.stack))||String(e));
+    showDiag('Rebuild crashed — see stages above', true);
+  }
 }
 function vMarketingRebuildPanel(){
   const info=marketingStatusInfo();
