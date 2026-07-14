@@ -908,13 +908,31 @@ async function dbDelete(table,id){
 /* Every meaningful interaction creates an activity — the single master
    timeline every detail page, search and AI retrieval read from. */
 async function logActivity({activity_type,title,body,organisation_id,person_id,opportunity_id,task_id,meeting_id,asset_id,lesson_id,decision_id,team_message_id}){
-  return dbInsert('activities',{
+  const row={
     activity_type, title, body: body||null, occurred_at: new Date().toISOString(),
     organisation_id: organisation_id||null, person_id: person_id||null, opportunity_id: opportunity_id||null,
     task_id: task_id||null, meeting_id: meeting_id||null, asset_id: asset_id||null,
     lesson_id: lesson_id||null, decision_id: decision_id||null, team_message_id: team_message_id||null,
     created_by: myProfile.display_name
-  });
+  };
+
+  // Some existing databases still have fk_activities_team_message pointing at
+  // the retired team_messages table rather than team_messages_v2. The team note
+  // itself has already been saved, so do not make posting fail just because its
+  // optional activity link cannot be written. Retry as an unlinked activity.
+  try{
+    return await dbInsert('activities',row);
+  }catch(error){
+    const isTeamMessageFk=team_message_id && (
+      error?.code==='23503' ||
+      String(error?.message||'').includes('fk_activities_team_message')
+    );
+    if(!isTeamMessageFk) throw error;
+
+    console.warn('Activity team-message FK is stale; saving activity without team_message_id.',error);
+    row.team_message_id=null;
+    return await dbInsert('activities',row);
+  }
 }
 async function touchOrgInteraction(orgId, nextActionSummary, nextActionDate){
   if(!orgId) return;
@@ -5845,7 +5863,8 @@ async function openTeamNoteDetail(id){
     '<div class="field" style="margin-top:12px"><textarea class="input" id="f_tbreply" rows="2" placeholder="Reply…"></textarea></div>'+
     '<button class="btn sm" onclick="replyTeamNote(\''+id+'\')">Reply</button> '+
     '<button class="btn sm" onclick="markTeamNoteDone(\''+id+'\')">Mark done</button> '+
-    '<button class="btn sm" onclick="unpinTeamNote(\''+id+'\')">Unpin</button>', true);
+    '<button class="btn sm" onclick="unpinTeamNote(\''+id+'\')">Unpin</button> '+
+    '<button class="btn sm danger" onclick="deleteTeamNoteConfirm(\''+id+'\')">Delete post</button>', true);
 }
 async function replyTeamNote(id){
   const body=document.getElementById('f_tbreply').value.trim(); if(!body) return;
@@ -5862,6 +5881,36 @@ async function replyTeamNote(id){
 }
 async function markTeamNoteDone(id){ await dbUpdate('team_messages_v2',id,{status:'Done', completed_at:new Date().toISOString()}); closeModal(); openTeamBoard(); }
 async function unpinTeamNote(id){ await dbUpdate('team_messages_v2',id,{is_pinned:false, unpinned_at:new Date().toISOString()}); closeModal(); openTeamBoard(); }
+async function deleteTeamNoteConfirm(id){
+  const m=byId(state.team_messages_v2,id);
+  if(!m) return;
+  if(!confirm('Delete this team-board post permanently? This will also remove its replies and read receipts.')) return;
+
+  // Remove dependent rows first so the parent delete cannot be blocked by
+  // team_message_replies / team_message_reads foreign-key constraints.
+  const {error:replyError}=await sb.from('team_message_replies').delete().eq('team_message_id',id);
+  if(replyError){ toast('Delete failed: '+replyError.message); return; }
+
+  const {error:readError}=await sb.from('team_message_reads').delete().eq('team_message_id',id);
+  if(readError){ toast('Delete failed: '+readError.message); return; }
+
+  // Where the activities table genuinely references team_messages_v2, detach
+  // the audit entry rather than allowing it to block removal of the post.
+  const {error:activityError}=await sb.from('activities').update({team_message_id:null}).eq('team_message_id',id);
+  if(activityError) console.warn('Could not detach team-note activity before delete:',activityError);
+
+  const {error}=await sb.from('team_messages_v2').delete().eq('id',id);
+  if(error){ toast('Delete failed: '+error.message); return; }
+
+  state.team_messages_v2=state.team_messages_v2.filter(x=>x.id!==id);
+  state.team_message_reads=state.team_message_reads.filter(x=>x.team_message_id!==id);
+  state.team_message_replies=state.team_message_replies.filter(x=>x.team_message_id!==id);
+  state.activities.forEach(a=>{ if(a.team_message_id===id) a.team_message_id=null; });
+  closeModal();
+  refreshUnreadBadge();
+  openTeamBoard();
+  toast('Team-board post deleted');
+}
 
 /* ---------------------------------------------------------------------------
    AI WORKSPACE — retrieval-first. Resolves entities, traverses entity_links,
