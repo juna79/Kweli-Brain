@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Kweli Brain — Institutional Memory</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <style>
   :root{
     --bg:#070E14; --panel:#0E1E2A; --panel2:#122636; --raise:#16303F;
@@ -384,6 +385,9 @@ function uid(){return crypto.randomUUID();}
 function today(){return new Date().toISOString().slice(0,10);}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function byId(arr,id){return arr.find(x=>x.id===id);}
+function normText(s){return (s==null?'':String(s)).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();}
+function normEmail(s){return (s==null?'':String(s)).toLowerCase().trim();}
+function normDomain(url){ if(!url) return ''; try{ let u=String(url).trim().replace(/^https?:\/\//i,'').replace(/^www\./i,''); return u.split(/[\/?#]/)[0].toLowerCase(); }catch(e){ return ''; } }
 function fmtDate(d){if(!d)return '—';return new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});}
 function daysUntil(d){if(!d)return null;const t=new Date(today()),x=new Date(d);return Math.round((x-t)/86400000);}
 function toast(msg){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.getElementById('toastHost').appendChild(el);setTimeout(()=>el.remove(),3200);}
@@ -777,6 +781,62 @@ function todaysMarketingCard(){
     (due.length>1?'<span class="faint" style="font-size:11px;align-self:center;margin-left:6px">+'+(due.length-1)+' more due — see Marketing</span>':'')+
     '</div></div>';
 }
+function marketingStageCounts(){
+  const c={}; CONTENT_STAGES.forEach(s=>c[s]=0);
+  state.marketing_items.forEach(mi=>{ const s=getContentStage(mi); if(c[s]!==undefined) c[s]++; });
+  return c;
+}
+function goMarketingStage(stage){ route.mkTab='library'; route.mkLibFilter={q:'',category:'',stage:stage,platform:'',source:'',published:''}; go('marketing'); }
+function goMarketingPlatform(pf){ route.mkTab='library'; route.mkLibFilter={q:'',category:'',stage:'',platform:pf,source:'',published:''}; go('marketing'); }
+
+/* Today's marketing dashboard — real work only, grouped by platform, plus a
+   content-pipeline strip and relationships that already have a due next
+   action in the CRM. No fabricated external recommendations: anything that
+   would need live web data is left to a manually-created research task. */
+function todaysMarketingDashboard(){
+  if(!state.marketing_items.length) return '';
+  const active=state.marketing_items.filter(mi=>!['Published','Archived','Repurposing'].includes(getContentStage(mi)));
+  const dueToday=active.filter(mi=>mi.scheduled_at===today());
+  const overdue=active.filter(mi=>mi.scheduled_at && mi.scheduled_at<today());
+  const counts=marketingStageCounts();
+  const row=(mi)=>'<div class="drow'+(mi.scheduled_at&&mi.scheduled_at<today()?' alert':'')+'" onclick="openMarketingDetail(\''+mi.id+'\')">'+
+    '<span class="drow-icon">'+marketingIcon(mi.item_type)+'</span>'+
+    '<div class="drow-main"><div class="drow-title">'+esc(mi.title)+'</div>'+
+    '<div class="drow-meta">'+esc(mi.item_type)+' · '+esc(getContentStage(mi))+'</div></div>'+
+    '<div class="drow-right">'+(mi.scheduled_at?fmtDate(mi.scheduled_at):'')+'</div></div>';
+
+  const chip=(label,n,stage)=>'<div class="qa-chip" onclick="goMarketingStage(\''+stage+'\')">'+label+': <b>'+n+'</b></div>';
+  const pipeline='<div class="quick-actions" style="margin-bottom:12px">'+
+    chip('To write', counts.Planned+counts.Researching+counts.Drafting,'Drafting')+
+    chip('To design', counts.Designed,'Designed')+
+    chip('In review', counts.Review,'Review')+
+    chip('Scheduled', counts.Scheduled,'Scheduled')+
+    chip('To repurpose', counts.Published+counts.Repurposing,'Repurposing')+
+  '</div>';
+
+  const platBlocks=['LinkedIn','Twitter/X','Instagram'].map(pf=>{
+    const items=[...overdue,...dueToday].filter(mi=>contentPlatform(mi.item_type)===pf);
+    if(!items.length) return '';
+    return '<div class="dsec"><div class="dsec-h"><h2>'+pf+' today</h2><span class="count">'+items.length+'</span></div><div class="dlist">'+items.map(row).join('')+'</div></div>';
+  }).join('');
+
+  const engage=active.filter(mi=>/engag|comment|reply|networking|outreach/i.test(mi.item_type||'') && mi.scheduled_at && mi.scheduled_at<=today());
+  const engageBlock=engage.length?'<div class="dsec"><div class="dsec-h"><h2>Engagement &amp; networking</h2><span class="count">'+engage.length+'</span></div><div class="dlist">'+engage.map(row).join('')+'</div></div>':'';
+
+  const followOrgs=state.organisations.filter(o=>!o.archived_at && o.next_action_date && o.next_action_date<=today())
+    .sort((a,b)=>(a.next_action_date||'').localeCompare(b.next_action_date||'')).slice(0,5);
+  const followBlock=followOrgs.length?'<div class="dsec"><div class="dsec-h"><h2>Relationships to follow up</h2><span class="count">'+followOrgs.length+'</span></div><div class="dlist">'+
+    followOrgs.map(o=>'<div class="drow'+(o.next_action_date<today()?' alert':'')+'" onclick="go(\'organisationDetail\',\''+o.id+'\')"><span class="drow-icon">⌂</span><div class="drow-main"><div class="drow-title">'+esc(o.name)+'</div><div class="drow-meta">'+esc(o.next_action_summary||'Follow up')+'</div></div><div class="drow-right">'+fmtDate(o.next_action_date)+'</div></div>').join('')+'</div></div>':'';
+
+  const anyToday=platBlocks||engageBlock;
+  return '<div class="dsec"><div class="dsec-h"><h2>Marketing today</h2>'+
+    '<span class="count faint" style="font-family:inherit;text-transform:none;letter-spacing:0">'+dueToday.length+' due · '+overdue.length+' overdue</span>'+
+    '<button class="btn sm" style="margin-left:auto" onclick="go(\'marketing\')">Open Marketing →</button></div>'+
+    pipeline+
+    (anyToday?platBlocks+engageBlock:'<div class="dempty">Nothing platform-specific due today — check the pipeline above.</div>')+
+    followBlock+
+  '</div>';
+}
 function vToday(){
   const opens=openTasks();
   const overdue=opens.filter(t=>t.due_at && t.due_at<today());
@@ -824,7 +884,7 @@ function vToday(){
     '</div>'+
 
     todaysMarketingCard()+
-
+    todaysMarketingDashboard()+
     '<div class="dsec"><div class="dsec-h"><h2>Calendar</h2><span class="count faint" style="font-family:inherit;text-transform:none;letter-spacing:0">Every follow-up, meeting, marketing task and reminder — one calendar</span>'+
       '<button class="btn sm" style="margin-left:auto" onclick="go(\'snapshot\')">🧠 Export for Claude</button>'+
       '<button class="btn sm" onclick="openTeamBoard()">📌 Team Board'+(unreadNotes?' ('+unreadNotes+')':'')+'</button></div>'+
@@ -1214,10 +1274,20 @@ function openOrgForm(){
 async function saveOrgForm(){
   const name=document.getElementById('f_name').value.trim();
   if(!name){toast('Name is required');return;}
+  const canonical_name=name.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  // Duplicate guard — parity with people create. The canonical_name was
+  // already computed here but never checked, so two orgs differing only by
+  // punctuation/casing (e.g. "Verst Carbon" vs "Verst Carbon Ltd." typed
+  // twice) could both be created. Match on canonical_name and offer to open
+  // the existing record instead.
+  const dupe=state.organisations.find(o=>!o.archived_at && (o.canonical_name||'')===canonical_name);
+  if(dupe && !confirm('An organisation called "'+dupe.name+'" already exists (same normalised name). Create a second record anyway?')){
+    closeModal(); go('organisationDetail', dupe.id); return;
+  }
   const payload={
     name, organisation_type: document.getElementById('f_type').value,
     created_by: myProfile.display_name, updated_by: myProfile.display_name,
-    canonical_name: name.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()
+    canonical_name
   };
   const created=await dbInsert('organisations',payload);
   closeModal(); go('organisationDetail', created.id);
@@ -1548,6 +1618,8 @@ async function saveTaskForm(){
     status:'To Do', created_by_user_id: myProfile.id, assigned_to_user_id: myProfile.id
   };
   if(!payload.title){toast('Title is required');return;}
+  const tdupe=state.tasks.find(t=>(t.organisation_id||null)===(payload.organisation_id||null) && normText(t.title)===normText(payload.title) && (t.due_at||'')===(payload.due_at||'') && !['Completed','Cancelled','Closed / Lost'].includes(t.status));
+  if(tdupe && !confirm('An open follow-up "'+tdupe.title+'" with the same organisation and due date already exists. Create another anyway?')){ closeModal(); renderCurrent(); return; }
   const created=await dbInsert('tasks',payload);
   await logActivity({activity_type:'Follow-up', title:'Follow-up created: '+payload.title, organisation_id:payload.organisation_id, person_id:payload.person_id, task_id:created.id});
   if(payload.organisation_id) await touchOrgInteraction(payload.organisation_id, payload.title, payload.due_at);
@@ -1665,6 +1737,9 @@ async function saveMeetingForm(id){
     await dbUpdate('meetings',id,payload);
     closeModal(); go('meetingDetail', id); toast('Saved');
   } else {
+    const day=(payload.scheduled_at||'').slice(0,10);
+    const dupe=state.meetings.find(m=>(m.organisation_id||null)===(payload.organisation_id||null) && (m.scheduled_at||'').slice(0,10)===day && normText(m.title)===normText(payload.title));
+    if(dupe && !confirm('A meeting "'+dupe.title+'" for the same organisation on '+fmtDate(day)+' already exists. Create another anyway?')){ closeModal(); go('meetingDetail', dupe.id); return; }
     payload.meeting_status='Scheduled'; payload.created_by=myProfile.display_name;
     const created=await dbInsert('meetings',payload);
     if(payload.organisation_id) await logActivity({activity_type:'Meeting',title:'Meeting scheduled: '+payload.title,organisation_id:payload.organisation_id,meeting_id:created.id});
@@ -1893,6 +1968,8 @@ async function saveLessonForm(id){
   if(id){
     lesson=await dbUpdate('lessons_v2',id,payload);
   } else {
+    const ldupe=state.lessons_v2.find(l=>!l.archived_at && normText(l.title)===normText(title));
+    if(ldupe && !confirm('A lesson titled "'+ldupe.title+'" already exists. Create another anyway?')){ closeModal(); renderCurrent(); return; }
     payload.source_type='manual'; payload.created_by=myProfile.display_name;
     lesson=await dbInsert('lessons_v2',payload);
     await logActivity({activity_type:'Lesson learned', title:'Lesson: '+title, body:payload.summary, lesson_id:lesson.id});
@@ -2092,7 +2169,11 @@ async function saveKnowledgeForm(id){
   const category=document.getElementById('f_kcat').value;
   if(!title){toast('Title required');return;}
   if(id){ await dbUpdate('knowledge_sections_v2',id,{title,content,category,version:((byId(state.knowledge_sections_v2,id)||{}).version||1)+1, updated_by:myProfile.display_name}); }
-  else { await dbInsert('knowledge_sections_v2',{section_key: title.toLowerCase().replace(/[^a-z0-9]+/g,'_'), title, content, category, is_current:true, created_by:myProfile.display_name, updated_by:myProfile.display_name}); }
+  else {
+    const kdupe=state.knowledge_sections_v2.find(k=>k.is_current && normText(k.title)===normText(title) && (k.category||'')===(category||''));
+    if(kdupe && !confirm('A current knowledge entry "'+kdupe.title+'"'+(category?' in '+category:'')+' already exists. Create another anyway?')){ closeModal(); renderCurrent(); return; }
+    await dbInsert('knowledge_sections_v2',{section_key: title.toLowerCase().replace(/[^a-z0-9]+/g,'_'), title, content, category, is_current:true, created_by:myProfile.display_name, updated_by:myProfile.display_name});
+  }
   closeModal(); renderCurrent();
 }
 
@@ -2331,6 +2412,8 @@ function vAssetDetail(){
 async function confirmAssetLink(linkId){ await dbUpdate('entity_links',linkId,{is_inferred:false, confidence:1}); toast('Link confirmed'); renderCurrent(); }
 async function uploadAsset(file){
   if(!file) return;
+  const adupe=state.assets_v2.find(a=>a.file_name===file.name && (a.file_size==null||a.file_size===file.size));
+  if(adupe && !confirm('An asset named "'+file.name+'"'+(adupe.file_size===file.size?' of the same size':'')+' already exists. Upload it again anyway?')) return;
   const path=uid()+'/'+file.name.replace(/[^a-zA-Z0-9.\-_]/g,'_');
   toast('Uploading…');
   const {error}=await sb.storage.from(ASSETS_BUCKET).upload(path,file,{cacheControl:'3600',upsert:true});
@@ -2579,7 +2662,7 @@ const CONTENT_LIBRARY=[
   {title:'Why We Say No to Fraud-Detection Framing',category:'LinkedIn Article',audience:'Skeptical buyers/investors',objective:'Direct precision-line defense; objective: credibility through restraint; CTA: none',estMinutes:60},
   {title:'What a Five-Year Verification Infrastructure Category Looks Like (LinkedIn Article)',category:'LinkedIn Article',audience:'Investors, press',objective:'Vision piece closing the year; objective: category ownership; CTA: none',estMinutes:60},
   {title:'“A lab report can be edited after it’s signed and nobody would know. That’s the problem we exist to solve.”',category:'LinkedIn Post',audience:'Labs',objective:'Hook post; objective: awareness; CTA: comment with experiences',estMinutes:20},
-  {title:'Before/after screenshot: verified vs. failed verification result',category:'LinkedIn Post',audience:'General',objective:'Visual proof of product; objective: product demo; CTA: try link',estMinutes:20},
+  {title:'Before/after screenshot: verified vs. failed verification result',category:'LinkedIn Post',audience:'General',objective:'Visual proof of product; objective: product demo; CTA: try link',estMinutes:20},
   {title:'“We don’t check if your document is true. We check if it’s the same document you issued. That’s it.”',category:'LinkedIn Post',audience:'All',objective:'Precision-line post; objective: category clarity; CTA: none',estMinutes:20},
   {title:'One-line stat on cost of a single fraudulent insurance claim',category:'LinkedIn Post',audience:'Insurers',objective:'Data hook; objective: urgency; CTA: link to report',estMinutes:20},
   {title:'Screenshot of the four-step verification flow (upload/hash/anchor/verify)',category:'LinkedIn Post',audience:'Technical audience',objective:'Product explainer; objective: simplicity messaging; CTA: none',estMinutes:20},
@@ -2589,7 +2672,7 @@ const CONTENT_LIBRARY=[
   {title:'“We turned down a fraud-detection framing because it wasn’t accurate. Here’s why precision matters more than a punchier pitch.”',category:'LinkedIn Post',audience:'Investors',objective:'Founder credibility; objective: trust through restraint; CTA: none',estMinutes:20},
   {title:'Behind-the-scenes: what SHA-256 hashing looks like in practice',category:'LinkedIn Post',audience:'Technical',objective:'Demystify tech; objective: credibility; CTA: none',estMinutes:20},
   {title:'“A broker told us something that changed our entire GTM strategy.” (teaser for article #33)',category:'LinkedIn Post',audience:'Insurers/brokers',objective:'Story hook; objective: drive article traffic; CTA: read more',estMinutes:20},
-  {title:'Chart: manual vs. automated document verification time',category:'LinkedIn Post',audience:'Ops leaders',objective:'Data visualization; objective: ROI case; CTA: none',estMinutes:20},
+  {title:'Chart: manual vs. automated document verification time',category:'LinkedIn Post',audience:'Ops leaders',objective:'Data visualization; objective: ROI case; CTA: none',estMinutes:20},
   {title:'“Ask us the hardest question about how this actually works.”',category:'LinkedIn Post',audience:'Skeptics',objective:'Engagement bait for credibility; objective: Q&A; CTA: comment',estMinutes:20},
   {title:'Customer quote (anonymized) on a verification win',category:'LinkedIn Post',audience:'Prospects',objective:'Social proof; objective: trust-building; CTA: none',estMinutes:20},
   {title:'“Here’s what happens when someone uploads a tampered document to Kweli.”',category:'LinkedIn Post',audience:'General',objective:'Product demo; objective: clarity; CTA: try it',estMinutes:20},
@@ -2605,7 +2688,7 @@ const CONTENT_LIBRARY=[
   {title:'“A certificate is only as trustworthy as the system behind it.”',category:'LinkedIn Post',audience:'Cert bodies',objective:'Philosophy hook; objective: brand voice; CTA: none',estMinutes:20},
   {title:'Milestone post: first pilot signed',category:'LinkedIn Post',audience:'Investors, press',objective:'Traction signal; objective: momentum; CTA: none',estMinutes:20},
   {title:'“Ask an auditor” mini-interview snippet',category:'LinkedIn Post',audience:'Auditors',objective:'Influencer-channel content; objective: credibility; CTA: none',estMinutes:20},
-  {title:'Graphic: “What Kweli sees vs. what Kweli never sees”',category:'LinkedIn Post',audience:'Privacy-conscious buyers',objective:'Privacy-first clarity; objective: objection handling; CTA: none',estMinutes:20},
+  {title:'Graphic: “What Kweli sees vs. what Kweli never sees”',category:'LinkedIn Post',audience:'Privacy-conscious buyers',objective:'Privacy-first clarity; objective: objection handling; CTA: none',estMinutes:20},
   {title:'“Why we call it verification infrastructure, not trust infrastructure.”',category:'LinkedIn Post',audience:'All',objective:'Category-naming post; objective: category ownership; CTA: none',estMinutes:20},
   {title:'Repost of a founder story from another African infrastructure company with commentary',category:'LinkedIn Post',audience:'Founders',objective:'Community-building; objective: goodwill/network; CTA: none',estMinutes:20},
   {title:'“The most common way documents get altered isn’t hacking. It’s a simple re-save.”',category:'LinkedIn Post',audience:'General',objective:'Educational hook; objective: awareness; CTA: none',estMinutes:20},
@@ -2615,7 +2698,7 @@ const CONTENT_LIBRARY=[
   {title:'“What does ‘audit-ready’ actually mean? Most people can’t define it.”',category:'LinkedIn Post',audience:'Compliance',objective:'Educational hook; objective: authority; CTA: none',estMinutes:20},
   {title:'Short clip from a webinar or roundtable (see Part 8)',category:'LinkedIn Post',audience:'Multi-vertical',objective:'Repurposed content; objective: reach; CTA: watch full session',estMinutes:20},
   {title:'“We say no to a lot of use cases. Here’s one we turned down and why.”',category:'LinkedIn Post',audience:'Investors',objective:'Discipline signal; objective: credibility; CTA: none',estMinutes:20},
-  {title:'Comparison graphic: Kweli vs. traditional notarization',category:'LinkedIn Post',audience:'Legal, compliance',objective:'Positioning content; objective: clarity; CTA: none',estMinutes:20},
+  {title:'Comparison graphic: Kweli vs. traditional notarization',category:'LinkedIn Post',audience:'Legal, compliance',objective:'Positioning content; objective: clarity; CTA: none',estMinutes:20},
   {title:'“Verification infrastructure is boring by design. That’s a feature.”',category:'LinkedIn Post',audience:'Investors/technical',objective:'Philosophy post; objective: brand voice; CTA: none',estMinutes:20},
   {title:'Employee/team spotlight (Mason on the technical build)',category:'LinkedIn Post',audience:'Talent, investors',objective:'Team depth signal; objective: hiring; CTA: none',estMinutes:20},
   {title:'“A regulator asked us a question we couldn’t have answered a year ago.”',category:'LinkedIn Post',audience:'Regulators, press',objective:'Growth-narrative post; objective: credibility; CTA: none',estMinutes:20},
@@ -2933,7 +3016,7 @@ const CONTENT_LIBRARY=[
   {title:'Why we resist adding features that don\'t serve the core proof',category:'Founder LinkedIn — Product building',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
   {title:'What building signed URLs for document assets taught us about security defaults',category:'Founder LinkedIn — Product building',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
   {title:'Why entity resolution mattered more than we expected in our own tools',category:'Founder LinkedIn — Product building',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
-  {title:'What it means to build a product two audiences use completely differently (issuer vs. verifier)',category:'Founder LinkedIn — Product building',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
+  {title:'What it means to build a product two audiences use completely differently (issuer vs. verifier)',category:'Founder LinkedIn — Product building',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
   {title:'Why we kept the verification interface free of login requirements',category:'Founder LinkedIn — Product building',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
   {title:'The product principle we\'ve never broken: document contents stay untouched',category:'Founder LinkedIn — Product building',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
   {title:'What building for auditors taught us about designing for skepticism',category:'Founder LinkedIn — Product building',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
@@ -2943,7 +3026,7 @@ const CONTENT_LIBRARY=[
   {title:'Why export documentation friction is an underpriced economic drag',category:'Founder LinkedIn — Industry observations',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
   {title:'What the certification industry hasn\'t yet reckoned with about digital fraud',category:'Founder LinkedIn — Industry observations',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
   {title:'Why laboratory accreditation bodies are quietly exposed to reputational risk',category:'Founder LinkedIn — Industry observations',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
-  {title:'What\'s different about how Kenyan vs. Tanzanian SMBs handle documentation',category:'Founder LinkedIn — Industry observations',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
+  {title:'What\'s different about how Kenyan vs. Tanzanian SMBs handle documentation',category:'Founder LinkedIn — Industry observations',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
   {title:'Why the audit profession is entering a period of real change',category:'Founder LinkedIn — Industry observations',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
   {title:'What global trust infrastructure companies get wrong about African markets',category:'Founder LinkedIn — Industry observations',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
   {title:'Why mandate-driven adoption will define this category\'s growth curve',category:'Founder LinkedIn — Industry observations',audience:'LinkedIn / Arjun',objective:null,estMinutes:20},
@@ -3140,7 +3223,7 @@ const FOUNDER_JOURNEY_TOPICS = [
   'The best investor advice we\u2019ve received'
 ];
 const MONTHLY_THEMES_6MO_V2 = ['The Trust Problem','Insurance','Verification Infrastructure','Customer Stories','Future of Trust','Building the Category'];
-const WEEK_SLOTS = ['monday','tuesday','wednesday','thursday','friday'];
+const WEEK_SLOTS = ['monday','tuesday','wednesday','thursday','friday','twitter','instagram','founder'];
 
 function expandTopicsToTarget(topics, target){
   const out=[]; let cycle=1, idx=0;
@@ -3206,6 +3289,12 @@ function buildInsurancePlanRows(){
     rows.push(mk('wednesday',(week%2===0?'Insight: ':'Founder Story: ')+founderTopic, week%2===0?'Insight':'Founder Story', wednesday, null, 'Shorter, more personal piece.'));
     rows.push(mk('thursday','Engage & distribute this week\u2019s content', 'Engagement', thursday, null, 'Reply, share, and distribute what\u2019s been published this week.'));
     rows.push(mk('friday','Review performance & plan next topic', 'Review & Planning', friday, null, 'Check what worked this week and confirm next week\u2019s article topic.'));
+    // Multi-platform coordination on the SAME weekly topic — additive slots,
+    // new seed_keys, existing LinkedIn rows untouched. Twitter Wed, Instagram
+    // Thu, founder note Fri. Draft-stage so they surface as work to write.
+    rows.push(mk('twitter','Twitter/X: '+articleTopic, 'Twitter Thread', wednesday, null, 'Turn this week\u2019s topic into a thread or a few standalone tweets \u2014 looser, more conversational than LinkedIn.'));
+    rows.push(mk('instagram','Instagram: '+articleTopic, 'Instagram Carousel', thursday, null, 'A visual explainer or carousel version of this week\u2019s topic \u2014 one idea per slide.'));
+    rows.push(mk('founder','Founder note: '+founderTopic, 'Founder Story', friday, null, 'A short, personal founder observation or weekly reflection. No fabricated pilot claims.'));
 
     cursor.setDate(cursor.getDate()+7);
   }
@@ -3432,7 +3521,7 @@ function vContentPillars(){
   '</div>'+
   '<div class="sec-h"><h2>Content focus</h2></div>'+
   '<div class="muted" style="font-size:12.5px;margin-bottom:16px">Insurance (claims fraud, claims leakage, invoice &amp; certificate fraud, hospital billing, medical reports, authorisation letters), Verification Infrastructure, trust infrastructure, and Kweli\u2019s founder journey.</div>'+
-  '<div class="faint" style="font-size:11px">Plan status: '+count+' / 130 scheduled pieces present (campaign '+esc(MARKETING_CAMPAIGN_KEY)+')</div>';
+  '<div class="faint" style="font-size:11px">Plan status: '+count+' / '+expectedSeedKeys().length+' scheduled pieces present (campaign '+esc(MARKETING_CAMPAIGN_KEY)+')</div>';
 }
 const V1_MARKETING_CADENCE=[
   {label:'Article',        weekday:1, repeat:'weekly',    priority:'High'},
@@ -3525,6 +3614,12 @@ function marketingIcon(type){
   if(t.includes('product education')) return '🎓';
   if(t.includes('company update')) return '📣';
   if(t.includes('linkedin post')) return '📢';
+  if(t.includes('twitter thread')) return '🧵';
+  if(t==='tweets'||t.includes('tweets')) return '🐦';
+  if(t.includes('instagram carousel')) return '🎠';
+  if(t.includes('instagram caption')) return '📸';
+  if(t.includes('quote card')) return '❝';
+  if(t.includes('founder video')) return '🎥';
   if(t.includes('linkedin article')) return '📰';
   if(t.includes('case study')) return '📁';
   if(t.includes('business case')) return '💼';
@@ -3541,6 +3636,19 @@ function marketingIcon(type){
 }
 const MARKETING_STATUSES=['Idea','Drafting','Scheduled','Published','Archived'];
 
+/* Platform is DERIVED from item_type — no column added. Used by the Today
+   dashboard and the Library platform filter. Deterministic and offline. */
+function contentPlatform(type){
+  const t=(type||'').toLowerCase();
+  if(/twitter|tweet|thread|quote tweet|reply/.test(t)) return 'Twitter/X';
+  if(/instagram|carousel|caption|reel|story|behind-the-scenes|bts/.test(t)) return 'Instagram';
+  if(/founder video|video/.test(t)) return 'Video';
+  if(/linkedin|article|insight|post|opinion|long-form|comment|founder story/.test(t)) return 'LinkedIn';
+  if(/engagement|engage|review|planning|outreach|networking/.test(t)) return 'Cross-platform';
+  return 'Other';
+}
+const CONTENT_PLATFORMS=['LinkedIn','Twitter/X','Instagram','Video','Cross-platform','Other'];
+
 /* ---------------------------------------------------------------------------
    WORKFLOW STAGE — the requested 7-stage model (Planned/Researching/
    Drafting/Review/Scheduled/Published/Archived) does not match
@@ -3556,8 +3664,8 @@ const MARKETING_STATUSES=['Idea','Drafting','Scheduled','Published','Archived'];
    check, the org-detail tab) still works correctly without knowing about
    the marker at all.
 --------------------------------------------------------------------------- */
-const CONTENT_STAGES=['Planned','Researching','Drafting','Review','Scheduled','Published','Archived'];
-const STAGE_TO_DB_STATUS={Planned:'Idea',Researching:'Idea',Drafting:'Drafting',Review:'Drafting',Scheduled:'Scheduled',Published:'Published',Archived:'Archived'};
+const CONTENT_STAGES=['Planned','Researching','Drafting','Designed','Review','Scheduled','Published','Repurposing','Archived'];
+const STAGE_TO_DB_STATUS={Planned:'Idea',Researching:'Idea',Drafting:'Drafting',Designed:'Drafting',Review:'Drafting',Scheduled:'Scheduled',Published:'Published',Repurposing:'Published',Archived:'Archived'};
 function getContentStage(mi){
   const m=(mi.description||'').match(/^\[\[stage:([^\]]+)\]\]\n?/);
   if(m && CONTENT_STAGES.includes(m[1])) return m[1];
@@ -3583,16 +3691,42 @@ async function setContentStage(id,stage){
    back into a real edit form rather than left as one undifferentiated
    blob. This is a deliberate trade-off for this round, not an oversight —
    flagged here and in the delivery notes rather than silently done. */
-const CONTENT_FIELD_LABELS=['Draft link','Published URL','Lessons learned','Industries','Products'];
+/* Single source of truth for the structured content-fields stored as labeled
+   lines in `description`. Labels MUST be letters/spaces only (the parser key
+   is /^[A-Za-z ]+:/). Adding a pair here automatically wires parse + serialize;
+   the detail form reads/writes these keys. No schema change — same sanctioned
+   marker pattern already used for stage. Metric fields are plain text so they
+   never fail a numeric constraint and stay editable. */
+const CONTENT_FIELD_MAP=[
+  ['Source article','sourceTitle'],
+  ['Topic','topic'],
+  ['Campaign','campaign'],
+  ['Draft link','draftLink'],
+  ['Published URL','publishedUrl'],
+  ['Published date','publishedDate'],
+  ['Industries','industries'],
+  ['Products','products'],
+  ['Views','views'],
+  ['Likes','likes'],
+  ['Comments','comments'],
+  ['Shares','shares'],
+  ['Saves','saves'],
+  ['Leads','leads'],
+  ['Investor interest','investorInterest'],
+  ['Pilot interest','pilotInterest'],
+  ['Lessons learned','lessonsLearned']
+];
+const CONTENT_FIELD_LABELS=CONTENT_FIELD_MAP.map(p=>p[0]);
+const CONTENT_FIELD_LABELMAP=Object.fromEntries(CONTENT_FIELD_MAP);
 function parseContentFields(description){
   const body=stripStageMarker(description);
   const lines=body.split('\n');
-  const fields={draftLink:'',publishedUrl:'',lessonsLearned:'',industries:'',products:'',notes:''};
-  const labelMap={'Draft link':'draftLink','Published URL':'publishedUrl','Lessons learned':'lessonsLearned','Industries':'industries','Products':'products'};
+  const fields={notes:''};
+  CONTENT_FIELD_MAP.forEach(([,k])=>fields[k]='');
   let i=0;
   for(; i<lines.length; i++){
     const m=lines[i].match(/^([A-Za-z ]+):\s*(.*)$/);
-    if(m && labelMap[m[1]]){ fields[labelMap[m[1]]]=m[2]; }
+    if(m && CONTENT_FIELD_LABELMAP[m[1]]){ fields[CONTENT_FIELD_LABELMAP[m[1]]]=m[2]; }
     else break;
   }
   fields.notes=lines.slice(i).join('\n').replace(/^\n+/,'');
@@ -3600,10 +3734,7 @@ function parseContentFields(description){
 }
 function serializeContentFields(stage,fields){
   let out='[[stage:'+stage+']]\n';
-  CONTENT_FIELD_LABELS.forEach(label=>{
-    const key={'Draft link':'draftLink','Published URL':'publishedUrl','Lessons learned':'lessonsLearned','Industries':'industries','Products':'products'}[label];
-    out+=label+': '+(fields[key]||'')+'\n';
-  });
+  CONTENT_FIELD_MAP.forEach(([label,key])=>{ out+=label+': '+(fields[key]||'')+'\n'; });
   out+=(fields.notes||'');
   return out;
 }
@@ -3744,6 +3875,118 @@ async function completeContentItem(id){
    AI WORKSPACE HANDOFF — "Write" loads topic/audience/related-org context
    into the AI Workspace question and runs retrieval immediately.
 --------------------------------------------------------------------------- */
+/* ===========================================================================
+   CONTENT ENGINE — deterministic, offline, template-driven.
+   ---------------------------------------------------------------------------
+   One long-form source becomes a linked pack of platform drafts. No AI, no
+   API key, no network call: each transform is a pure function that reshapes
+   the source's own title / objective / audience into a platform-specific
+   SCAFFOLD (real starter text and structure, not an empty placeholder),
+   which Juna then writes/refines by hand or with Claude externally.
+
+   Every child is a normal marketing_item, so it flows through the existing
+   library, calendar, stage workflow and edit form unchanged. Linkage is the
+   'Source article' content-field (survives edits). Dedup is title-based:
+   re-running never creates a second copy of the same piece.
+
+   BRAND GUARDRAIL baked into the claim-bearing templates: Kweli proves a
+   document was authentically issued and is unaltered/tamper-evident — never
+   that its contents are factually correct. The scaffolds keep that precise.
+=========================================================================== */
+function firstSentence(txt){
+  if(!txt) return '';
+  const m=String(txt).split(/(?<=[.!?])\s+/)[0];
+  return (m||'').trim();
+}
+const KWELI_CLAIM_NOTE='— Precision check: say Kweli proves a document is authentically issued and unaltered. Not that its contents are true.';
+
+/* Each transform returns {type, suffix, body}. `body` becomes the draft
+   notes; `type` becomes item_type; `suffix` is appended to the source title
+   to make a deterministic, unique child title. */
+const CONTENT_TRANSFORMS=[
+  {type:'LinkedIn Post', suffix:'LinkedIn Post', build:s=>
+    'Hook (1 line, no buzzwords):\n'+(firstSentence(s.objective)||('A sharper take on: '+s.title))+'\n\n'+
+    'Context (2\u20133 lines): why this matters right now'+(s.audience?' for '+s.audience:'')+'.\n\n'+
+    'Body \u2014 3 short points pulled from the article:\n\u2022 \n\u2022 \n\u2022 \n\n'+
+    'One concrete example or number.\n\n'+
+    'CTA: '+(s.objective?firstSentence(s.objective):'What would you add?')+'\n\n'+KWELI_CLAIM_NOTE},
+
+  {type:'Twitter Thread', suffix:'Twitter Thread (outline)', build:s=>
+    'Thread outline (looser, more conversational than LinkedIn):\n\n'+
+    '1/ Hook \u2014 a blunt claim or question about '+s.title.toLowerCase()+'.\n'+
+    '2/ The problem, in plain words.\n'+
+    '3/ Why the usual fix doesn\u2019t hold.\n'+
+    '4/ The reframe.\n'+
+    '5/ What changes if you get it right.\n'+
+    '6/ CTA / where to go next.\n\n'+
+    'Then expand each line into the Tweets draft.'},
+
+  {type:'Tweets', suffix:'Tweets (5\u201310 drafts)', build:s=>
+    'Standalone tweet drafts (each must stand on its own, <280 chars):\n\n'+
+    '1. Trust shouldn\u2019t depend on who emailed the PDF.\n'+
+    '2. '+(firstSentence(s.objective)||(s.title+' \u2014 in one sentence.'))+'\n'+
+    '3. \n4. \n5. \n6. \n7. \n\n'+KWELI_CLAIM_NOTE},
+
+  {type:'Instagram Carousel', suffix:'Instagram Carousel (outline)', build:s=>
+    'Carousel (visual education \u2014 one idea per slide):\n\n'+
+    'Slide 1 (cover): '+s.title+'\n'+
+    'Slide 2: the problem, one stat or image.\n'+
+    'Slide 3: how it happens.\n'+
+    'Slide 4: the shift.\n'+
+    'Slide 5: what it looks like done right.\n'+
+    'Slide 6 (CTA): '+(s.objective?firstSentence(s.objective):'Follow for more on document trust.')+'\n\n'+
+    'Suggested visual: clean navy/gold, big type, minimal words per slide.'},
+
+  {type:'Instagram Caption', suffix:'Instagram Caption', build:s=>
+    (firstSentence(s.objective)||s.title)+'\n\n'+
+    '2\u20133 lines expanding the carousel\u2019s point in a warmer voice.\n\n'+
+    'CTA: save this / share with a colleague.\n\n'+
+    '#verification #documenttrust #insurtech #Kenya #Africa #startup #buildinpublic'},
+
+  {type:'Quote Card', suffix:'Quote Card (text)', build:s=>
+    'Pull-quote for a graphic (short, memorable, <15 words):\n\n"'+
+    (firstSentence(s.objective)||s.title)+'"\n\n'+
+    'Attribution line: Kweli \u2014 verification infrastructure.'},
+
+  {type:'Founder Video', suffix:'Founder Video (talking points)', build:s=>
+    '60\u201390s talking-head script beats:\n\n'+
+    'Open: one line that names the problem in '+s.title.toLowerCase()+'.\n'+
+    'Middle: the story or example \u2014 keep it specific.\n'+
+    'Turn: what Kweli actually changes.\n'+
+    'Close: '+(s.objective?firstSentence(s.objective):'a single clear takeaway.')+'\n\n'+
+    'Delivery: conversational, no jargon, vary the rhythm.'}
+];
+
+function derivedTitle(sourceTitle, suffix){ return sourceTitle+' \u2014 '+suffix; }
+
+async function generateContentPack(sourceId){
+  const src=byId(state.marketing_items,sourceId);
+  if(!src){ toast('Source item not found'); return; }
+  const s={title:src.title, objective:src.objective||'', audience:src.audience||''};
+  const baseDate=src.scheduled_at?new Date(src.scheduled_at):null;
+  let created=0, skipped=0, offset=1;
+  for(const tf of CONTENT_TRANSFORMS){
+    const title=derivedTitle(src.title, tf.suffix);
+    if(state.marketing_items.some(mi=>mi.title===title)){ skipped++; continue; }
+    let scheduled_at=null;
+    if(baseDate){ const d=new Date(baseDate); d.setDate(d.getDate()+offset); scheduled_at=d.toISOString().slice(0,10); offset++; }
+    await dbInsert('marketing_items',{
+      title,
+      item_type:tf.type,
+      audience:src.audience||null,
+      objective:src.objective||null,
+      priority:'Normal',
+      status:STAGE_TO_DB_STATUS['Drafting'],
+      scheduled_at,
+      owner_user_id:myProfile.id,
+      description:serializeContentFields('Drafting',{sourceTitle:src.title, notes:tf.build(s)})
+    });
+    created++;
+  }
+  renderCurrent();
+  toast(created?('Content pack generated \u2014 '+created+' platform draft(s) created'+(skipped?', '+skipped+' already existed':'')):'All '+CONTENT_TRANSFORMS.length+' pieces already exist for this article');
+}
+
 function openContentForWriting(id){
   const mi=byId(state.marketing_items,id);
   const relatedLink=state.entity_links.find(el=>el.source_type==='marketing_item'&&el.source_id===id&&el.target_type==='organisation');
@@ -3790,10 +4033,11 @@ function vMarketing(){
 function contentRow(mi,opts){
   opts=opts||{};
   const stage=getContentStage(mi);
+  const src=parseContentFields(mi.description).sourceTitle;
   return '<div class="drow'+(opts.alert?' alert':'')+'" style="align-items:flex-start" onclick="openMarketingDetail(\''+mi.id+'\')">'+
     '<span class="drow-icon">'+marketingIcon(mi.item_type)+'</span>'+
     '<div class="drow-main"><div class="drow-title">'+esc(mi.title)+'</div>'+
-    '<div class="drow-meta">'+esc(mi.item_type)+(mi.audience?' · '+esc(mi.audience):'')+' · '+esc(stage)+'</div></div>'+
+    '<div class="drow-meta">'+esc(mi.item_type)+(mi.audience?' · '+esc(mi.audience):'')+' · '+esc(stage)+(src?' · ↳ '+esc(src):'')+'</div></div>'+
     '<div class="drow-right">'+(mi.scheduled_at?fmtDate(mi.scheduled_at):'')+'</div></div>';
 }
 
@@ -3839,17 +4083,37 @@ function estimateLabel(mi){
 }
 
 function vContentLibraryTab(){
-  const f=route.mkLibFilter=route.mkLibFilter||{q:'',category:'',stage:''};
+  const f=route.mkLibFilter=route.mkLibFilter||{q:'',category:'',stage:'',platform:'',source:'',published:''};
+  if(f.platform===undefined) f.platform='';
+  if(f.source===undefined) f.source='';
+  if(f.published===undefined) f.published='';
   const categories=[...new Set(state.marketing_items.map(mi=>mi.item_type))].sort();
+  const sources=[...new Set(state.marketing_items.map(mi=>parseContentFields(mi.description).sourceTitle).filter(Boolean))].sort();
+  const isPublished=mi=>['Published','Repurposing'].includes(getContentStage(mi));
   let list=[...state.marketing_items];
-  if(f.q){ const q=f.q.toLowerCase(); list=list.filter(mi=>(mi.title+' '+(mi.audience||'')+' '+(mi.objective||'')).toLowerCase().includes(q)); }
+  if(f.q){ const q=f.q.toLowerCase(); list=list.filter(mi=>(mi.title+' '+(mi.audience||'')+' '+(mi.objective||'')+' '+(mi.description||'')).toLowerCase().includes(q)); }
   if(f.category) list=list.filter(mi=>mi.item_type===f.category);
   if(f.stage) list=list.filter(mi=>getContentStage(mi)===f.stage);
-  list.sort((a,b)=>a.title.localeCompare(b.title));
-  const toolbar='<div class="toolbar">'+
+  if(f.platform) list=list.filter(mi=>contentPlatform(mi.item_type)===f.platform);
+  if(f.source) list=list.filter(mi=>parseContentFields(mi.description).sourceTitle===f.source);
+  if(f.published==='published') list=list.filter(isPublished);
+  else if(f.published==='unpublished') list=list.filter(mi=>!isPublished(mi));
+  // Group derived pieces under their source article: sort by group key
+  // (source title, or the item's own title if it is itself a source), so a
+  // content pack clusters together.
+  const groupKey=mi=>{ const s=parseContentFields(mi.description).sourceTitle; return (s||mi.title)+'|'+(s?'1':'0')+'|'+mi.title; };
+  list.sort((a,b)=>groupKey(a).localeCompare(groupKey(b)));
+  const toolbar='<div class="toolbar" style="flex-wrap:wrap;gap:8px">'+
     '<input class="input search-in" placeholder="Search the content library…" value="'+esc(f.q)+'" oninput="route.mkLibFilter.q=this.value;renderCurrent()">'+
-    '<select class="select" onchange="route.mkLibFilter.category=this.value;renderCurrent()"><option value="">All categories</option>'+categories.map(c=>'<option'+(f.category===c?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select>'+
+    '<select class="select" onchange="route.mkLibFilter.platform=this.value;renderCurrent()"><option value="">All platforms</option>'+CONTENT_PLATFORMS.map(p=>'<option value="'+esc(p)+'"'+(f.platform===p?' selected':'')+'>'+esc(p)+'</option>').join('')+'</select>'+
+    '<select class="select" onchange="route.mkLibFilter.category=this.value;renderCurrent()"><option value="">All content types</option>'+categories.map(c=>'<option'+(f.category===c?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select>'+
     '<select class="select" onchange="route.mkLibFilter.stage=this.value;renderCurrent()"><option value="">All stages</option>'+CONTENT_STAGES.map(s=>'<option'+(f.stage===s?' selected':'')+'>'+s+'</option>').join('')+'</select>'+
+    '<select class="select" onchange="route.mkLibFilter.published=this.value;renderCurrent()">'+
+      '<option value=""'+(f.published===''?' selected':'')+'>Published &amp; not</option>'+
+      '<option value="published"'+(f.published==='published'?' selected':'')+'>Published only</option>'+
+      '<option value="unpublished"'+(f.published==='unpublished'?' selected':'')+'>Unpublished only</option></select>'+
+    (sources.length?'<select class="select" onchange="route.mkLibFilter.source=this.value;renderCurrent()"><option value="">All source articles</option>'+sources.map(s=>'<option'+(f.source===s?' selected':'')+'>'+esc(s)+'</option>').join('')+'</select>':'')+
+    ((f.q||f.category||f.stage||f.platform||f.source||f.published)?'<button class="btn sm" onclick="route.mkLibFilter={q:\'\',category:\'\',stage:\'\',platform:\'\',source:\'\',published:\'\'};renderCurrent()">Clear</button>':'')+
   '</div>';
   if(!state.marketing_items.length) return '<div class="empty">Library is empty — import it from the onboarding panel.</div>';
   return toolbar+'<div class="page-sub" style="margin-bottom:12px">'+list.length+' of '+state.marketing_items.length+' items</div>'+
@@ -3880,6 +4144,7 @@ function openMarketingDetail(id){
   const relatedLink=state.entity_links.find(el=>el.source_type==='marketing_item'&&el.source_id===id&&el.target_type==='organisation');
   openModal('<h3>'+marketingIcon(mi.item_type)+' '+esc(mi.title)+'</h3>'+
     '<div class="muted" style="font-size:12px;margin-bottom:14px">'+esc(mi.item_type)+(mi.scheduled_at?' · '+fmtDate(mi.scheduled_at):'')+'</div>'+
+    (fields.sourceTitle?'<div class="pill" style="margin-bottom:12px">↳ From article: '+esc(fields.sourceTitle)+'</div>':'')+
     '<div class="grid g2">'+
       '<div class="field"><label class="fl">Audience</label><input class="input" id="f_mdaudience" value="'+esc(mi.audience||'')+'"></div>'+
       '<div class="field"><label class="fl">Priority</label><select class="select" id="f_mdpriority">'+['Low','Normal','High'].map(p=>'<option'+(mi.priority===p?' selected':'')+'>'+p+'</option>').join('')+'</select></div>'+
@@ -3898,21 +4163,54 @@ function openMarketingDetail(id){
       '<div class="field"><label class="fl">Industries</label><input class="input" id="f_mdind" value="'+esc(fields.industries)+'"></div>'+
       '<div class="field"><label class="fl">Products</label><input class="input" id="f_mdprod" value="'+esc(fields.products)+'"></div>'+
     '</div>'+
+    '<div class="grid g2">'+
+      '<div class="field"><label class="fl">Topic</label><input class="input" id="f_mdtopic" value="'+esc(fields.topic)+'"></div>'+
+      '<div class="field"><label class="fl">Campaign</label><input class="input" id="f_mdcampaign" value="'+esc(fields.campaign||(mi.seed_key?mi.seed_key.replace(/-week-.*$/,''):''))+'"></div>'+
+    '</div>'+
+    '<div class="grid g2">'+
+      '<div class="field"><label class="fl">Published date</label><input class="input" type="date" id="f_mdpubdate" value="'+esc((fields.publishedDate||'').slice(0,10))+'"></div>'+
+      '<div class="field"><label class="fl">Platform (derived)</label><input class="input" value="'+esc(contentPlatform(mi.item_type))+'" disabled></div>'+
+    '</div>'+
+    '<div class="sec-h" style="margin-top:8px;margin-bottom:6px"><h2>Performance</h2></div>'+
+    '<div class="grid g2">'+
+      '<div class="field"><label class="fl">Views</label><input class="input" id="f_mdviews" value="'+esc(fields.views)+'"></div>'+
+      '<div class="field"><label class="fl">Likes / reactions</label><input class="input" id="f_mdlikes" value="'+esc(fields.likes)+'"></div>'+
+      '<div class="field"><label class="fl">Comments</label><input class="input" id="f_mdcomments" value="'+esc(fields.comments)+'"></div>'+
+      '<div class="field"><label class="fl">Shares / reposts</label><input class="input" id="f_mdshares" value="'+esc(fields.shares)+'"></div>'+
+      '<div class="field"><label class="fl">Saves</label><input class="input" id="f_mdsaves" value="'+esc(fields.saves)+'"></div>'+
+      '<div class="field"><label class="fl">Leads generated</label><input class="input" id="f_mdleads" value="'+esc(fields.leads)+'"></div>'+
+      '<div class="field"><label class="fl">Investor interest</label><input class="input" id="f_mdinv" value="'+esc(fields.investorInterest)+'"></div>'+
+      '<div class="field"><label class="fl">Pilot interest</label><input class="input" id="f_mdpilot" value="'+esc(fields.pilotInterest)+'"></div>'+
+    '</div>'+
     '<div class="field"><label class="fl">Notes</label><textarea class="input" id="f_mdnotes" rows="3">'+esc(fields.notes)+'</textarea></div>'+
     '<div class="field"><label class="fl">Lessons learned</label><textarea class="input" id="f_mdlessons" rows="2">'+esc(fields.lessonsLearned)+'</textarea></div>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
       '<button class="btn gold" onclick="saveMarketingDetail(\''+id+'\')">Save</button>'+
+      '<button class="btn" onclick="generateContentPack(\''+id+'\');closeModal()">✦ Generate content pack</button>'+
       '<button class="btn" onclick="openContentForWriting(\''+id+'\')">Open Draft (AI Workspace)</button>'+
       '<button class="btn" onclick="completeContentItem(\''+id+'\');closeModal()">Mark Complete</button>'+
     '</div>', true);
 }
 async function saveMarketingDetail(id){
   const stage=document.getElementById('f_mdstage').value;
+  const existingSource=parseContentFields((byId(state.marketing_items,id)||{}).description).sourceTitle;
   const fields={
+    sourceTitle:existingSource,
+    topic:document.getElementById('f_mdtopic').value.trim(),
+    campaign:document.getElementById('f_mdcampaign').value.trim(),
     draftLink:document.getElementById('f_mddraft').value.trim(),
     publishedUrl:document.getElementById('f_mdpub').value.trim(),
+    publishedDate:document.getElementById('f_mdpubdate').value.trim(),
     industries:document.getElementById('f_mdind').value.trim(),
     products:document.getElementById('f_mdprod').value.trim(),
+    views:document.getElementById('f_mdviews').value.trim(),
+    likes:document.getElementById('f_mdlikes').value.trim(),
+    comments:document.getElementById('f_mdcomments').value.trim(),
+    shares:document.getElementById('f_mdshares').value.trim(),
+    saves:document.getElementById('f_mdsaves').value.trim(),
+    leads:document.getElementById('f_mdleads').value.trim(),
+    investorInterest:document.getElementById('f_mdinv').value.trim(),
+    pilotInterest:document.getElementById('f_mdpilot').value.trim(),
     lessonsLearned:document.getElementById('f_mdlessons').value.trim(),
     notes:document.getElementById('f_mdnotes').value.trim()
   };
@@ -3938,10 +4236,19 @@ async function saveMarketingDetail(id){
   }
   closeModal(); renderCurrent(); toast('Saved');
 }
+const PLATFORM_CONTENT_TYPES={
+  'LinkedIn':['Article','LinkedIn Post','Comment / engagement'],
+  'Twitter/X':['Tweet','Twitter Thread','Reply idea','Quote Tweet','Engagement'],
+  'Instagram':['Instagram Post','Instagram Carousel','Instagram Caption','Reel / Video','Story','Behind-the-scenes'],
+  'Other':['Founder Story','Insight','Report','Case Study','Newsletter','General']
+};
 function openMarketingForm(){
+  const typePicker='<select class="select" onchange="if(this.value){document.getElementById(\'f_mitype\').value=this.value}"><option value="">Quick-pick a content type…</option>'+
+    Object.entries(PLATFORM_CONTENT_TYPES).map(([pf,types])=>'<optgroup label="'+esc(pf)+'">'+types.map(t=>'<option value="'+esc(t)+'">'+esc(t)+'</option>').join('')+'</optgroup>').join('')+'</select>';
   openModal('<h3>New content item</h3>'+
     '<div class="field"><label class="fl">Title</label><input class="input" id="f_mititle"></div>'+
-    '<div class="field"><label class="fl">Category</label><input class="input" id="f_mitype" placeholder="LinkedIn Post, Founder Story, Report…"></div>'+
+    '<div class="field"><label class="fl">Content type</label>'+typePicker+
+      '<input class="input" id="f_mitype" placeholder="or type your own…" style="margin-top:6px"></div>'+
     '<div class="field"><label class="fl">Audience</label><input class="input" id="f_miaudience"></div>'+
     '<div class="field"><label class="fl">Objective / CTA</label><textarea class="input" id="f_midesc" rows="3"></textarea></div>'+
     '<div class="field"><label class="fl">Scheduled date (optional — leave blank to add to the library, unscheduled)</label><input class="input" type="date" id="f_midate"></div>'+
@@ -4347,7 +4654,7 @@ async function runSnapshotRestore(){
 function vSettings(){
   const tab=route.tab||'status';
   const outstanding=state.migration_log.filter(m=>['needs_review','error'].includes(m.status)).length;
-  const tabs=[['status','Connection'],['counts','Row counts'],['review','Migration review'+(outstanding?' ('+outstanding+')':'')],['recovery','Data recovery']];
+  const tabs=[['status','Connection'],['counts','Row counts'],['review','Migration review'+(outstanding?' ('+outstanding+')':'')],['duplicates','Duplicates'],['recovery','Data recovery'],['backup','Backup & Restore']];
   let body='';
   if(tab==='status'){
     body='<div class="card">'+
@@ -4364,7 +4671,7 @@ function vSettings(){
       '<button class="btn gold" onclick="runSnapshotRestore()">Restore from Snapshot</button></div>'+
       '<div class="card" style="margin-top:16px;border-color:var(--gold)"><div style="font-size:14.5px;font-weight:640;margin-bottom:8px">6-Month Marketing Plan (automatic)</div>'+
       '<div class="muted" style="font-size:12.5px;margin-bottom:16px">Kweli\u2019s current strategy — insurance claims fraud/leakage, invoice &amp; certificate fraud, verification infrastructure, and the founder journey — is created automatically at sign-in if it doesn\u2019t already exist. Rebuild it here only if you need to reset it (this deletes and recreates every item tagged to this plan; manual edits to those items are lost).</div>'+
-      '<div class="faint" style="font-size:11px;margin-bottom:12px">Status: '+campaignRowCountLocally()+' / 130 scheduled pieces present</div>'+
+      '<div class="faint" style="font-size:11px;margin-bottom:12px">Status: '+campaignRowCountLocally()+' / '+expectedSeedKeys().length+' scheduled pieces present</div>'+
       '<button class="btn" onclick="rebuildInsurancePlan()">Rebuild plan</button></div>'+
       '<div class="card" style="margin-top:16px"><div style="font-size:14.5px;font-weight:640;margin-bottom:8px">Alternative: general 36-month content backlog</div>'+
       '<div class="muted" style="font-size:12.5px;margin-bottom:16px">Imports the broader '+CONTENT_LIBRARY.length+'-item content library (not insurance-focused) AND generates a 6-month publishing calendar from it in one action.</div>'+
@@ -4372,6 +4679,10 @@ function vSettings(){
       '<div class="card" style="margin-top:16px"><div style="font-size:14.5px;font-weight:640;margin-bottom:8px">Restore V1 Marketing Plan (legacy)</div>'+
       '<div class="muted" style="font-size:12.5px;margin-bottom:16px">Restores the weekly content cadence plus the full '+V1_CONTENT_BACKLOG.length+'-item V1 content backlog from the original carbon-era plan.</div>'+
       '<button class="btn" onclick="seedDefaultMarketingPlan()">Restore V1 Marketing Plan</button></div>';
+  } else if(tab==='backup'){
+    body=vBackupPanel();
+  } else if(tab==='duplicates'){
+    body=vDuplicatesTab();
   } else if(tab==='counts'){
     body='<div class="card">'+TABLES.map(t=>kv(t, state[t].length)).join('')+'</div>';
   } else if(tab==='review'){
@@ -4532,6 +4843,432 @@ function vSnapshot(){
     '<div class="out" style="max-height:560px">'+esc(md)+'</div>';
 }
 function copySnapshot(){ navigator.clipboard.writeText(buildSnapshotMarkdown()); toast('Snapshot copied — paste it into a new Claude conversation'); }
+
+/* ===========================================================================
+   DUPLICATE AUDIT & ONE-TIME MERGE
+   ---------------------------------------------------------------------------
+   Entity-specific duplicate rules (not just title matching). The audit is
+   read-only. The cleanup is user-triggered, requires confirmation, runs ONCE
+   (guarded by a version row in migration_log so it can never loop on reload),
+   keeps the richest record, repoints every reference to it generically (by
+   UUID match across all tables — safe: UUID collisions don't happen),
+   preserves conflicting values into a notes-like field rather than dropping
+   them, and logs a full summary. Merge is best-effort under the anon key and
+   RLS: any operation the policies reject is reported, never silently skipped.
+=========================================================================== */
+const DEDUP_VERSION='dedupe_cleanup_v1';
+const DEDUP_RULES=[
+  {table:'organisations', label:'Organisations', eligible:o=>!o.archived_at,
+    key:o=>{ const d=normDomain(o.website||o.domain||''); return d?('dom:'+d):('name:'+(o.canonical_name||normText(o.name))); },
+    name:o=>o.name },
+  {table:'people', label:'People', eligible:p=>!p.archived_at,
+    key:p=>{ const e=normEmail(p.email); return e?('em:'+e):('nm:'+normText(p.full_name)+'|'+(p.primary_organisation_id||'')); },
+    strong:p=>{ const e=normEmail(p.email); return e?('em:'+e):null; },
+    name:p=>p.full_name },
+  {table:'meetings', label:'Meetings',
+    key:m=>'mt:'+(m.organisation_id||'')+'|'+((m.scheduled_at||'').slice(0,10))+'|'+normText(m.title),
+    name:m=>m.title },
+  {table:'tasks', label:'Follow-ups', eligible:t=>!['Completed','Cancelled','Closed / Lost'].includes(t.status),
+    key:t=>'tk:'+(t.organisation_id||'')+'|'+normText(t.title)+'|'+(t.due_at||''),
+    name:t=>t.title },
+  {table:'marketing_items', label:'Marketing / content',
+    key:mi=>mi.seed_key?('sk:'+mi.seed_key):('mk:'+normText(mi.title)+'|'+normText(mi.item_type)+'|'+(mi.scheduled_at||'')),
+    name:mi=>mi.title },
+  {table:'assets_v2', label:'Assets',
+    key:a=>'as:'+normText(a.file_name||a.title)+'|'+(a.file_size||''),
+    name:a=>a.file_name||a.title },
+  {table:'lessons_v2', label:'Lessons', eligible:l=>!l.archived_at,
+    key:l=>'ls:'+normText(l.title), name:l=>l.title },
+  {table:'knowledge_sections_v2', label:'Knowledge base', eligible:k=>k.is_current,
+    key:k=>'kb:'+normText(k.title)+'|'+normText(k.category||''), name:k=>k.title },
+  {table:'team_messages_v2', label:'Team notes',
+    key:m=>'tn:'+normText(m.title)+'|'+normText((m.body||'').slice(0,80)), name:m=>m.title||'(note)' }
+];
+function recordRichness(r){ return Object.keys(r).filter(k=>!['id','created_at','updated_at'].includes(k) && r[k]!=null && r[k]!=='').length; }
+function runDuplicateAudit(){
+  return DEDUP_RULES.map(rule=>{
+    const rows=(state[rule.table]||[]).filter(r=>rule.eligible?rule.eligible(r):true);
+    const groups=new Map();
+    rows.forEach(r=>{ const k=rule.key(r); if(!k) return; if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(r); });
+    const dupGroups=[...groups.entries()].filter(e=>e[1].length>1).map(e=>({key:e[0],rows:e[1]}));
+    return {table:rule.table, label:rule.label, dupGroups, dupCount:dupGroups.reduce((n,g)=>n+g.rows.length-1,0)};
+  });
+}
+async function mergeRecordInto(table, primary, dup){
+  const result={repointed:0, enriched:[], conflicts:[]};
+  for(const t of TABLES){
+    for(const r of state[t]){
+      if(r.id===dup.id) continue;
+      for(const k of Object.keys(r)){
+        if(k==='id') continue;
+        if(r[k]===dup.id){
+          try{ await dbUpdate(t, r.id, {[k]:primary.id}); result.repointed++; }
+          catch(e){ result.conflicts.push('repoint '+t+'.'+k+' failed'); }
+        }
+      }
+    }
+  }
+  const noteField=['notes','description','detail','content','summary'].find(f=>f in primary);
+  const patch={}; let conflictNote='';
+  for(const k of Object.keys(dup)){
+    if(['id','created_at','updated_at'].includes(k)) continue;
+    const pv=primary[k], dv=dup[k];
+    if(dv==null || dv==='') continue;
+    if(pv==null || pv===''){ patch[k]=dv; result.enriched.push(k); }
+    else if(pv!==dv){ result.conflicts.push(k); conflictNote+='\n[merged] '+k+' (from duplicate): '+String(dv).slice(0,120); }
+  }
+  if(conflictNote && noteField) patch[noteField]=((primary[noteField]||'')+'\n'+conflictNote).trim();
+  if(Object.keys(patch).length){ try{ await dbUpdate(table, primary.id, patch); }catch(e){ result.conflicts.push('enrich failed'); } }
+  try{ await dbDelete(table, dup.id); }catch(e){ result.conflicts.push('delete failed'); }
+  return result;
+}
+async function runDedupeCleanup(){
+  if(state.migration_log.some(m=>m.step===DEDUP_VERSION && m.status==='ok')){ toast('Cleanup already run on this database.'); return; }
+  const audit=runDuplicateAudit();
+  const total=audit.reduce((n,a)=>n+a.dupCount,0);
+  if(!total){ toast('No duplicates to clean.'); return; }
+  if(!confirm('Run the one-time duplicate cleanup?\n\nThis MERGES '+total+' duplicate record(s) into their richest counterpart, repoints references, preserves conflicting values into notes, and deletes the extras. It cannot be undone.\n\nMake sure you created a backup first (Settings → Backup & Restore). Proceed?')) return;
+  showSeedingOverlay('Merging duplicates…');
+  const summary=[]; let merged=0;
+  try{
+    for(const a of audit){
+      if(!a.dupCount) continue;
+      const rule=DEDUP_RULES.find(r=>r.table===a.table);
+      for(const g of a.dupGroups){
+        let rows=g.rows;
+        if(rule.strong){
+          const sk=rule.strong(rows[0]);
+          if(!sk){ summary.push(a.label+': left a name-only group for manual review ('+rows.length+' records)'); continue; }
+          if(!rows.every(r=>rule.strong(r)===sk)) continue;
+        }
+        rows=[...rows].sort((x,y)=>recordRichness(y)-recordRichness(x) || String(x.created_at||'').localeCompare(String(y.created_at||'')));
+        const primary=rows[0];
+        for(let i=1;i<rows.length;i++){
+          const res=await mergeRecordInto(a.table, primary, rows[i]);
+          merged++;
+          summary.push(a.label+': merged "'+String(rule.name(rows[i])||'').slice(0,40)+'" → "'+String(rule.name(primary)||'').slice(0,40)+'" (repointed '+res.repointed+(res.enriched.length?', filled '+res.enriched.length+' field(s)':'')+(res.conflicts.length?', '+res.conflicts.length+' conflict(s) preserved':'')+')');
+        }
+      }
+    }
+    try{ await dbInsert('migration_log',{step:DEDUP_VERSION, status:'ok', source_table:'system', detail:('Merged '+merged+' duplicate(s).\n'+summary.join('\n')).slice(0,8000)}); }
+    catch(e){ summary.push('WARNING: could not persist the version flag — cleanup ran but might be offered again. ('+(e.message||e)+')'); }
+    await loadAll(); renderNav();
+  } finally { hideSeedingOverlay(); }
+  openModal('<h3>Duplicate cleanup complete</h3><div class="muted" style="font-size:12.5px;margin-bottom:10px">'+merged+' record(s) merged. Full log:</div><div class="out" style="max-height:440px;white-space:pre-wrap">'+esc(summary.join('\n')||'No changes.')+'</div>', true);
+}
+function vDuplicatesTab(){
+  const audit=runDuplicateAudit();
+  const total=audit.reduce((n,a)=>n+a.dupCount,0);
+  const alreadyRun=state.migration_log.some(m=>m.step===DEDUP_VERSION && m.status==='ok');
+  let body='<div class="card"><div style="font-weight:640;margin-bottom:6px">Duplicate audit</div>'+
+    '<div class="muted" style="font-size:12.5px;margin-bottom:10px">Read-only scan using entity-specific rules (email/domain/date/canonical key — not just titles). '+total+' likely duplicate record(s) across '+audit.filter(a=>a.dupCount).length+' area(s).</div>';
+  if(total){
+    body+='<div class="muted" style="font-size:12px;margin-bottom:10px">Cleanup keeps the richest record, repoints every reference to it, preserves conflicting values into notes, logs a summary, and runs <b>once</b> (version-guarded, never on reload). People matched by name-only (no email) are left for manual review. Create a backup first.</div>'+
+      (alreadyRun?'<div class="faint" style="font-size:11px">Cleanup '+esc(DEDUP_VERSION)+' has already run on this database — disabled to prevent repeat merges.</div>'
+        :'<button class="btn gold" onclick="runDedupeCleanup()">Run one-time cleanup</button>');
+  } else body+='<div class="faint" style="font-size:11px">No duplicates detected by the current rules.</div>';
+  body+='</div>';
+  audit.filter(a=>a.dupCount).forEach(a=>{
+    const rule=DEDUP_RULES.find(r=>r.table===a.table);
+    body+='<div class="dsec" style="margin-top:16px"><div class="dsec-h"><h2>'+esc(a.label)+'</h2><span class="count">'+a.dupCount+'</span></div><div class="dlist">'+
+      a.dupGroups.map(g=>'<div class="drow" style="align-items:flex-start"><div class="drow-main"><div class="drow-title">'+esc(rule.name(g.rows[0])||'(untitled)')+'</div>'+
+        '<div class="drow-meta">'+g.rows.length+' copies · '+esc(g.key.slice(0,64))+'</div></div></div>').join('')+'</div></div>';
+  });
+  return body;
+}
+
+/* ===========================================================================
+   BACKUP & RESTORE
+   ---------------------------------------------------------------------------
+   HONEST SCOPE — this is a client-side backup running under the anon key.
+   It captures EVERYTHING a browser session legitimately can:
+     • every row of every table currently in `state` (one JSON file each)
+     • a live Markdown snapshot (the same one Export-for-Claude produces)
+     • machine-readable metadata (version.json, kweli_brain_state.md)
+     • restore instructions (README_RESTORE.md)
+   It deliberately does NOT claim to capture, because a client with the
+   anon key genuinely cannot:
+     • the Postgres schema/DDL (no schema.sql — that lives in migrations/git)
+     • Storage-bucket binaries (uploaded asset files — only their DB rows)
+     • auth users / RLS policies
+   Those are noted in the README rather than faked. Data restore works by
+   upserting the JSON rows back by primary key, which is idempotent: running
+   a restore of a backup taken from the same project simply rewrites the same
+   rows. Restore validates the archive fully BEFORE writing anything.
+=========================================================================== */
+const KB_APP_VERSION = '2.4.0';
+const KB_BUILD = 'marketing-engine-backup-2026-07';
+
+function kbBackupTimestampParts(){
+  const d=new Date();
+  const p=n=>String(n).padStart(2,'0');
+  return {
+    date: d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()),
+    time: p(d.getHours())+p(d.getMinutes()),
+    iso: d.toISOString()
+  };
+}
+
+function buildBackupStateMd(ts){
+  const counts=TABLES.map(t=>'- '+t+': '+((state[t]||[]).length)).join('\n');
+  return '# Kweli Brain — State\n\n'+
+    '- Application: Kweli Brain\n'+
+    '- Version: '+KB_APP_VERSION+'\n'+
+    '- Build: '+KB_BUILD+'\n'+
+    '- Export date: '+ts.iso+'\n'+
+    '- Supabase project: '+SUPABASE_URL+'\n'+
+    '- Storage bucket (V2): '+ASSETS_BUCKET+'\n'+
+    '- Signed in as: '+(myProfile?myProfile.display_name:'—')+' ('+(currentUser?currentUser.email:'—')+')\n'+
+    '- Theme: dark navy / gold (default)\n\n'+
+    '## Installed modules\n'+
+    'CRM · Organisations · People · Opportunities · Meetings · Calendar · Follow-ups · '+
+    'Lessons · Objections · Decisions · Knowledge Base · Assets · Investors · Marketing · '+
+    'AI Workspace · Export for Claude · Backup & Restore\n\n'+
+    '## Row counts at export\n'+counts+'\n';
+}
+
+function buildRestoreReadme(ts, filename){
+  return '# Restoring Kweli Brain — '+filename+'\n\n'+
+    '> ⚠️ **DATA-ONLY BACKUP — NOT A COMPLETE BACKUP.** This archive contains your\n'+
+    '> database rows plus best-effort code and metadata. It does **not** contain the\n'+
+    '> uploaded asset binaries or the authoritative Postgres schema. Do not treat it\n'+
+    '> as a full disaster-recovery image on its own.\n\n'+
+    'This archive was produced by Kweli Brain\'s Backup & Restore panel on '+ts.iso+'.\n\n'+
+    '## What is in this archive\n'+
+    '- `data/<table>.json` — every row of every table, exactly as it was at export time.\n'+
+    '- `index.html` — the deployed app source, fetched same-origin (present only when\n'+
+    '  the app was opened over http/https; absent if opened as a local file).\n'+
+    '- `schema/inferred_schema.md` — column names observed in the rows (a convenience,\n'+
+    '  NOT authoritative DDL). `schema/README.md` explains where the real schema lives.\n'+
+    '- `assets/asset_metadata.json` — filenames, storage paths, sizes and buckets for\n'+
+    '  every asset. The binary files themselves are NOT here.\n'+
+    '- `snapshot.md` — a human/AI-readable briefing (same as Export for Claude).\n'+
+    '- `kweli_brain_state.md` — app version, build, config and row counts.\n'+
+    '- `version.json` — machine-readable manifest used to validate a restore.\n\n'+
+    '## What is NOT in this archive (and why)\n'+
+    'This backup runs in the browser under the public anon key, so it cannot read:\n'+
+    '- **Database schema / DDL** — there is no real `schema.sql`. The schema lives in\n'+
+    '  your Supabase migrations and in git; recreate an empty project from those first.\n'+
+    '- **Storage files** — only the *rows/metadata* describing assets are backed up, not\n'+
+    '  the uploaded binaries in the `'+ASSETS_BUCKET+'` bucket. Download those from the\n'+
+    '  Supabase dashboard (Storage) using the paths in `assets/asset_metadata.json`.\n'+
+    '- **Auth users / RLS policies** — recreate from Supabase config.\n\n'+
+    '## To restore the DATA\n'+
+    '1. Ensure the target Supabase project already has the correct schema (run your\n'+
+    '   migrations against a fresh project if rebuilding).\n'+
+    '2. Open Kweli Brain, sign in, go to **Settings → Backup & Restore → Restore**.\n'+
+    '3. Choose this `.zip`. The app validates it, shows exactly what it will write\n'+
+    '   (including how many rows would be overwritten vs inserted), and only proceeds\n'+
+    '   after you confirm.\n'+
+    '4. Rows are upserted by primary key: existing rows with the same id are\n'+
+    '   overwritten; new ids are inserted; nothing is deleted. Any table the current\n'+
+    '   schema rejects is reported per-table rather than silently skipped.\n\n'+
+    '## To restore the CODE\n'+
+    'Prefer redeploying the matching commit from Netlify/git. The bundled `index.html`\n'+
+    '(when present) is a convenience copy of what was served at export time.\n';
+}
+
+function buildInferredSchema(){
+  let out='# Inferred schema (NOT authoritative)\n\nColumn NAMES observed in the exported rows only. No types, constraints, indexes, defaults or RLS. Get real DDL from your Supabase migrations.\n';
+  TABLES.forEach(t=>{
+    const rows=state[t]||[];
+    const cols=new Set();
+    rows.forEach(r=>Object.keys(r||{}).forEach(k=>cols.add(k)));
+    out+='\n## '+t+' ('+rows.length+' rows)\n'+([...cols].sort().map(c=>'- '+c).join('\n')||'- (no rows observed — columns unknown)')+'\n';
+  });
+  return out;
+}
+async function createFullBackup(){
+  if(typeof JSZip==='undefined'){ toast('Backup library not loaded — check your connection and reload.'); return; }
+  const btn=document.getElementById('kbBackupBtn');
+  if(btn){ btn.disabled=true; btn.textContent='Building backup…'; }
+  try{
+    const ts=kbBackupTimestampParts();
+    const filename='KweliBrain_v'+KB_APP_VERSION+'_'+ts.date+'_'+ts.time+'.zip';
+    const zip=new JSZip();
+    const dataDir=zip.folder('data');
+
+    const manifest={
+      app:'Kweli Brain', version:KB_APP_VERSION, build:KB_BUILD,
+      exported_at:ts.iso, supabase_url:SUPABASE_URL, assets_bucket:ASSETS_BUCKET,
+      exported_by: myProfile?myProfile.display_name:null,
+      tables:{}
+    };
+    TABLES.forEach(t=>{
+      const rows=state[t]||[];
+      manifest.tables[t]=rows.length;
+      dataDir.file(t+'.json', JSON.stringify(rows, null, 2));
+    });
+
+    // Real deployed source (same-origin fetch of the served file, not the
+    // mutated DOM). Skipped gracefully when opened as a local file://.
+    manifest.index_html_included=false;
+    try{
+      if(location.protocol.indexOf('http')===0){
+        const html=await fetch(location.href,{cache:'no-store'}).then(r=>r.ok?r.text():null);
+        if(html && /<html/i.test(html)){ zip.file('index.html', html); manifest.index_html_included=true; }
+      }
+    }catch(e){ /* leave false */ }
+
+    // Schema: NOT dumpable from the anon client. Ship an honest inferred list
+    // plus instructions — never a fabricated schema.sql.
+    zip.file('schema/inferred_schema.md', buildInferredSchema());
+    zip.file('schema/README.md', 'The authoritative Postgres schema (types, constraints, indexes, RLS, triggers) CANNOT be exported from the browser anon client.\n\nRestore DDL from your Supabase migrations in git, or the Supabase dashboard (Database → Migrations). inferred_schema.md lists only the column NAMES observed in the exported rows and is a convenience, not a source of truth.');
+
+    // Asset metadata only — binary files live in Supabase Storage and are not
+    // in this archive.
+    const assets=state.assets_v2||[];
+    zip.file('assets/asset_metadata.json', JSON.stringify(assets.map(a=>({
+      id:a.id, title:a.title, file_name:a.file_name, file_path:a.file_path,
+      file_type:a.file_type, file_size:a.file_size, thumbnail_path:a.thumbnail_path, bucket:ASSETS_BUCKET
+    })), null, 2));
+    manifest.assets_count=assets.length;
+    manifest.asset_binaries_included=false;
+    manifest.complete=false; // data + metadata only; binaries and true schema excluded
+
+    zip.file('version.json', JSON.stringify(manifest, null, 2));
+    zip.file('snapshot.md', buildSnapshotMarkdown());
+    zip.file('kweli_brain_state.md', buildBackupStateMd(ts));
+    zip.file('README_RESTORE.md', buildRestoreReadme(ts, filename));
+
+    const blob=await zip.generateAsync({type:'blob', compression:'DEFLATE'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+    a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 4000);
+
+    const totalRows=TABLES.reduce((n,t)=>n+((state[t]||[]).length),0);
+    toast('Backup ready — '+totalRows+' rows across '+TABLES.length+' tables ('+filename+')');
+  }catch(e){
+    console.error('[Backup] failed:',e);
+    toast('Backup failed: '+(e.message||e));
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent='Create Full Backup'; }
+  }
+}
+
+/* Validate the archive fully before any write. Returns {ok, manifest,
+   tables:{table:rows[]}, error}. A partial/corrupt archive fails here and
+   nothing is ever written — honouring "never perform a partial restore" for
+   the validation stage. (Row-level rejects during write are still reported
+   per-table, since a single client can't wrap 20 RLS-guarded tables in one
+   atomic transaction.) */
+async function kbValidateBackupZip(file){
+  if(typeof JSZip==='undefined') return {ok:false, error:'Backup library not loaded.'};
+  let zip;
+  try{ zip=await JSZip.loadAsync(file); }
+  catch(e){ return {ok:false, error:'Not a readable ZIP archive.'}; }
+  const vf=zip.file('version.json');
+  if(!vf) return {ok:false, error:'version.json missing — this is not a Kweli Brain backup.'};
+  let manifest;
+  try{ manifest=JSON.parse(await vf.async('string')); }
+  catch(e){ return {ok:false, error:'version.json is corrupt.'}; }
+  if(manifest.app!=='Kweli Brain') return {ok:false, error:'version.json is not a Kweli Brain backup.'};
+
+  const tables={};
+  for(const t of Object.keys(manifest.tables||{})){
+    const f=zip.file('data/'+t+'.json');
+    if(!f) return {ok:false, error:'data/'+t+'.json is missing though the manifest lists it.'};
+    let rows;
+    try{ rows=JSON.parse(await f.async('string')); }
+    catch(e){ return {ok:false, error:'data/'+t+'.json is corrupt.'}; }
+    if(!Array.isArray(rows)) return {ok:false, error:'data/'+t+'.json is not an array.'};
+    if(rows.length!==manifest.tables[t]) return {ok:false, error:t+': manifest says '+manifest.tables[t]+' rows but file has '+rows.length+'.'};
+    tables[t]=rows;
+  }
+  return {ok:true, manifest, tables};
+}
+
+let kbPendingRestore=null; // {manifest, tables}
+
+async function onRestoreFileChosen(input){
+  const file=input.files && input.files[0];
+  input.value=''; // allow re-choosing the same file later
+  if(!file) return;
+  const host=document.getElementById('kbRestoreStatus');
+  if(host) host.innerHTML='<div class="muted" style="font-size:12.5px">Validating '+esc(file.name)+'…</div>';
+  const res=await kbValidateBackupZip(file);
+  if(!res.ok){
+    kbPendingRestore=null;
+    if(host) host.innerHTML='<div class="card" style="border-color:var(--red)"><div style="font-weight:640;color:var(--red);margin-bottom:6px">Restore blocked</div>'+
+      '<div class="muted" style="font-size:12.5px">'+esc(res.error)+'</div>'+
+      '<div class="faint" style="font-size:11px;margin-top:8px">Nothing was written. Fix or re-export the backup and try again.</div></div>';
+    return;
+  }
+  kbPendingRestore={manifest:res.manifest, tables:res.tables};
+  const rowsData=Object.entries(res.tables).map(([t,r])=>{ const ex=new Set((state[t]||[]).map(x=>x.id)); const overwrite=r.filter(x=>ex.has(x.id)).length; return {t, count:r.length, overwrite, add:r.length-overwrite}; });
+  const rows=rowsData.filter(d=>d.count).map(d=>'<tr><td style="padding:2px 12px 2px 0">'+esc(d.t)+'</td><td class="mono" style="text-align:right">'+d.count+'</td><td class="mono" style="text-align:right;color:var(--amber,#F59E0B)">'+d.overwrite+'</td><td class="mono" style="text-align:right;color:var(--faint)">'+d.add+'</td></tr>').join('');
+  const total=Object.values(res.tables).reduce((n,r)=>n+r.length,0);
+  const totalOverwrite=rowsData.reduce((n,d)=>n+d.overwrite,0);
+  const incomplete=(res.manifest.complete===false)||(res.manifest.asset_binaries_included===false);
+  if(host) host.innerHTML='<div class="card"><div style="font-weight:640;margin-bottom:8px">Archive validated ✓</div>'+
+    '<div class="muted" style="font-size:12.5px;margin-bottom:10px">From '+esc(res.manifest.exported_at||'unknown date')+' · version '+esc(res.manifest.version||'?')+' · '+total+' rows.'+(incomplete?' <b>Data-only archive</b> — uploaded asset files and the Postgres schema are not included.':'')+'</div>'+
+    '<table style="font-size:12px;border-collapse:collapse"><tr class="faint"><td>table</td><td style="text-align:right;padding:0 12px 0 0">rows</td><td style="text-align:right">overwrite</td><td style="text-align:right;padding-left:12px">new</td></tr>'+rows+'</table>'+
+    '<div class="muted" style="font-size:12px;margin:12px 0">This upserts every row <b>by id</b>: <b>'+totalOverwrite+'</b> existing row(s) would be overwritten and <b>'+(total-totalOverwrite)+'</b> inserted as new. <b>Nothing is deleted.</b> If a whole table fails validation the restore is blocked before any write; row-level rejects (RLS/schema) are reported per table afterwards.</div>'+
+    '<button class="btn gold" onclick="runRestore()">Restore '+total+' rows now</button></div>';
+}
+
+async function runRestore(){
+  if(!kbPendingRestore){ toast('Choose a validated backup first.'); return; }
+  if(!confirm('Restore now? This upserts '+Object.values(kbPendingRestore.tables).reduce((n,r)=>n+r.length,0)+' rows by id into the LIVE database. Existing rows with the same id are overwritten. This cannot be undone — make sure you have a current backup first.')) return;
+  const host=document.getElementById('kbRestoreStatus');
+  const {tables}=kbPendingRestore;
+  const results=[];
+  // Restore in FK-friendly order where it matters (parents before children),
+  // falling back to manifest order for anything unlisted.
+  const order=['user_profiles','organisations','people','opportunities','meetings','meeting_attendees',
+    'tasks','assets_v2','lessons_v2','decisions','objections','marketing_items','knowledge_sections_v2',
+    'investor_profiles','team_messages_v2','team_message_replies','team_message_reads','entity_links',
+    'activities','migration_log'];
+  const ordered=[...order.filter(t=>tables[t]), ...Object.keys(tables).filter(t=>!order.includes(t))];
+
+  for(const t of ordered){
+    const rows=tables[t];
+    if(!rows.length){ results.push({t, ok:0, fail:0, note:'empty'}); continue; }
+    let ok=0, fail=0, lastErr='';
+    const CHUNK=200;
+    for(let i=0;i<rows.length;i+=CHUNK){
+      const chunk=rows.slice(i,i+CHUNK);
+      const {data,error}=await sb.from(t).upsert(chunk, {onConflict:'id'}).select('id');
+      if(error){ fail+=chunk.length; lastErr=error.message; }
+      else { ok+=(data||[]).length; }
+    }
+    results.push({t, ok, fail, note:lastErr});
+    if(host) host.innerHTML='<div class="muted" style="font-size:12.5px">Restoring… '+esc(t)+' ('+ok+' ok'+(fail?', '+fail+' failed':'')+')</div>';
+  }
+
+  await loadAll(); // refresh local mirror from the DB after writing
+  renderNav();
+  const totalOk=results.reduce((n,r)=>n+r.ok,0);
+  const failed=results.filter(r=>r.fail>0);
+  const rowsHtml=results.map(r=>'<tr><td style="padding:2px 12px 2px 0">'+esc(r.t)+'</td>'+
+    '<td class="mono" style="text-align:right;color:var(--green,#4ADE80)">'+r.ok+'</td>'+
+    '<td class="mono" style="text-align:right;color:'+(r.fail?'var(--red)':'var(--faint)')+'">'+r.fail+'</td>'+
+    '<td class="faint" style="font-size:10px;padding-left:10px">'+esc(r.fail?r.note:'')+'</td></tr>').join('');
+  if(host) host.innerHTML='<div class="card" style="border-color:'+(failed.length?'var(--amber)':'var(--gold)')+'">'+
+    '<div style="font-weight:640;margin-bottom:8px">Restore complete — '+totalOk+' rows written'+(failed.length?', '+failed.reduce((n,r)=>n+r.fail,0)+' rejected':'')+'</div>'+
+    '<table style="font-size:12px;border-collapse:collapse"><tr class="faint"><td>table</td><td style="text-align:right">written</td><td style="text-align:right">rejected</td><td></td></tr>'+rowsHtml+'</table>'+
+    (failed.length?'<div class="muted" style="font-size:12px;margin-top:10px">Rejected rows are usually a schema mismatch (a column the current DB computes or no longer has) or an RLS policy. The reason is shown per table. Nothing was deleted.</div>':'')+'</div>';
+  kbPendingRestore=null;
+  toast('Restore finished — '+totalOk+' rows written'+(failed.length?', '+failed.reduce((n,r)=>n+r.fail,0)+' rejected':''));
+}
+
+function vBackupPanel(){
+  const totalRows=TABLES.reduce((n,t)=>n+((state[t]||[]).length),0);
+  const zipReady=(typeof JSZip!=='undefined');
+  return '<div class="card"><div style="font-size:14.5px;font-weight:640;margin-bottom:6px">Create Full Backup</div>'+
+    '<div class="muted" style="font-size:12.5px;margin-bottom:14px">One click exports every row of all '+TABLES.length+' tables ('+totalRows+' rows right now) as a versioned ZIP, alongside a Markdown snapshot, an app-state manifest, and restore instructions. Read-only — this never changes your data.</div>'+
+    (zipReady?'':'<div class="muted" style="font-size:11px;color:var(--amber);margin-bottom:10px">Backup library still loading — if this button does nothing, reload the page.</div>')+
+    '<button class="btn gold" id="kbBackupBtn" onclick="createFullBackup()">Create Full Backup</button>'+
+    '<div class="faint" style="font-size:11px;margin-top:12px">Captures data rows, not the Postgres schema or uploaded asset files — those are managed in migrations/git and Supabase Storage. See README_RESTORE.md inside the ZIP for the full picture.</div>'+
+  '</div>'+
+  '<div class="card" style="margin-top:16px"><div style="font-size:14.5px;font-weight:640;margin-bottom:6px">Restore Backup</div>'+
+    '<div class="muted" style="font-size:12.5px;margin-bottom:14px">Choose a Kweli Brain backup ZIP. It is fully validated before anything is written; you then see exactly what will change and confirm. Rows are upserted by id — existing records with matching ids are overwritten, new ones inserted, nothing deleted.</div>'+
+    '<button class="btn" onclick="document.getElementById(\'kbRestoreInput\').click()">Choose backup ZIP…</button>'+
+    '<input type="file" id="kbRestoreInput" accept=".zip" style="display:none" onchange="onRestoreFileChosen(this)">'+
+    '<div id="kbRestoreStatus" style="margin-top:14px"></div>'+
+  '</div>';
+}
 </script>
 </body>
 </html>
