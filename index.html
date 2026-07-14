@@ -208,6 +208,28 @@
   .data-table tbody tr:hover{background:var(--panel2)}
   .status-chip{display:inline-flex;align-items:center;padding:3px 8px;border-radius:20px;font-size:10px;font-weight:650;border:1px solid var(--line-s);background:var(--panel2)}
 
+
+  /* lessons + objections visual system */
+  .knowledge-hero{display:grid;grid-template-columns:1.6fr 1fr;gap:14px;margin-bottom:18px}
+  @media(max-width:900px){.knowledge-hero{grid-template-columns:1fr}}
+  .knowledge-banner{position:relative;overflow:hidden;background:linear-gradient(135deg,var(--panel),var(--panel2));border:1px solid var(--line-s);
+    border-radius:16px;padding:20px}
+  .knowledge-banner:after{content:"";position:absolute;width:150px;height:150px;border-radius:50%;right:-45px;top:-55px;
+    background:radial-gradient(circle,rgba(201,162,75,.18),transparent 68%)}
+  .pattern-list{display:flex;flex-direction:column;gap:8px}
+  .pattern-row{display:flex;align-items:center;gap:10px;padding:9px 11px;background:var(--panel2);border:1px solid var(--line);border-radius:10px}
+  .pattern-bar{height:5px;border-radius:5px;background:var(--panel2);overflow:hidden;flex:1}
+  .pattern-fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--gold-d),var(--gold))}
+  .lesson-card{--accent:var(--purple)}
+  .lesson-card .rich-icon{background:rgba(155,127,212,.14);color:var(--purple);border-color:rgba(155,127,212,.28)}
+  .objection-card.open{--accent:var(--red)}
+  .objection-card.answered{--accent:var(--amber)}
+  .objection-card.resolved{--accent:var(--green)}
+  .objection-quote{font-size:13px;line-height:1.55;font-weight:650}
+  .response-box{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--bg);border:1px solid var(--line);font-size:12px;color:var(--muted)}
+  .insight-label{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-bottom:4px}
+  .entity-stack{display:flex;gap:5px;flex-wrap:wrap;margin-top:10px}
+
   /* mini calendar (Today) */
   .mini-cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
   .mini-cal .mc-h{font-size:8.5px;color:var(--faint);text-align:center;text-transform:uppercase}
@@ -2087,43 +2109,74 @@ function viewSwitcher(routeKey,current){
 function vLessons(){
   const items=[...state.lessons_v2].filter(l=>!l.archived_at).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
   const view=route.lessonsView=route.lessonsView||'card';
-  const header='<div class="page-head"><div><div class="eyebrow">Knowledge</div><div class="page-title">Lessons</div><div class="page-sub">'+items.length+' lessons learned</div></div>'+
-    '<button class="btn gold" onclick="openLessonForm()">+ New lesson</button></div>'+viewSwitcher('lessonsView',view);
-  if(!items.length) return header+'<div class="empty"><div class="empty-ico">✦</div>No lessons recorded yet. They accumulate from meeting notes, task outcomes, and manual entries.</div>';
+  const linkedCount=items.filter(l=>lessonLinks(l.id).length).length;
+  const categories={};
+  items.forEach(l=>{const c=l.category||'Uncategorised';categories[c]=(categories[c]||0)+1;});
+  const topCategories=Object.entries(categories).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const latest=items[0];
+
+  const header='<div class="page-head"><div><div class="eyebrow">Institutional memory</div><div class="page-title">Lessons</div>'+
+    '<div class="page-sub">What Kweli has learned — and where each lesson came from.</div></div>'+
+    '<button class="btn gold" onclick="openLessonForm()">+ New lesson</button></div>'+
+    '<div class="knowledge-hero">'+
+      '<div class="knowledge-banner"><div class="eyebrow">Learning system</div>'+
+        '<div style="font-size:20px;font-weight:760;margin:8px 0">'+items.length+' lessons captured</div>'+
+        '<div class="muted" style="max-width:620px">A searchable record of customer insight, founder judgement and operating knowledge — linked back to the people and organisations that produced it.</div>'+
+        (latest?'<div style="margin-top:16px"><div class="insight-label">Latest lesson</div><div style="font-weight:650">'+esc(deriveLessonTitle(latest))+'</div></div>':'')+
+      '</div>'+
+      '<div class="card"><div class="insight-label">Most common themes</div><div class="pattern-list">'+
+        (topCategories.length?topCategories.map(([c,n])=>'<div class="pattern-row"><span style="min-width:100px;font-size:11px">'+esc(c)+'</span>'+
+          '<div class="pattern-bar"><div class="pattern-fill" style="width:'+Math.max(12,Math.round(n/items.length*100))+'%"></div></div><span class="mono faint">'+n+'</span></div>').join(''):
+          '<div class="faint">No categories yet.</div>')+
+      '</div></div></div>'+
+    '<div class="metric-strip">'+
+      '<div class="metric-tile"><div class="metric-value">'+items.length+'</div><div class="metric-label">Total lessons</div></div>'+
+      '<div class="metric-tile"><div class="metric-value">'+linkedCount+'</div><div class="metric-label">Linked to CRM</div></div>'+
+      '<div class="metric-tile"><div class="metric-value">'+Object.keys(categories).length+'</div><div class="metric-label">Themes</div></div>'+
+    '</div>'+
+    '<div class="view-toolbar"><div class="faint" style="font-size:11.5px">Switch between a visual knowledge wall, a compact table and chronological history.</div>'+viewSwitcher('lessonsView',view)+'</div>';
+
+  if(!items.length) return header+'<div class="empty"><div class="empty-ico">✦</div>No lessons recorded yet. Capture what changed your thinking, not just what happened.</div>';
 
   if(view==='table'){
-    return header+'<div class="card" style="overflow-x:auto;padding:0"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
-      '<thead><tr style="text-align:left;border-bottom:1px solid var(--line)">'+['Title','Category','Summary','Linked to','Created'].map(h=>'<th style="padding:10px 14px;font-size:10.5px;text-transform:uppercase;color:var(--faint);font-weight:600">'+h+'</th>').join('')+'</tr></thead>'+
+    return header+'<div class="card" style="overflow-x:auto;padding:0"><table class="data-table">'+
+      '<thead><tr>'+['Lesson','Category','Summary','Linked to','Created'].map(h=>'<th>'+h+'</th>').join('')+'</tr></thead>'+
       '<tbody>'+items.map(l=>{
         const links=lessonLinks(l.id);
-        return '<tr style="border-bottom:1px solid var(--line)">'+
-          '<td style="padding:10px 14px;font-weight:600">'+esc(deriveLessonTitle(l))+'</td>'+
-          '<td style="padding:10px 14px">'+esc(l.category||'—')+'</td>'+
-          '<td style="padding:10px 14px;color:var(--muted);max-width:320px">'+esc((l.summary||'').slice(0,100))+'</td>'+
-          '<td style="padding:10px 14px">'+(links.length?links.map(linkLabel).join(', '):'—')+'</td>'+
-          '<td style="padding:10px 14px;color:var(--faint);font-family:ui-monospace,monospace">'+fmtDate(l.created_at)+'</td>'+
-        '</tr>';
+        return '<tr style="cursor:pointer" onclick="openLessonForm(\''+l.id+'\')">'+
+          '<td><strong>'+esc(deriveLessonTitle(l))+'</strong></td>'+
+          '<td><span class="status-chip">'+esc(l.category||'Uncategorised')+'</span></td>'+
+          '<td>'+esc((l.summary||l.detail||'—').slice(0,120))+'</td>'+
+          '<td>'+(links.length?links.map(linkLabel).join(', '):'—')+'</td>'+
+          '<td class="mono faint">'+fmtDate(l.created_at)+'</td></tr>';
       }).join('')+'</tbody></table></div>';
   }
+
   if(view==='timeline'){
     const groups={};
     items.forEach(l=>{ const key=fmtDate(l.created_at); groups[key]=groups[key]||[]; groups[key].push(l); });
     return header+Object.entries(groups).map(([date,arr])=>'<div class="dsec"><div class="dsec-h"><h2>'+date+'</h2><span class="count">'+arr.length+'</span></div>'+
       '<div class="dlist">'+arr.map(l=>{
         const links=lessonLinks(l.id);
-        return '<div class="drow" style="align-items:flex-start;padding:12px"><span class="drow-icon">✦</span>'+
-          '<div class="drow-main"><div class="drow-title">'+esc(deriveLessonTitle(l))+'</div>'+
-          '<div class="drow-meta" style="white-space:normal">'+esc((l.summary||'').slice(0,160))+(links.length?' · '+links.map(linkLabel).join(', '):'')+'</div></div></div>';
+        return '<div class="drow" style="align-items:flex-start;padding:14px;border-left:3px solid var(--purple);cursor:pointer" onclick="openLessonForm(\''+l.id+'\')">'+
+          '<span class="drow-icon">✦</span><div class="drow-main"><div class="drow-title">'+esc(deriveLessonTitle(l))+'</div>'+
+          '<div class="drow-meta" style="white-space:normal">'+esc((l.summary||l.detail||'').slice(0,180))+'</div>'+
+          (links.length?'<div class="entity-stack">'+links.map(lk=>'<span class="pill">'+esc(linkLabel(lk))+'</span>').join('')+'</div>':'')+
+          '</div></div>';
       }).join('')+'</div></div>').join('');
   }
-  // card (default)
+
   return header+'<div class="grid g-auto">'+items.map(l=>{
     const links=lessonLinks(l.id);
-    return '<div class="card"><div style="font-weight:620;font-size:13.5px">'+esc(deriveLessonTitle(l))+'</div>'+
-      '<div class="muted" style="font-size:12px;margin-top:6px">'+esc((l.summary||'').slice(0,140))+'</div>'+
-      (l.detail && l.detail!==l.summary?'<div class="faint" style="font-size:11px;margin-top:6px;max-height:60px;overflow:hidden">'+esc(l.detail.slice(0,200))+'</div>':'')+
-      (l.category?'<div class="pill" style="margin-top:10px">'+esc(l.category)+'</div>':'')+
-      (links.length?'<div style="margin-top:8px">'+links.map(lk=>'<span class="pill" style="margin-right:4px">'+esc(linkLabel(lk))+'</span>').join('')+'</div>':'<div class="faint" style="font-size:10.5px;margin-top:8px">Not yet linked to any entity</div>')+
+    return '<div class="card rich-card lesson-card" onclick="openLessonForm(\''+l.id+'\')">'+
+      '<div class="rich-card-head"><div style="display:flex;gap:11px;min-width:0"><div class="rich-icon">✦</div><div style="min-width:0">'+
+        '<div class="rich-title">'+esc(deriveLessonTitle(l))+'</div>'+
+        '<div class="rich-sub">'+esc(l.category||'Uncategorised')+' · '+fmtDate(l.created_at)+'</div>'+
+      '</div></div><span class="status-chip">'+(links.length?links.length+' linked':'Unlinked')+'</span></div>'+
+      '<div class="rich-body">'+esc((l.summary||l.detail||'No summary added yet.').slice(0,190))+'</div>'+
+      (l.detail&&l.detail!==l.summary?'<div class="response-box"><div class="insight-label">Deeper context</div>'+esc(l.detail.slice(0,180))+'</div>':'')+
+      '<div class="rich-foot"><span>'+(links.length?'Connected insight':'Needs context')+'</span><span>Edit →</span></div>'+
+      (links.length?'<div class="entity-stack">'+links.map(lk=>'<span class="pill">'+esc(linkLabel(lk))+'</span>').join('')+'</div>':'')+
     '</div>';
   }).join('')+'</div>';
 }
@@ -2188,41 +2241,74 @@ function vObjections(){
   const view=route.objectionsView=route.objectionsView||'card';
   const byCategory={};
   items.forEach(x=>{ const c=x.category||'Uncategorised'; byCategory[c]=(byCategory[c]||0)+1; });
-  const header='<div class="page-head"><div><div class="eyebrow">Knowledge</div><div class="page-title">Objections</div><div class="page-sub">'+items.length+' logged across all organisations</div></div></div>'+
-    '<div class="sec"><div class="sec-h"><h2>Patterns</h2></div><div style="display:flex;gap:8px;flex-wrap:wrap">'+
-      Object.entries(byCategory).map(([c,n])=>'<span class="pill">'+esc(c)+' · '+n+'</span>').join('')+'</div></div>'+viewSwitcher('objectionsView',view);
-  if(!items.length) return header+'<div class="empty">No objections logged.</div>';
+  const openCount=items.filter(x=>x.status==='Open').length;
+  const answeredCount=items.filter(x=>['Answered','Validated'].includes(x.status)).length;
+  const resolvedCount=items.filter(x=>['Resolved','No longer relevant'].includes(x.status)).length;
+  const recurring=items.filter(x=>(x.times_raised||1)>1).length;
+  const topPatterns=Object.entries(byCategory).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  const header='<div class="page-head"><div><div class="eyebrow">Sales intelligence</div><div class="page-title">Objections</div>'+
+    '<div class="page-sub">What prospects push back on, how often it appears, and how Kweli responds.</div></div>'+
+    '<button class="btn gold" onclick="openObjectionForm()">+ Log objection</button></div>'+
+    '<div class="knowledge-hero">'+
+      '<div class="knowledge-banner"><div class="eyebrow">Objection intelligence</div>'+
+        '<div style="font-size:20px;font-weight:760;margin:8px 0">'+openCount+' open objections</div>'+
+        '<div class="muted">Turn repeated resistance into sharper messaging, stronger product decisions and better sales preparation.</div>'+
+        '<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">'+
+          '<span class="pill">'+recurring+' recurring</span><span class="pill">'+answeredCount+' answered</span><span class="pill">'+resolvedCount+' resolved</span>'+
+        '</div>'+
+      '</div>'+
+      '<div class="card"><div class="insight-label">Most common objection themes</div><div class="pattern-list">'+
+        (topPatterns.length?topPatterns.map(([c,n])=>'<div class="pattern-row"><span style="min-width:100px;font-size:11px">'+esc(c)+'</span>'+
+          '<div class="pattern-bar"><div class="pattern-fill" style="width:'+Math.max(12,Math.round(n/items.length*100))+'%"></div></div><span class="mono faint">'+n+'</span></div>').join(''):
+          '<div class="faint">No categories yet.</div>')+
+      '</div></div></div>'+
+    '<div class="metric-strip">'+
+      '<div class="metric-tile"><div class="metric-value">'+items.length+'</div><div class="metric-label">Total logged</div></div>'+
+      '<div class="metric-tile"><div class="metric-value">'+openCount+'</div><div class="metric-label">Open</div></div>'+
+      '<div class="metric-tile"><div class="metric-value">'+recurring+'</div><div class="metric-label">Recurring</div></div>'+
+      '<div class="metric-tile"><div class="metric-value">'+resolvedCount+'</div><div class="metric-label">Resolved</div></div>'+
+    '</div>'+
+    '<div class="view-toolbar"><div class="faint" style="font-size:11.5px">Use cards for pattern recognition, table for analysis, timeline for history.</div>'+viewSwitcher('objectionsView',view)+'</div>';
+
+  if(!items.length) return header+'<div class="empty"><div class="empty-ico">!</div>No objections logged yet.</div>';
 
   if(view==='table'){
-    return header+'<div class="card" style="overflow-x:auto;padding:0"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'+
-      '<thead><tr style="text-align:left;border-bottom:1px solid var(--line)">'+['Objection','Organisation','Category','Status','Raised','Response'].map(h=>'<th style="padding:10px 14px;font-size:10.5px;text-transform:uppercase;color:var(--faint);font-weight:600">'+h+'</th>').join('')+'</tr></thead>'+
-      '<tbody>'+items.map(x=>'<tr style="border-bottom:1px solid var(--line);cursor:pointer" onclick="openObjectionForm(\''+(x.organisation_id||'')+'\',\''+x.id+'\')">'+
-        '<td style="padding:10px 14px;font-weight:600;max-width:280px">'+esc((x.objection||'').slice(0,120))+'</td>'+
-        '<td style="padding:10px 14px">'+esc(orgName(x.organisation_id)||'—')+'</td>'+
-        '<td style="padding:10px 14px">'+esc(x.category||'—')+'</td>'+
-        '<td style="padding:10px 14px">'+esc(x.status)+'</td>'+
-        '<td style="padding:10px 14px;font-family:ui-monospace,monospace">'+(x.times_raised||1)+'×</td>'+
-        '<td style="padding:10px 14px;color:var(--muted);max-width:240px">'+esc((x.response||'—').slice(0,100))+'</td>'+
-      '</tr>').join('')+'</tbody></table></div>';
+    return header+'<div class="card" style="overflow-x:auto;padding:0"><table class="data-table">'+
+      '<thead><tr>'+['Objection','Organisation','Category','Status','Raised','Response'].map(h=>'<th>'+h+'</th>').join('')+'</tr></thead>'+
+      '<tbody>'+items.map(x=>'<tr style="cursor:pointer" onclick="openObjectionForm(\''+(x.organisation_id||'')+'\',\''+x.id+'\')">'+
+        '<td><strong>'+esc((x.objection||'').slice(0,130))+'</strong></td>'+
+        '<td>'+esc(orgName(x.organisation_id)||'—')+'</td>'+
+        '<td><span class="status-chip">'+esc(x.category||'Uncategorised')+'</span></td>'+
+        '<td><span class="status-chip">'+esc(x.status)+'</span></td>'+
+        '<td class="mono">'+(x.times_raised||1)+'×</td>'+
+        '<td>'+esc((x.response||'—').slice(0,110))+'</td></tr>').join('')+
+      '</tbody></table></div>';
   }
+
   if(view==='timeline'){
     const groups={};
     items.forEach(x=>{ const key=fmtDate(x.first_raised_at||x.created_at); groups[key]=groups[key]||[]; groups[key].push(x); });
     return header+Object.entries(groups).map(([date,arr])=>'<div class="dsec"><div class="dsec-h"><h2>'+date+'</h2><span class="count">'+arr.length+'</span></div>'+
-      '<div class="dlist">'+arr.map(x=>'<div class="drow" style="align-items:flex-start;padding:12px" onclick="openObjectionForm(\''+(x.organisation_id||'')+'\',\''+x.id+'\')"><span class="drow-icon">!</span>'+
-        '<div class="drow-main"><div class="drow-title">'+esc((x.objection||'').slice(0,140))+'</div>'+
-        '<div class="drow-meta" style="white-space:normal">'+esc(orgName(x.organisation_id))+' · '+x.status+(x.response?' · '+esc(x.response.slice(0,100)):'')+'</div></div></div>').join('')+'</div></div>').join('');
+      '<div class="dlist">'+arr.map(x=>'<div class="drow" style="align-items:flex-start;padding:14px;border-left:3px solid '+(x.status==='Open'?'var(--red)':x.status==='Resolved'?'var(--green)':'var(--amber)')+';cursor:pointer" onclick="openObjectionForm(\''+(x.organisation_id||'')+'\',\''+x.id+'\')">'+
+        '<span class="drow-icon">!</span><div class="drow-main"><div class="drow-title">'+esc((x.objection||'').slice(0,150))+'</div>'+
+        '<div class="drow-meta" style="white-space:normal">'+esc(orgName(x.organisation_id)||'No organisation')+' · '+esc(x.status)+(x.response?' · '+esc(x.response.slice(0,120)):'')+'</div></div></div>').join('')+
+      '</div></div>').join('');
   }
-  // card (default)
-  return header+'<div class="grid g-auto">'+items.map(x=>'<div class="card" style="cursor:pointer" onclick="openObjectionForm(\''+(x.organisation_id||'')+'\',\''+x.id+'\')">'+
-    '<div style="font-weight:620;font-size:13px">'+esc((x.objection||'').slice(0,140))+'</div>'+
-    (x.response?'<div class="muted" style="font-size:12px;margin-top:6px">'+esc(x.response.slice(0,140))+'</div>':'')+
-    '<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">'+
-      '<span class="pill">'+esc(x.status)+'</span>'+(x.category?'<span class="pill">'+esc(x.category)+'</span>':'')+
-      '<span class="pill">raised '+(x.times_raised||1)+'×</span>'+
-    '</div>'+
-    (x.organisation_id?'<div class="faint" style="font-size:10.5px;margin-top:8px">'+esc(orgName(x.organisation_id))+'</div>':'')+
-  '</div>').join('')+'</div>';
+
+  return header+'<div class="grid g-auto">'+items.map(x=>{
+    const cls=x.status==='Open'?'open':(['Resolved','No longer relevant'].includes(x.status)?'resolved':'answered');
+    return '<div class="card rich-card objection-card '+cls+'" onclick="openObjectionForm(\''+(x.organisation_id||'')+'\',\''+x.id+'\')">'+
+      '<div class="rich-card-head"><div style="display:flex;gap:11px;min-width:0"><div class="rich-icon">!</div><div style="min-width:0">'+
+        '<div class="objection-quote">“'+esc((x.objection||'').slice(0,170))+'”</div>'+
+        '<div class="rich-sub">'+esc(orgName(x.organisation_id)||'No organisation')+'</div>'+
+      '</div></div><span class="status-chip">'+esc(x.status)+'</span></div>'+
+      (x.response?'<div class="response-box"><div class="insight-label">Current response</div>'+esc(x.response.slice(0,180))+'</div>':
+        '<div class="response-box" style="border-style:dashed"><div class="insight-label">Response gap</div>No response has been captured yet.</div>')+
+      '<div class="entity-stack"><span class="pill">'+esc(x.category||'Uncategorised')+'</span><span class="pill">Raised '+(x.times_raised||1)+'×</span></div>'+
+      '<div class="rich-foot"><span>'+(x.raised_by_person_id?'Raised by '+esc((byId(state.people,x.raised_by_person_id)||{}).full_name||'person'):'Source not recorded')+'</span><span>Edit →</span></div>'+
+    '</div>';
+  }).join('')+'</div>';
 }
 const OBJECTION_STATUSES=['Open','Answered','Validated','Resolved','No longer relevant'];
 function openObjectionForm(orgId,id,personId){
