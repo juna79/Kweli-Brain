@@ -2816,7 +2816,7 @@ async function deleteAssetConfirm(id){
 function vAssets(){
   const items=[...state.assets_v2].filter(a=>!a.archived_at);
   if(!items.length) return '<div class="page-head"><div><div class="eyebrow">Knowledge</div><div class="page-title">Assets</div></div>'+
-    '<label class="btn gold" style="cursor:pointer">+ Upload<input type="file" id="assetFileInput" style="display:none" onchange="uploadAsset(this.files[0])"></label></div>'+
+    '<label class="btn gold" style="cursor:pointer">+ Upload<input type="file" id="assetFileInput" style="display:none" onchange="openAssetUploadForm(this.files[0]);this.value=null"></label></div>'+
     '<div class="empty"><div class="empty-ico">▢</div>No assets yet. Upload the first business asset.</div>';
   const f=route.assetFilter=route.assetFilter||{q:'', collection:'', sort:'updated'};
   const collections=[...new Set(items.map(a=>a.collection).filter(Boolean))].sort();
@@ -2828,7 +2828,7 @@ function vAssets(){
   else if(f.sort==='az') list.sort((a,b)=>a.title.localeCompare(b.title));
   else list.sort((a,b)=>(b.updated_at||b.created_at||'').localeCompare(a.updated_at||a.created_at||''));
   return '<div class="page-head"><div><div class="eyebrow">Knowledge</div><div class="page-title">Assets</div><div class="page-sub">'+items.length+' asset'+(items.length===1?'':'s')+'</div></div>'+
-    '<label class="btn gold" style="cursor:pointer">+ Upload<input type="file" id="assetFileInput" style="display:none" onchange="uploadAsset(this.files[0])"></label></div>'+
+    '<label class="btn gold" style="cursor:pointer">+ Upload<input type="file" id="assetFileInput" style="display:none" onchange="openAssetUploadForm(this.files[0]);this.value=null"></label></div>'+
     '<div class="toolbar">'+
       '<input class="input search-in" placeholder="Search assets…" value="'+esc(f.q)+'" oninput="route.assetFilter.q=this.value;renderCurrent()">'+
       (collections.length?'<select class="select" onchange="route.assetFilter.collection=this.value;renderCurrent()"><option value="">All collections</option>'+collections.map(c=>'<option'+(f.collection===c?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select>':'')+
@@ -2852,6 +2852,7 @@ function vAssetDetail(){
       (isPdfAsset(a)||isImageAsset(a)?'<button class="btn sm" onclick="previewAsset(\''+a.id+'\')">Preview</button>':'')+
       '<button class="btn sm" onclick="openAssetFile(\''+a.id+'\')">Open</button>'+
       '<button class="btn sm" onclick="downloadAssetFile(\''+a.id+'\')">Download</button>'+
+      '<button class="btn sm" onclick="openAssetDetailsForm(\''+a.id+'\')">Edit details</button>'+
       '<label class="btn sm" style="cursor:pointer">Replace file<input type="file" style="display:none" onchange="replaceAssetFile(\''+a.id+'\',this.files[0])"></label>'+
       '<button class="btn sm danger" onclick="deleteAssetConfirm(\''+a.id+'\')">Delete</button>'+
     '</div></div>'+
@@ -2864,7 +2865,50 @@ function vAssetDetail(){
     '</div></div>';
 }
 async function confirmAssetLink(linkId){ await dbUpdate('entity_links',linkId,{is_inferred:false, confidence:1}); toast('Link confirmed'); renderCurrent(); }
-async function uploadAsset(file){
+
+let pendingAssetFile=null;
+
+function openAssetUploadForm(file){
+  if(!file) return;
+  pendingAssetFile=file;
+  openModal('<h3>Upload asset</h3>'+
+    '<div class="field"><label class="fl">File</label><div class="card" style="padding:12px">'+
+      '<strong>'+esc(file.name)+'</strong><div class="faint" style="font-size:11px;margin-top:3px">'+fmtBytes(file.size)+'</div></div></div>'+
+    '<div class="field"><label class="fl">Display title</label><input class="input" id="f_asset_title" value="'+esc(file.name.replace(/\.[^.]+$/,''))+'"></div>'+
+    '<div class="field"><label class="fl">Notes / context</label><textarea class="input" id="f_asset_notes" rows="5" placeholder="What is this file? Why does it matter? Who is it for?"></textarea></div>'+
+    '<div style="display:flex;gap:8px"><button class="btn gold" onclick="confirmAssetUpload()">Upload asset</button>'+
+    '<button class="btn" onclick="pendingAssetFile=null;closeModal()">Cancel</button></div>');
+}
+
+async function confirmAssetUpload(){
+  if(!pendingAssetFile){toast('Choose a file first');return;}
+  const file=pendingAssetFile;
+  const title=document.getElementById('f_asset_title').value.trim()||file.name;
+  const notes=document.getElementById('f_asset_notes').value.trim()||null;
+  pendingAssetFile=null;
+  closeModal();
+  await uploadAsset(file,{title,notes});
+}
+
+function openAssetDetailsForm(id){
+  const a=byId(state.assets_v2,id); if(!a) return;
+  openModal('<h3>Edit asset details</h3>'+
+    '<div class="field"><label class="fl">Title</label><input class="input" id="f_asset_edit_title" value="'+esc(a.title||a.file_name||'')+'"></div>'+
+    '<div class="field"><label class="fl">Notes / context</label><textarea class="input" id="f_asset_edit_notes" rows="6" placeholder="Add context, purpose, audience or follow-up notes">'+esc(a.notes||a.description||'')+'</textarea></div>'+
+    '<button class="btn gold" onclick="saveAssetDetails(\''+id+'\')">Save details</button>');
+}
+
+async function saveAssetDetails(id){
+  const title=document.getElementById('f_asset_edit_title').value.trim();
+  if(!title){toast('Title required');return;}
+  const notes=document.getElementById('f_asset_edit_notes').value.trim()||null;
+  await dbUpdate('assets_v2',id,{title,notes,updated_by:myProfile.display_name});
+  closeModal();
+  renderCurrent();
+  toast('Asset details saved');
+}
+
+async function uploadAsset(file,meta={}){
   if(!file) return;
   const adupe=state.assets_v2.find(a=>a.file_name===file.name && (a.file_size==null||a.file_size===file.size));
   if(adupe && !confirm('An asset named "'+file.name+'"'+(adupe.file_size===file.size?' of the same size':'')+' already exists. Upload it again anyway?')) return;
@@ -2881,8 +2925,23 @@ async function uploadAsset(file){
       if(thumbErr){ console.error('[Assets thumbnail] Upload failed:',thumbErr); thumbnail_path=null; }
     }
   }
-  const asset=await dbInsert('assets_v2',{title:file.name, file_name:file.name, file_path:path, file_type:file.type, file_size:file.size, thumbnail_path, text_extraction_status:'not_started', created_by:myProfile.display_name});
-  await logActivity({activity_type:'Asset uploaded', title:'Uploaded: '+file.name, asset_id:asset.id});
+  const asset=await dbInsert('assets_v2',{
+    title:meta.title||file.name,
+    notes:meta.notes||null,
+    file_name:file.name,
+    file_path:path,
+    file_type:file.type,
+    file_size:file.size,
+    thumbnail_path,
+    text_extraction_status:'not_started',
+    created_by:myProfile.display_name
+  });
+  await logActivity({
+    activity_type:'Asset uploaded',
+    title:'Uploaded: '+(meta.title||file.name),
+    body:meta.notes||null,
+    asset_id:asset.id
+  });
   // suggest org links by name match — suggestion only, never auto-confirmed
   for(const o of state.organisations){
     const firstWord=o.name.split(' ')[0].toLowerCase();
