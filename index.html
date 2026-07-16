@@ -1692,15 +1692,9 @@ function vOrganisations(){
 }
 function orgQuickActionBar(o){
   return '<div class="quick-actions" style="margin-bottom:18px">'+
-    '<div class="qa-chip" onclick="openPersonForm(\''+o.id+'\')">➕ Add Person</div>'+
-    '<div class="qa-chip" onclick="route.tab=\'timeline\';renderCurrent()">➕ Add Note</div>'+
-    '<div class="qa-chip" onclick="openTaskForm(\''+o.id+'\')">➕ Add Follow-up</div>'+
-    '<div class="qa-chip" onclick="openMeetingForm(\''+o.id+'\')">➕ Add Meeting</div>'+
-    '<div class="qa-chip" onclick="openOppForm(null,\''+o.id+'\')">➕ Add Opportunity</div>'+
-    '<div class="qa-chip" onclick="openLessonForm(null,\''+o.id+'\')">➕ Add Lesson</div>'+
-    '<div class="qa-chip" onclick="openObjectionForm(\''+o.id+'\')">➕ Log Objection</div>'+
-    '<div class="qa-chip" onclick="openDecisionForm(null,\''+o.id+'\')">➕ Add Decision</div>'+
-    '<div class="qa-chip" onclick="document.getElementById(\'assetFileInput2_'+o.id+'\').click()">➕ Upload Asset</div>'+
+    '<div class="qa-chip" style="border-color:var(--gold);color:var(--gold)" onclick="openCaptureInteraction(\'organisation\',\''+o.id+'\')">＋ Capture interaction</div>'+
+    '<div class="qa-chip" onclick="openPersonForm(\''+o.id+'\')">＋ Add person</div>'+
+    '<div class="qa-chip" onclick="document.getElementById(\'assetFileInput2_'+o.id+'\').click()">＋ Upload file</div>'+
     '<input type="file" id="assetFileInput2_'+o.id+'" style="display:none" onchange="uploadAssetForOrg(this.files[0],\''+o.id+'\')">'+
   '</div>';
 }
@@ -1731,11 +1725,7 @@ function vOrganisationDetail(){
   const orgMarketing=state.marketing_items.filter(mi=>state.entity_links.some(el=>el.source_type==='marketing_item'&&el.source_id===mi.id&&el.target_type==='organisation'&&el.target_id===o.id));
   const orgTeamNotes=state.team_messages_v2.filter(m=>m.organisation_id===o.id);
   const tab=route.tab||'overview';
-  const tabs=[['overview','Overview'],['opportunities','Opportunities ('+opps.length+')'],['people','People ('+peopleHere.length+')'],
-    ['timeline','Timeline ('+acts.length+')'],['tasks','Tasks ('+orgTasks.length+')'],['meetings','Meetings ('+orgMeetings.length+')'],
-    ['assets','Assets ('+orgAssets.length+')'],['lessons','Lessons ('+orgLessons.length+')'],['objections','Objections ('+orgObjections.length+')'],
-    ['decisions','Decisions ('+orgDecisions.length+')'],['investors','Investors ('+orgInvestors.length+')'],
-    ['marketing','Marketing ('+orgMarketing.length+')'],['team','Team notes ('+orgTeamNotes.length+')']];
+  const tabs=[['overview','Overview'],['timeline','Activity ('+acts.length+')'],['people','People ('+peopleHere.length+')'],['knowledge','Knowledge']];
 
   let body='';
   if(tab==='overview'){
@@ -1797,6 +1787,10 @@ function vOrganisationDetail(){
 
       (peopleHere.length?'<div class="dsec"><div class="dsec-h"><h2>Key people</h2><span class="count" style="cursor:pointer" onclick="route.tab=\'people\';renderCurrent()">All →</span></div>'+
         '<div class="dlist">'+peopleHere.slice(0,4).map(p=>'<div class="drow" onclick="go(\'personDetail\',\''+p.id+'\')"><span class="drow-icon">☺</span><div class="drow-main"><div class="drow-title">'+esc(p.full_name)+'</div><div class="drow-meta">'+esc(p.role||'')+(p.warmth?' · '+esc(p.warmth):'')+'</div></div></div>').join('')+'</div></div>':'');
+  } else if(tab==='knowledge'){
+    body='<div class="grid g2">'+
+      '<div class="card"><div class="sec-h"><h2>Lessons</h2></div>'+(orgLessons.length?orgLessons.map(l=>'<div class="drow" onclick="openLessonForm(\''+l.id+'\')"><div class="drow-main"><div class="drow-title">'+esc(deriveLessonTitle(l))+'</div></div></div>').join(''):'<div class="dempty">No lessons extracted yet.</div>')+'</div>'+
+      '<div class="card"><div class="sec-h"><h2>Objections & decisions</h2></div>'+(orgObjections.length?orgObjections.map(x=>'<div class="drow"><div class="drow-main"><div class="drow-title">'+esc((x.objection||'').slice(0,150))+'</div></div></div>').join(''):'')+(orgDecisions.length?orgDecisions.map(d=>'<div class="drow"><div class="drow-main"><div class="drow-title">'+esc(d.title)+'</div></div></div>').join(''):'')+(!orgObjections.length&&!orgDecisions.length?'<div class="dempty">Nothing extracted yet.</div>':'')+'</div></div>';
   } else if(tab==='opportunities'){
     body=opps.length?opps.map(op=>'<div class="row-item" onclick="go(\'opportunityDetail\',\''+op.id+'\')"><div class="row-main"><div class="row-title">'+esc(op.title)+'</div><div class="row-meta">'+esc(op.stage)+' · '+esc(op.status)+'</div></div><div class="row-right">'+fmtDate(op.next_action_date)+'</div></div>').join('')+'<button class="btn sm" onclick="openOppForm(null,\''+o.id+'\')">+ New opportunity</button>':'<div class="empty">No opportunities yet.</div><button class="btn sm" onclick="openOppForm(null,\''+o.id+'\')">+ New opportunity</button>';
   } else if(tab==='people'){
@@ -2094,14 +2088,9 @@ function vPeople(){
     toolbar+cards;
 }
 function personQuickActionBar(p){
-  const oid=p.primary_organisation_id||'';
   return '<div class="quick-actions" style="margin-bottom:18px">'+
-    '<div class="qa-chip" onclick="document.getElementById(\'quickLog_\'+'+"'"+p.id+"'"+').focus();route.tab=\'notes\';renderCurrent()">➕ Add Note</div>'+
-    '<div class="qa-chip" onclick="openTaskForm(\''+oid+'\',\''+p.id+'\')">➕ Add Follow-up</div>'+
-    '<div class="qa-chip" onclick="openMeetingForm(\''+oid+'\')">➕ Add Meeting</div>'+
-    '<div class="qa-chip" onclick="openLessonForm(null,null,\''+p.id+'\')">➕ Add Lesson</div>'+
-    '<div class="qa-chip" onclick="openObjectionForm(\''+oid+'\',null,\''+p.id+'\')">➕ Log Objection</div>'+
-    '<div class="qa-chip" onclick="openDecisionForm(null,\''+oid+'\',\''+p.id+'\')">➕ Add Decision</div>'+
+    '<div class="qa-chip" style="border-color:var(--gold);color:var(--gold)" onclick="openCaptureInteraction(\'person\',\''+p.id+'\')">＋ Capture interaction</div>'+
+    '<div class="qa-chip" onclick="openMeetingForm(\''+(p.primary_organisation_id||'')+'\')">＋ Schedule meeting</div>'+
   '</div>';
 }
 function vPersonDetail(){
@@ -2120,9 +2109,7 @@ function vPersonDetail(){
   const openTasks=pTasks.filter(t=>!['Completed','Cancelled','Closed / Lost'].includes(t.status));
 
   const tab=route.tab||'overview';
-  const tabs=[['overview','Overview'],['notes','Notes ('+acts.length+')'],['tasks','Follow-ups ('+openTasks.length+')'],
-    ['meetings','Meetings ('+pMeetings.length+')'],['lessons','Lessons ('+pLessons.length+')'],
-    ['objections','Objections ('+pObjections.length+')'],['decisions','Decisions ('+pDecisions.length+')']];
+  const tabs=[['overview','Overview'],['notes','Activity ('+acts.length+')'],['meetings','Meetings ('+pMeetings.length+')'],['knowledge','Knowledge']];
 
   let body='';
   if(tab==='overview'){
@@ -2165,6 +2152,10 @@ function vPersonDetail(){
         '<input class="input" id="quickLog_'+p.id+'" placeholder="Log an interaction…" onkeydown="if(event.key===\'Enter\')quickLogPersonActivity(\''+p.id+'\')" style="flex:1">'+
         '<button class="btn sm" onclick="quickLogPersonActivity(\''+p.id+'\')">Log</button></div>'+
       (acts.length?acts.map(timelineRow).join(''):'<div class="empty">No activity yet. Notes here are chronological — the Overview\u2019s Relationship Summary is a single evolving summary, this is the timeline.</div>');
+  } else if(tab==='knowledge'){
+    body='<div class="grid g2">'+
+      '<div class="card"><div class="sec-h"><h2>Lessons</h2></div>'+(pLessons.length?pLessons.map(l=>'<div class="drow"><div class="drow-main"><div class="drow-title">'+esc(deriveLessonTitle(l))+'</div></div></div>').join(''):'<div class="dempty">No lessons extracted yet.</div>')+'</div>'+
+      '<div class="card"><div class="sec-h"><h2>Objections & decisions</h2></div>'+(pObjections.length?pObjections.map(x=>'<div class="drow"><div class="drow-main"><div class="drow-title">'+esc((x.objection||'').slice(0,150))+'</div></div></div>').join(''):'')+(pDecisions.length?pDecisions.map(d=>'<div class="drow"><div class="drow-main"><div class="drow-title">'+esc(d.title)+'</div></div></div>').join(''):'')+(!pObjections.length&&!pDecisions.length?'<div class="dempty">Nothing extracted yet.</div>':'')+'</div></div>';
   } else if(tab==='tasks'){
     body=pTasks.length?pTasks.map(t=>'<div class="row-item" onclick="openTaskModal(\''+t.id+'\')"><div class="row-main"><div class="row-title">'+esc(t.title)+'</div><div class="row-meta">'+(t.due_at?'Due '+fmtDate(t.due_at):'')+'</div></div><div class="row-right">'+t.status+'</div></div>').join(''):'<div class="empty">No follow-ups yet.</div>';
     body+='<button class="btn sm" style="margin-top:8px" onclick="openTaskForm(\''+(p.primary_organisation_id||'')+'\',\''+p.id+'\')">+ Add follow-up</button>';
@@ -2483,6 +2474,95 @@ async function completeTask(id){
   closeModal(); renderCurrent(); toast('Follow-up updated');
 }
 
+
+function autoSummary(text){
+  const clean=String(text||'').replace(/\s+/g,' ').trim();
+  if(!clean) return '';
+  const sentences=clean.match(/[^.!?]+[.!?]?/g)||[clean];
+  return sentences.slice(0,3).join(' ').trim().slice(0,700);
+}
+function extractLines(text, patterns){
+  return String(text||'').split(/\n+/).map(x=>x.trim()).filter(Boolean).filter(line=>patterns.some(p=>p.test(line)));
+}
+async function safeInsert(table,payload){
+  try{return await dbInsert(table,payload);}catch(e){console.warn('Auto-update skipped',table,e);return null;}
+}
+async function propagateInteraction({organisationId,personId,meetingId,notes,nextSteps,opportunityId}){
+  const now=new Date().toISOString();
+  const summary=autoSummary(notes);
+  if(organisationId){
+    const org=byId(state.organisations,organisationId);
+    const patch={last_interaction_at:now};
+    if(summary) patch.current_summary=summary;
+    if(nextSteps){patch.next_action_summary=nextSteps;patch.next_action_date=addDays(today(),7);}
+    if(/pilot/i.test(notes)) patch.pipeline_stage='Pilot Planning';
+    if(/positive|support|agreed|introduc|keen|interested/i.test(notes)) patch.relationship_status='Warm';
+    await dbUpdate('organisations',organisationId,patch);
+    const activeOpp=state.opportunities.find(o=>o.organisation_id===organisationId&&o.status==='Active')||state.opportunities.find(o=>o.organisation_id===organisationId);
+    if(activeOpp){
+      const opPatch={};
+      if(nextSteps) opPatch.next_action=nextSteps;
+      if(/pilot/i.test(notes)) opPatch.stage='Pilot Planning';
+      if(Object.keys(opPatch).length) await dbUpdate('opportunities',activeOpp.id,opPatch);
+    }
+  }
+  const linkedPeople=new Set();
+  if(personId) linkedPeople.add(personId);
+  if(meetingId) state.meeting_attendees.filter(a=>a.meeting_id===meetingId&&a.person_id).forEach(a=>linkedPeople.add(a.person_id));
+  for(const pid of linkedPeople){
+    const person=byId(state.people,pid); if(!person) continue;
+    const existing=String(person.notes||'').trim();
+    const updateLine=(summary?summary:'Interaction recorded')+(nextSteps?' Next: '+nextSteps:'');
+    await dbUpdate('people',pid,{last_interaction_at:now,notes:(updateLine+(existing?'\n\n'+existing:'')).slice(0,4000),next_action_summary:nextSteps||person.next_action_summary||null,warmth:/positive|support|agreed|introduc|keen|interested/i.test(notes)?'Warm':person.warmth});
+  }
+  if(nextSteps){
+    const duplicate=state.tasks.some(t=>t.organisation_id===organisationId&&normText(t.title)===normText(nextSteps.slice(0,120))&&!['Completed','Cancelled'].includes(t.status));
+    if(!duplicate) await safeInsert('tasks',{title:nextSteps.slice(0,120),description:nextSteps,organisation_id:organisationId||null,person_id:personId||null,opportunity_id:opportunityId||null,status:'To Do',priority:'Normal',due_at:addDays(today(),7),created_by_user_id:myProfile.id,assigned_to_user_id:myProfile.id});
+  }
+  const objections=extractLines(notes,[/doesn.?t want/i,/do not want/i,/concern/i,/hesitat/i,/objection/i,/too expensive/i,/free pilot/i,/no api/i]);
+  for(const line of objections.slice(0,3)) await safeInsert('objections',{organisation_id:organisationId||null,raised_by_person_id:personId||null,objection:line,status:'Open',created_by:myProfile.display_name});
+  const decisions=extractLines(notes,[/agreed/i,/decided/i,/will introduce/i,/approved/i,/pilot/i]);
+  for(const line of decisions.slice(0,3)){
+    const d=await safeInsert('decisions',{title:line.slice(0,120),decision:line,status:'Active',created_by:myProfile.display_name});
+    if(d&&organisationId) await safeInsert('entity_links',{source_type:'decision',source_id:d.id,target_type:'organisation',target_id:organisationId,relationship_type:'relates_to',created_by:myProfile.display_name});
+  }
+  const lessons=extractLines(notes,[/only one workflow/i,/manual/i,/training/i,/proof/i,/works/i,/prefer/i]);
+  for(const line of lessons.slice(0,2)){
+    const l=await safeInsert('lessons_v2',{title:line.slice(0,120),summary:line,detail:notes,source_type:meetingId?'meeting':'interaction',source_id:meetingId||null,created_by:myProfile.display_name});
+    if(l&&organisationId) await safeInsert('entity_links',{source_type:'lesson',source_id:l.id,target_type:'organisation',target_id:organisationId,relationship_type:'relates_to',created_by:myProfile.display_name});
+    if(l&&meetingId) await safeInsert('entity_links',{source_type:'lesson',source_id:l.id,target_type:'meeting',target_id:meetingId,relationship_type:'sourced_from',created_by:myProfile.display_name});
+  }
+}
+function openCaptureInteraction(kind,id){
+  const p=kind==='person'?byId(state.people,id):null;
+  const orgId=kind==='organisation'?id:(p?p.primary_organisation_id:null);
+  const label=p?p.full_name:orgName(orgId);
+  openModal('<h3>Capture interaction — '+esc(label||'')+'</h3>'+ 
+    '<div class="field"><label class="fl">Type</label><select class="select" id="f_ctype"><option>Meeting</option><option>Phone call</option><option>WhatsApp</option><option>Email</option><option>Note</option></select></div>'+ 
+    '<div class="field"><label class="fl">What happened?</label><textarea class="input" id="f_cnotes" rows="11" placeholder="Write or paste the interaction notes here."></textarea></div>'+ 
+    '<div class="field"><label class="fl">Next action</label><input class="input" id="f_cnext" placeholder="What needs to happen next?"></div>'+ 
+    '<button class="btn gold" onclick="saveCaptureInteraction(\''+kind+'\',\''+id+'\')">Save and update Brain</button>',true);
+}
+async function saveCaptureInteraction(kind,id){
+  const type=document.getElementById('f_ctype').value;
+  const notes=document.getElementById('f_cnotes').value.trim();
+  const nextSteps=document.getElementById('f_cnext').value.trim();
+  if(!notes){toast('Add the interaction notes');return;}
+  const p=kind==='person'?byId(state.people,id):null;
+  const personId=p?p.id:null;
+  const organisationId=kind==='organisation'?id:(p?p.primary_organisation_id:null);
+  let meetingId=null;
+  if(type==='Meeting'){
+    const created=await safeInsert('meetings',{title:'Meeting with '+(p?p.full_name:(orgName(organisationId)||'contact')),organisation_id:organisationId||null,scheduled_at:new Date().toISOString(),notes,outcomes:autoSummary(notes),next_steps:nextSteps||null,meeting_status:'Completed',ended_at:new Date().toISOString(),created_by:myProfile.display_name});
+    if(created){meetingId=created.id;if(personId) await safeInsert('meeting_attendees',{meeting_id:meetingId,person_id:personId});}
+  }
+  await logActivity({activity_type:type,title:type+': '+(p?p.full_name:(orgName(organisationId)||'interaction')),body:notes,organisation_id:organisationId,person_id:personId,meeting_id:meetingId});
+  await propagateInteraction({organisationId,personId,meetingId,notes,nextSteps});
+  closeModal();
+  if(kind==='person') go('personDetail',id); else go('organisationDetail',id);
+  toast('Saved — Brain updated everywhere');
+}
+
 /* ---------------------------------------------------------------------------
    MEETINGS — meeting notes create an activity, outcomes can create a task,
    lessons can create a lesson. All connected, nothing duplicated.
@@ -2634,36 +2714,21 @@ async function saveMeetingForm(id){
 }
 function openMeetingNotesForm(id){
   const m=byId(state.meetings,id);
-  openModal('<h3>Meeting notes — '+esc(m.title)+'</h3>'+
-    '<div class="field"><label class="fl">Notes</label><textarea class="input" id="f_mnotes" rows="9">'+esc(m.notes||'')+'</textarea></div>'+
-    '<div class="field"><label class="fl">Outcomes</label><textarea class="input" id="f_moutcomes" rows="2">'+esc(m.outcomes||'')+'</textarea></div>'+
-    '<div class="field"><label class="fl">Next steps</label><textarea class="input" id="f_mnext" rows="2">'+esc(m.next_steps||'')+'</textarea></div>'+
-    '<label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-bottom:10px"><input type="checkbox" id="f_mcreatetask" checked> Create a follow-up task from next steps</label>'+
-    '<label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-bottom:10px"><input type="checkbox" id="f_mcreatelesson"> Create a lesson from this meeting</label>'+
-    '<button class="btn gold" onclick="saveMeetingNotes(\''+id+'\')">Save notes</button>', true);
+  openModal('<h3>Capture meeting — '+esc(m.title)+'</h3>'+ 
+    '<div class="field"><label class="fl">What happened?</label><textarea class="input" id="f_mnotes" rows="12" placeholder="Paste your notes. The Brain will update the company, people, opportunity, timeline and follow-ups automatically.">'+esc(m.notes||'')+'</textarea></div>'+ 
+    '<div class="field"><label class="fl">Next action</label><input class="input" id="f_mnext" placeholder="e.g. Vishal to introduce us to Head of Motor" value="'+esc(m.next_steps||'')+'"></div>'+ 
+    '<button class="btn gold" onclick="saveMeetingNotes(\''+id+'\')">Save and update Brain</button>', true);
 }
 async function saveMeetingNotes(id){
   const m=byId(state.meetings,id);
   const notes=document.getElementById('f_mnotes').value.trim();
-  const outcomes=document.getElementById('f_moutcomes').value.trim();
   const nextSteps=document.getElementById('f_mnext').value.trim();
-  const makeTask=document.getElementById('f_mcreatetask').checked;
-  const makeLesson=document.getElementById('f_mcreatelesson').checked;
-
+  if(!notes){toast('Add your meeting notes');return;}
+  const outcomes=autoSummary(notes);
   await dbUpdate('meetings', id, {notes, outcomes: outcomes||null, next_steps: nextSteps||null, meeting_status:'Completed', ended_at: new Date().toISOString(), updated_by: myProfile.display_name});
-
-  const act = await logActivity({activity_type:'Meeting', title:'Meeting notes: '+m.title, body:notes, organisation_id:m.organisation_id, opportunity_id:m.opportunity_id, meeting_id:id});
-
-  if(makeTask && nextSteps){
-    await dbInsert('tasks',{title:nextSteps.slice(0,120), description:nextSteps, organisation_id:m.organisation_id, opportunity_id:m.opportunity_id, status:'To Do', priority:'Normal', due_at: addDays(today(),7), created_by_user_id: myProfile.id, assigned_to_user_id: myProfile.id});
-  }
-  if(makeLesson){
-    const lesson=await dbInsert('lessons_v2',{title:('Lesson from '+m.title).slice(0,200), summary:outcomes||nextSteps||null, detail:notes, source_type:'meeting', source_id:id, created_by:myProfile.display_name});
-    if(m.organisation_id) await dbInsert('entity_links',{source_type:'lesson',source_id:lesson.id,target_type:'organisation',target_id:m.organisation_id,relationship_type:'relates_to',created_by:myProfile.display_name});
-    await dbInsert('entity_links',{source_type:'lesson',source_id:lesson.id,target_type:'meeting',target_id:id,relationship_type:'sourced_from',created_by:myProfile.display_name});
-  }
-  if(m.organisation_id) await touchOrgInteraction(m.organisation_id, nextSteps||undefined);
-  closeModal(); go('meetingDetail', id); toast('Meeting notes saved');
+  await logActivity({activity_type:'Meeting', title:'Meeting: '+m.title, body:notes, organisation_id:m.organisation_id, opportunity_id:m.opportunity_id, meeting_id:id});
+  await propagateInteraction({organisationId:m.organisation_id, meetingId:id, notes, nextSteps, opportunityId:m.opportunity_id});
+  closeModal(); go('meetingDetail', id); toast('Saved — company and people updated');
 }
 
 /* ---------------------------------------------------------------------------
