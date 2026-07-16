@@ -1008,6 +1008,7 @@ async function loadAll(){
   dbStatus = anyError ? 'error' : 'connected';
   refreshUnreadBadge();
   await cleanupMisclassifiedTaskLessons();
+  await reconcilePilotOpportunities();
 }
 function subscribeRealtime(){
   const collab=['organisations','people','opportunities','activities','tasks','meetings','assets_v2',
@@ -1254,15 +1255,24 @@ function openPillPopover(event, orgId, field){
   document.body.appendChild(pop);
 }
 async function ensureOpportunityForOrganisationStage(orgId, stage){
-  const org=byId(state.organisations,orgId); if(!org) return;
-  const stageText=String(stage||'');
+  const org=byId(state.organisations,orgId); if(!org) return null;
+  let stageText=String(stage||'').trim();
+  // A simple Pilot relationship tag means the commercial record has reached
+  // pilot discussion unless a more specific pipeline stage is already set.
+  if(/^pilot$/i.test(stageText)) stageText='Pilot discussion';
   const shouldBeOpportunity=/pilot discussion|pilot active|proposal sent|won/i.test(stageText);
-  if(!shouldBeOpportunity) return;
+  if(!shouldBeOpportunity) return null;
 
   const existing=state.opportunities.find(op=>op.organisation_id===orgId && !op.archived_at && !/lost|closed/i.test(String(op.stage||op.status||'')));
   if(existing){
-    if(existing.stage!==stageText) await dbUpdate('opportunities',existing.id,{stage:stageText,updated_by:myProfile.display_name});
-    return;
+    const patch={status:'Active',updated_by:myProfile.display_name};
+    if(existing.stage!==stageText) patch.stage=stageText;
+    if(!existing.title) patch.title=(org.name+' pilot').slice(0,200);
+    if(existing.priority==null) patch.priority=Number(org.priority||0);
+    if(!existing.next_action_summary && org.next_action_summary) patch.next_action_summary=org.next_action_summary;
+    if(!existing.next_action_date && org.next_action_date) patch.next_action_date=org.next_action_date;
+    if(Object.keys(patch).length>2 || existing.status!=='Active') await dbUpdate('opportunities',existing.id,patch);
+    return existing.id;
   }
 
   const created=await dbInsert('opportunities',{
@@ -1277,6 +1287,22 @@ async function ensureOpportunityForOrganisationStage(orgId, stage){
     updated_by:myProfile.display_name
   });
   await logActivity({activity_type:'Status change',title:'Opportunity created automatically: '+org.name+' — '+stageText,organisation_id:orgId,opportunity_id:created.id});
+  return created.id;
+}
+async function reconcilePilotOpportunities(){
+  // Repairs older records such as Mayfair that were already marked as pilot
+  // before automatic opportunity creation was introduced.
+  const candidates=(state.organisations||[]).filter(o=>{
+    if(o.archived_at) return false;
+    const hasPilotTag=getOrgMeta(o).tags.some(t=>/^pilot$/i.test(t));
+    return /pilot discussion|pilot active|proposal sent|won/i.test(String(o.pipeline_stage||'')) || hasPilotTag;
+  });
+  for(const org of candidates){
+    try{
+      const stage=/pilot discussion|pilot active|proposal sent|won/i.test(String(org.pipeline_stage||'')) ? org.pipeline_stage : 'Pilot discussion';
+      await ensureOpportunityForOrganisationStage(org.id,stage);
+    }catch(e){ console.warn('Could not reconcile pilot opportunity for',org.name,e); }
+  }
 }
 async function setPillField(id, field, value){
   closePillPopover();
@@ -1989,8 +2015,12 @@ async function toggleOrgTag(orgId,tag){
   const o=byId(state.organisations,orgId);
   const meta=getOrgMeta(o);
   const idx=meta.tags.indexOf(tag);
-  if(idx>=0) meta.tags.splice(idx,1); else meta.tags.push(tag);
+  const adding=idx<0;
+  if(!adding) meta.tags.splice(idx,1); else meta.tags.push(tag);
   await dbUpdate('organisations',orgId,{current_status:serializeOrgMeta(meta)});
+  if(adding && /^pilot$/i.test(tag)){
+    await ensureOpportunityForOrganisationStage(orgId,o.pipeline_stage&&/pilot/i.test(o.pipeline_stage)?o.pipeline_stage:'Pilot discussion');
+  }
   renderCurrent();
 }
 function openTagPopover(event,orgId){
@@ -2557,18 +2587,31 @@ function openTaskEditForm(id){
 }
 async function saveTaskEdit(id){
   const t=byId(state.tasks,id); if(!t){toast('Follow-up not found');return;}
-  const title=document.getElementById('f_tetitle').value.trim();
+  const titleEl=document.getElementById('f_tetitle');
+  const dueEl=document.getElementById('f_tedue');
+  const timeEl=document.getElementById('f_tetime');
+  const priorityEl=document.getElementById('f_tepriority');
+  if(!titleEl||!dueEl||!timeEl||!priorityEl){toast('Edit form expired. Please reopen the task.');return;}
+  const title=titleEl.value.trim();
   if(!title){toast('Title required');return;}
+  const button=document.querySelector('.modal .btn.gold');
+  if(button){button.disabled=true;button.textContent='Saving…';}
   try{
-    await dbUpdate('tasks',id,{
+    const saved=await dbUpdate('tasks',id,{
       title,
-      due_at:document.getElementById('f_tedue').value||null,
-      description:taskDescriptionWithTime(t.description,document.getElementById('f_tetime').value),
-      priority:document.getElementById('f_tepriority').value
+      due_at:dueEl.value||null,
+      description:taskDescriptionWithTime(t.description,timeEl.value||''),
+      priority:priorityEl.value
     });
-    closeModal(); renderCurrent(); toast('Saved');
+    // Confirm the returned row contains the selected time. This catches a
+    // failed/ignored description update instead of falsely claiming success.
+    const expected=timeEl.value||'';
+    const actual=taskCalendarTime(saved);
+    if(actual!==expected) throw new Error('The selected time was not stored.');
+    closeModal(); renderCurrent(); toast(expected?'Saved for '+expected:'Saved as Any time');
   }catch(e){
     console.error('Follow-up edit failed',e);
+    if(button){button.disabled=false;button.textContent='Save';}
     toast('Save failed: '+(e&&e.message?e.message:'Please try again'));
   }
 }
