@@ -1620,7 +1620,7 @@ function vToday(){
   return '<div class="today-top"><div class="today-heading"><div class="page-title">'+heading+'</div>'+
     (secondaryDate?'<div class="today-date">'+secondaryDate+'</div>':'')+
     (mode==='date'?'<div class="day-nav-mini"><button class="btn sm" onclick="moveOpenDay(-1)">‹</button><button class="btn sm" onclick="moveOpenDay(1)">›</button></div>':'')+
-    renderTodayTabs(mode)+'</div><div><button class="btn" onclick="openQuickAdd()">+ Quick Add</button> <button class="btn gold" onclick="openMeetingForm(null,null,\''+dateISO+'\')">+ Add Meeting</button></div></div>'+
+    renderTodayTabs(mode)+'</div><div><button class="btn" onclick="openQuickAdd(\''+dateISO+'\')">+ Quick Add</button> <button class="btn gold" onclick="openMeetingForm(null,null,\''+dateISO+'\')">+ Add Meeting</button></div></div>'+
     '<div class="today-v3-top"><div class="today-main"><div class="today-panel panel-pad">'+progress+'<div class="'+calendarClass+'"><div class="agenda-list">'+agenda+'</div>'+focus+'</div></div></div>'+
     '<div class="side-stack"><div class="today-panel panel-pad"><div class="sec-h"><h2>Upcoming Meetings</h2><span class="count" onclick="go(\'meetings\')" style="cursor:pointer">View all</span></div>'+upcomingHtml+'</div>'+
     '<div class="today-panel panel-pad"><div class="sec-h"><h2>Team HQ</h2><span class="count" onclick="openTeamBoard()" style="cursor:pointer">Corkboard</span></div><div class="hq-board"><div class="hq-grid">'+hq+'</div></div></div></div>'+
@@ -2441,12 +2441,12 @@ function vTasks(){
       '<div class="rich-foot"><span>'+esc(t.priority||'Normal')+' priority</span><span>'+fmtDate(t.due_at)+'</span></div></div>';
   }).join('')+'</div>';
 }
-function openTaskForm(orgId,personId,opportunityId){
+function openTaskForm(orgId,personId,opportunityId,dueDate){
   const orgOpts='<option value="">—</option>'+state.organisations.map(o=>'<option value="'+o.id+'"'+(orgId===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('');
   openModal('<h3>New follow-up</h3>'+
     '<div class="field"><label class="fl">Title</label><input class="input" id="f_ttitle" placeholder="e.g. Email Rehan"></div>'+
     '<div class="field"><label class="fl">Organisation</label><select class="select" id="f_torg">'+orgOpts+'</select></div>'+
-    '<div class="field"><label class="fl">Due date</label><input class="input" type="date" id="f_tdue" value="'+today()+'"></div>'+
+    '<div class="field"><label class="fl">Due date</label><input class="input" type="date" id="f_tdue" value="'+esc(dueDate||today())+'"></div>'+
     '<div class="field"><label class="fl">Priority</label><select class="select" id="f_tpriority">'+
       ['Normal','High','Urgent','Low'].map(p=>'<option>'+p+'</option>').join('')+'</select></div>'+
     '<input type="hidden" id="f_tperson" value="'+esc(personId||'')+'">'+
@@ -2899,7 +2899,7 @@ function vCalendar(){
   const mode=calendarViewMode;
   const label=mode==='month'?new Date(calYear,calMonth,1).toLocaleDateString('en-GB',{month:'long',year:'numeric'}):calendarAnchorDate.toLocaleDateString('en-GB',{weekday:mode==='day'?'long':undefined,day:'numeric',month:'long',year:'numeric'});
   const body=mode==='month'?renderFullCalendar():mode==='week'?renderWeekCalendarV3():renderDayCalendarV3();
-  return '<div class="page-head"><div><div class="eyebrow">Work</div><div class="page-title">Calendar</div><div class="page-sub">Plan meetings, follow-ups, marketing and team work in one place.</div></div><button class="btn gold" onclick="openMeetingForm()">+ Add Meeting</button></div>'+
+  return '<div class="page-head"><div><div class="eyebrow">Work</div><div class="page-title">Calendar</div><div class="page-sub">Plan meetings, follow-ups, marketing and team work in one place.</div></div><div><button class="btn" onclick="openTaskForm()">+ Add Task</button> <button class="btn gold" onclick="openMeetingForm()">+ Add Meeting</button></div></div>'+
     '<div class="calendar-v3-toolbar"><button class="btn sm" onclick="moveCalendarAnchor(-1)">‹</button><div class="title">'+esc(label)+'</div><button class="btn sm" onclick="moveCalendarAnchor(1)">›</button></div>'+body;
 }
 function calNav(delta){ calMonth+=delta; if(calMonth<0){calMonth=11;calYear--;} if(calMonth>11){calMonth=0;calYear++;} renderCurrent(); }
@@ -6527,17 +6527,16 @@ function fixMigrationItem(id){
 /* ---------------------------------------------------------------------------
    QUICK ADD
 --------------------------------------------------------------------------- */
-function openQuickAdd(){
-  openModal('<h3>Quick add</h3><div class="grid g2">'+
-    '<button class="btn" onclick="closeModal();openTaskForm()">Follow-up</button>'+
-    '<button class="btn" onclick="closeModal();openMeetingForm()">Meeting</button>'+
+function openQuickAdd(dateISO){
+  const dateArg=dateISO||today();
+  openModal('<h3>Quick add'+(dateISO?' — '+esc(fmtDate(dateISO)):'')+'</h3><div class="grid g2">'+
+    '<button class="btn gold" onclick="closeModal();openTaskForm(null,null,null,\''+dateArg+'\')">Task / follow-up</button>'+
+    '<button class="btn" onclick="closeModal();openMeetingForm(null,null,\''+dateArg+'\')">Meeting</button>'+
     '<button class="btn" onclick="closeModal();openOrgForm()">Organisation</button>'+
     '<button class="btn" onclick="closeModal();openPersonForm()">Person</button>'+
     '<button class="btn" onclick="closeModal();openOppForm()">Opportunity</button>'+
-    '<button class="btn" onclick="closeModal();openLessonForm()">Lesson</button>'+
-    '<button class="btn" onclick="closeModal();openDecisionForm()">Decision</button>'+
     '<button class="btn" onclick="closeModal();openTeamNoteForm()">Team note</button>'+
-  '</div>');
+  '</div><div class="faint" style="font-size:11px;margin-top:12px">Tasks and follow-ups added here will appear on this day automatically.</div>');
 }
 
 /* ---------------------------------------------------------------------------
