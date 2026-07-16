@@ -369,6 +369,10 @@
   .ent-next .lbl{display:block;font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--faint);font-family:ui-monospace,monospace;margin-bottom:3px}
   .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
   .toolbar .search-in{flex:1;min-width:180px}
+  .people-toolbar{display:grid;grid-template-columns:minmax(240px,1.5fr) minmax(180px,.8fr) minmax(150px,.65fr) minmax(180px,.75fr);gap:9px;align-items:center;margin-bottom:18px}
+  .people-toolbar .input,.people-toolbar .select{min-width:0;width:100%;height:42px}
+  @media(max-width:900px){.people-toolbar{grid-template-columns:1fr 1fr}.people-toolbar .people-search{grid-column:1/-1}}
+  @media(max-width:560px){.people-toolbar{grid-template-columns:1fr}}
 
   /* asset library (V1 a-thumb/asset-card) */
   .assets-grid{display:grid;gap:16px;grid-template-columns:repeat(3,1fr)}
@@ -911,7 +915,7 @@ function allCalendarItemsForRange(start,end){
   state.tasks.forEach(t=>{
     const date=calendarDateKey(t.due_at);
     if(t.calendar_visible===false||!inRange(date)) return;
-    out.push({date,time:'09:00',label:t.title,type:'tasks',done:['Completed','Cancelled','Closed / Lost'].includes(t.status),onclick:"openTaskModal('"+t.id+"')"});
+    out.push({date,time:'',allDay:true,label:t.title,type:'tasks',done:['Completed','Cancelled','Closed / Lost'].includes(t.status),onclick:"openTaskModal('"+t.id+"')"});
   });
   state.meetings.forEach(m=>{
     const date=calendarDateKey(m.scheduled_at);
@@ -959,6 +963,16 @@ function renderWeekCalendarV3(){
 /* ---------------------------------------------------------------------------
    DATA LAYER
 --------------------------------------------------------------------------- */
+function isActionLikeKnowledge(text){
+  return /^(send|email|follow\s*up|contact|call|book|schedule|arrange|await|remind|prepare|draft|share|submit|check|ask|wait)/i.test(String(text||'').trim());
+}
+async function cleanupMisclassifiedTaskLessons(){
+  const bad=(state.lessons_v2||[]).filter(l=>!l.archived_at && l.source_type==='task' && isActionLikeKnowledge(l.title));
+  for(const l of bad){
+    try{ await dbUpdate('lessons_v2',l.id,{archived_at:new Date().toISOString()}); }
+    catch(e){ console.warn('Could not archive misclassified lesson',l.id,e); }
+  }
+}
 async function loadAll(){
   // PostgREST caps a plain select('*') at 1000 rows. marketing_items can
   // exceed that with legacy campaigns + the content library, which truncated
@@ -984,6 +998,7 @@ async function loadAll(){
   });
   dbStatus = anyError ? 'error' : 'connected';
   refreshUnreadBadge();
+  await cleanupMisclassifiedTaskLessons();
 }
 function subscribeRealtime(){
   const collab=['organisations','people','opportunities','activities','tasks','meetings','assets_v2',
@@ -1483,9 +1498,15 @@ function dailyWorkspaceData(dateISO){
   const timeline=[
     ...meetings.map(m=>({type:'meetings',time:new Date(m.scheduled_at),title:m.title,sub:orgName(m.organisation_id)||'',click:"go('meetingDetail','"+m.id+"')",record:m,done:m.meeting_status==='Completed'})),
     ...marketing.map(mi=>({type:'marketing',time:new Date(dateISO+'T14:00:00'),title:mi.title,sub:mi.item_type||'Marketing plan',click:"openMarketingDetail('"+mi.id+"')",record:mi,done:itemIsDone(mi)})),
-    ...allDue.map(t=>({type:'tasks',time:new Date(dateISO+'T16:00:00'),title:t.title,sub:orgName(t.organisation_id)||'Task',click:"openTaskModal('"+t.id+"')",record:t,done:['Completed','Cancelled','Closed / Lost'].includes(t.status)})),
+    ...allDue.map(t=>({type:'tasks',time:null,allDay:true,title:t.title,sub:orgName(t.organisation_id)||'Task',click:"openTaskModal('"+t.id+"')",record:t,done:['Completed','Cancelled','Closed / Lost'].includes(t.status)})),
     ...team.map(m=>({type:'team',time:new Date(dateISO+'T17:00:00'),title:m.title,sub:'Team HQ',click:"openTeamNoteDetail('"+m.id+"')",record:m,done:m.status==='Done'}))
-  ].sort((a,b)=>a.time-b.time || Number(a.done)-Number(b.done));
+  ].sort((a,b)=>{
+    if(a.allDay&&!b.allDay) return 1;
+    if(!a.allDay&&b.allDay) return -1;
+    const at=a.time instanceof Date?a.time.getTime():Number.MAX_SAFE_INTEGER;
+    const bt=b.time instanceof Date?b.time.getTime():Number.MAX_SAFE_INTEGER;
+    return at-bt || Number(a.done)-Number(b.done);
+  });
   return {dateStart,dateEnd,due,allDue,overdue,meetings,marketing,team,timeline};
 }
 async function markDayItemComplete(type,id){
@@ -1578,7 +1599,7 @@ function vToday(){
   const celebration=celebrationData?'<div class="focus-v3 completion-focus"><div class="completion-celebration"><div class="celebration-emoji">'+celebrationData[0]+'</div><div><div class="celebration-title">'+esc(celebrationData[1])+'</div><div class="celebration-copy">'+esc(celebrationData[2])+'</div></div></div></div>':'';
   const progress='<div class="day-progress"><div class="day-progress-top"><strong>Daily progress</strong><span>'+completedCount+' of '+totalCount+' completed</span></div><div class="day-progress-bar"><div class="day-progress-fill" style="width:'+progressPct+'%"></div></div></div>';
   const agenda=data.timeline.length?data.timeline.map(it=>
-    '<div class="agenda-row'+(it.done?' is-completed':'')+'" style="--slot:'+(it.done?'#6F757B':CAL_TYPE_COLOR[it.type])+'"><div class="agenda-time">'+it.time.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+'</div>'+
+    '<div class="agenda-row'+(it.done?' is-completed':'')+'" style="--slot:'+(it.done?'#6F757B':CAL_TYPE_COLOR[it.type])+'"><div class="agenda-time">'+(it.allDay?'Any time':it.time.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}))+'</div>'+
     '<div class="agenda-line"></div><div class="agenda-card" onclick="'+it.click+'"><div class="agenda-type">'+esc(it.type==='tasks'?'Task':it.type==='meetings'?'Meeting':it.type==='marketing'?'Marketing':'Team')+'</div><div class="agenda-title">'+esc(it.title)+'</div><div class="agenda-meta">'+esc(it.sub)+'</div>'+
     '<div class="agenda-actions">'+(it.done?'<span class="completed-badge">✓ Completed</span>':'<button class="complete-chip" onclick="event.stopPropagation();markDayItemComplete(\''+it.type+'\',\''+it.record.id+'\')">Mark completed</button>')+'</div></div></div>'
   ).join(''):'<div class="empty" style="margin:14px">Nothing scheduled for '+(mode==='tomorrow'?'tomorrow':'today')+'.</div>';
@@ -1653,7 +1674,7 @@ function vTodayWeek(){
     return '<div class="week-day-v3'+(isToday?' today-col':'')+'"><div class="week-day-head"><div><div class="week-day-name">'+d.toLocaleDateString('en-GB',{weekday:'short'})+'</div>'+
       '<div class="week-day-num">'+d.getDate()+'</div></div><div class="week-day-count">'+dayItems.length+' items</div></div>'+
       (dayItems.length?dayItems.map(it=>'<div class="week-task-v3'+(it.done?' week-task-done':'')+'" style="--slot:'+CAL_TYPE_COLOR[it.type]+'" onclick="'+it.onclick+'">'+
-        '<div class="week-task-time">'+esc(it.time||'')+' · '+esc(it.type)+'</div><div class="week-task-title">'+esc(it.label)+'</div></div>').join(''):
+        '<div class="week-task-time">'+(it.time?esc(it.time)+' · ':'')+esc(it.type)+'</div><div class="week-task-title">'+esc(it.label)+'</div></div>').join(''):
         '<div class="week-empty-v3">No scheduled work</div>')+
       '<button class="btn sm" style="width:100%;margin-top:6px" onclick="calDayView(\''+iso+'\')">Open day</button></div>';
   }).join('');
@@ -2098,8 +2119,8 @@ function vPeople(){
   else if(f.sort==='org') list.sort((a,b)=>orgName(a.primary_organisation_id).localeCompare(orgName(b.primary_organisation_id)));
   else list.sort((a,b)=>a.full_name.localeCompare(b.full_name));
 
-  const toolbar='<div class="toolbar">'+
-    '<input class="input search-in" placeholder="Search people…" value="'+esc(f.q)+'" oninput="route.peopleFilter.q=this.value;renderCurrent()">'+
+  const toolbar='<div class="people-toolbar">'+
+    '<input class="input people-search" placeholder="Search people…" value="'+esc(f.q)+'" oninput="route.peopleFilter.q=this.value;renderCurrent()">'+
     (orgsWithPeople.length?'<select class="select" onchange="route.peopleFilter.org=this.value;renderCurrent()"><option value="">All organisations</option>'+orgsWithPeople.map(o=>'<option value="'+o.id+'"'+(f.org===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('')+'</select>':'')+
     (warmths.length?'<select class="select" onchange="route.peopleFilter.warmth=this.value;renderCurrent()"><option value="">All warmth</option>'+warmths.map(w=>'<option'+(f.warmth===w?' selected':'')+'>'+esc(w)+'</option>').join('')+'</select>':'')+
     '<select class="select" onchange="route.peopleFilter.sort=this.value;renderCurrent()">'+
@@ -2532,8 +2553,12 @@ async function completeTask(id){
   }
 
   if(makeLesson && notes){
-    const lesson=await dbInsert('lessons_v2',{title:(t.title+' — lesson').slice(0,200), summary:notes.slice(0,300), detail:notes, source_type:'task', source_id:id, created_by:myProfile.display_name});
-    if(t.organisation_id) await dbInsert('entity_links',{source_type:'lesson',source_id:lesson.id,target_type:'organisation',target_id:t.organisation_id,relationship_type:'relates_to',created_by:myProfile.display_name});
+    if(isActionLikeKnowledge(t.title)){
+      toast('Action items stay as follow-ups, not lessons.');
+    } else {
+      const lesson=await dbInsert('lessons_v2',{title:(t.title+' — lesson').slice(0,200), summary:notes.slice(0,300), detail:notes, source_type:'task', source_id:id, created_by:myProfile.display_name});
+      if(t.organisation_id) await dbInsert('entity_links',{source_type:'lesson',source_id:lesson.id,target_type:'organisation',target_id:t.organisation_id,relationship_type:'relates_to',created_by:myProfile.display_name});
+    }
   }
 
   if(t.organisation_id) await touchOrgInteraction(t.organisation_id, isFinal?null:t.title, isFinal?null:nextDue);
@@ -2934,7 +2959,7 @@ function viewSwitcher(routeKey,current){
   '</div>';
 }
 function vLessons(){
-  const items=[...state.lessons_v2].filter(l=>!l.archived_at).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  const items=[...state.lessons_v2].filter(l=>!l.archived_at && !isActionLikeKnowledge(l.title)).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
   const view=route.lessonsView=route.lessonsView||'card';
   const linkedCount=items.filter(l=>lessonLinks(l.id).length).length;
   const categories={};
