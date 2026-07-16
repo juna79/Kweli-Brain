@@ -1663,16 +1663,32 @@ function vTodayWeek(){
    here: people, opportunities, timeline, tasks, meetings, assets, lessons,
    objections, decisions, investor links, marketing items, team notes.
 --------------------------------------------------------------------------- */
+function organisationPriorityScore(o){
+  const raw=Number(o.priority||0)*10;
+  const stage=String(o.pipeline_stage||'').toLowerCase();
+  const stageScore=stage.includes('pilot')?80:stage.includes('proposal')?65:stage.includes('meeting')?50:stage.includes('contact')?35:stage.includes('identified')?20:0;
+  const activeOpps=state.opportunities.filter(x=>x.organisation_id===o.id && x.status!=='Closed / Lost');
+  const oppScore=activeOpps.reduce((m,x)=>Math.max(m,Number(x.priority||0)*8),0);
+  const openTasks=state.tasks.filter(t=>t.organisation_id===o.id && !['Completed','Cancelled','Closed / Lost'].includes(t.status));
+  const overdue=openTasks.some(t=>t.due_at && t.due_at<today())?45:0;
+  const dueSoon=openTasks.some(t=>t.due_at && t.due_at>=today() && t.due_at<=addDays(today(),7))?20:0;
+  const hasNext=(o.next_action_summary||o.next_action_date)?12:0;
+  return raw+stageScore+oppScore+overdue+dueSoon+hasNext;
+}
 function vOrganisations(){
-  const orgs=[...state.organisations].filter(o=>!o.archived_at).sort((a,b)=>(b.priority||0)-(a.priority||0));
-  const maxPriority=Math.max(1,...orgs.map(o=>o.priority||0));
+  const orgs=[...state.organisations].filter(o=>!o.archived_at).sort((a,b)=>{
+    const diff=organisationPriorityScore(b)-organisationPriorityScore(a);
+    if(diff) return diff;
+    return String(a.name||'').localeCompare(String(b.name||''));
+  });
+  const maxPriority=Math.max(1,...orgs.map(o=>organisationPriorityScore(o)));
   return '<div class="page-head"><div><div class="eyebrow">Relationships</div><div class="page-title">Organisations</div>'+
     '<div class="page-sub">'+orgs.length+' organisations</div></div><button class="btn gold" onclick="openOrgForm()">+ New organisation</button></div>'+
     (orgs.length?'<div class="grid g-auto">'+orgs.map(o=>{
       const oppCount=state.opportunities.filter(x=>x.organisation_id===o.id).length;
       const flags=orgFlags(o);
       const overdue=state.tasks.some(t=>t.organisation_id===o.id && t.due_at && t.due_at<today() && !['Completed','Cancelled','Closed / Lost'].includes(t.status));
-      const priorityPct=Math.round(((o.priority||0)/maxPriority)*100);
+      const priorityPct=Math.round((organisationPriorityScore(o)/maxPriority)*100);
       return '<div class="card org-card" onclick="go(\'organisationDetail\',\''+o.id+'\')">'+
         '<div class="org-card-top"><div class="org-identity">'+orgEmblem(o,false)+'<div class="org-title-wrap">'+
           '<div class="badge-org-type pill-editable" onclick="openPillPopover(event,\''+o.id+'\',\'organisation_type\')">'+esc(o.organisation_type)+(o.sector?' · '+esc(o.sector):'')+'</div>'+
@@ -2079,7 +2095,7 @@ function vPeople(){
       '<div class="ent-line" style="justify-content:space-between">'+
         '<span>'+(p.last_interaction_at?'Last contact '+fmtDate(p.last_interaction_at):'No contact logged')+'</span>'+
       '</div>'+
-      (nextTask?'<div class="ent-next"><span class="lbl">Next action</span>'+esc(nextTask.title)+'</div>':(p.next_action_summary?'<div class="ent-next"><span class="lbl">Next action</span>'+esc(p.next_action_summary)+'</div>':''))+
+      (p.next_action_summary?'<div class="ent-next"><span class="lbl">Next action</span>'+esc(p.next_action_summary)+'</div>':(nextTask?'<div class="ent-next"><span class="lbl">Next action</span>'+esc(nextTask.title)+'</div>':''))+
     '</div>';
   }).join('')+'</div>' : '<div class="empty">No people match this filter.</div>';
 
@@ -2487,7 +2503,7 @@ function extractLines(text, patterns){
 async function safeInsert(table,payload){
   try{return await dbInsert(table,payload);}catch(e){console.warn('Auto-update skipped',table,e);return null;}
 }
-async function propagateInteraction({organisationId,personId,meetingId,notes,nextSteps,opportunityId}){
+async function propagateInteraction({organisationId,personId,meetingId,notes,nextSteps,opportunityId,interactionType}){
   const now=new Date().toISOString();
   const summary=autoSummary(notes);
   if(organisationId){
@@ -2504,6 +2520,16 @@ async function propagateInteraction({organisationId,personId,meetingId,notes,nex
       if(nextSteps) opPatch.next_action=nextSteps;
       if(/pilot/i.test(notes)) opPatch.stage='Pilot Planning';
       if(Object.keys(opPatch).length) await dbUpdate('opportunities',activeOpp.id,opPatch);
+    }
+  }
+  if(interactionType==='Meeting'){
+    const staleMeetingTasks=state.tasks.filter(t=>
+      !['Completed','Cancelled','Closed / Lost'].includes(t.status) &&
+      ((personId && t.person_id===personId) || (organisationId && t.organisation_id===organisationId)) &&
+      /^(book|schedule|arrange|await).*meeting|^contact$|^book meeting$/i.test(String(t.title||'').trim())
+    );
+    for(const t of staleMeetingTasks){
+      await dbUpdate('tasks',t.id,{status:'Completed',outcome:'Meeting completed',completed_at:now,completion_notes:'Automatically closed when the meeting was recorded.'});
     }
   }
   const linkedPeople=new Set();
@@ -2557,7 +2583,7 @@ async function saveCaptureInteraction(kind,id){
     if(created){meetingId=created.id;if(personId) await safeInsert('meeting_attendees',{meeting_id:meetingId,person_id:personId});}
   }
   await logActivity({activity_type:type,title:type+': '+(p?p.full_name:(orgName(organisationId)||'interaction')),body:notes,organisation_id:organisationId,person_id:personId,meeting_id:meetingId});
-  await propagateInteraction({organisationId,personId,meetingId,notes,nextSteps});
+  await propagateInteraction({organisationId,personId,meetingId,notes,nextSteps,interactionType:type});
   closeModal();
   if(kind==='person') go('personDetail',id); else go('organisationDetail',id);
   toast('Saved — Brain updated everywhere');
@@ -2727,7 +2753,7 @@ async function saveMeetingNotes(id){
   const outcomes=autoSummary(notes);
   await dbUpdate('meetings', id, {notes, outcomes: outcomes||null, next_steps: nextSteps||null, meeting_status:'Completed', ended_at: new Date().toISOString(), updated_by: myProfile.display_name});
   await logActivity({activity_type:'Meeting', title:'Meeting: '+m.title, body:notes, organisation_id:m.organisation_id, opportunity_id:m.opportunity_id, meeting_id:id});
-  await propagateInteraction({organisationId:m.organisation_id, meetingId:id, notes, nextSteps, opportunityId:m.opportunity_id});
+  await propagateInteraction({organisationId:m.organisation_id, meetingId:id, notes, nextSteps, opportunityId:m.opportunity_id, interactionType:'Meeting'});
   closeModal(); go('meetingDetail', id); toast('Saved — company and people updated');
 }
 
