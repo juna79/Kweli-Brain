@@ -1257,29 +1257,32 @@ function openPillPopover(event, orgId, field){
 async function ensureOpportunityForOrganisationStage(orgId, stage){
   const org=byId(state.organisations,orgId); if(!org) return null;
   let stageText=String(stage||'').trim();
-  // A simple Pilot relationship tag means the commercial record has reached
-  // pilot discussion unless a more specific pipeline stage is already set.
   if(/^pilot$/i.test(stageText)) stageText='Pilot discussion';
   const shouldBeOpportunity=/pilot discussion|pilot active|proposal sent|won/i.test(stageText);
   if(!shouldBeOpportunity) return null;
 
-  const existing=state.opportunities.find(op=>op.organisation_id===orgId && !op.archived_at && !/lost|closed/i.test(String(op.stage||op.status||'')));
+  // One commercial opportunity per organisation. Do not depend on the optional
+  // `status` column here: some deployed databases constrain or omit that value,
+  // while the normal opportunity form saves successfully without it.
+  const existing=state.opportunities.find(op=>op.organisation_id===orgId && !op.archived_at && !/lost/i.test(String(op.stage||'')));
   if(existing){
-    const patch={status:'Active',updated_by:myProfile.display_name};
+    const patch={updated_by:myProfile.display_name};
     if(existing.stage!==stageText) patch.stage=stageText;
     if(!existing.title) patch.title=(org.name+' pilot').slice(0,200);
     if(existing.priority==null) patch.priority=Number(org.priority||0);
     if(!existing.next_action_summary && org.next_action_summary) patch.next_action_summary=org.next_action_summary;
     if(!existing.next_action_date && org.next_action_date) patch.next_action_date=org.next_action_date;
-    if(Object.keys(patch).length>2 || existing.status!=='Active') await dbUpdate('opportunities',existing.id,patch);
+    if(Object.keys(patch).length>1) await dbUpdate('opportunities',existing.id,patch);
     return existing.id;
   }
 
+  // Match the known-good manual opportunity payload. In particular, do not
+  // write `status:'Active'`, which prevented automatic creation on databases
+  // whose opportunity status constraint does not accept that value.
   const created=await dbInsert('opportunities',{
     organisation_id:orgId,
     title:(org.name+' pilot').slice(0,200),
     stage:stageText,
-    status:'Active',
     priority:Number(org.priority||0),
     next_action_summary:org.next_action_summary||null,
     next_action_date:org.next_action_date||null,
@@ -1310,7 +1313,12 @@ async function setPillField(id, field, value){
   const table = peopleFields.includes(field) ? 'people' : 'organisations';
   const patch = field==='priority' ? {priority: parseInt(value,10)} : {[field]: value};
   await dbUpdate(table, id, patch);
-  if(table==='organisations' && field==='pipeline_stage') await ensureOpportunityForOrganisationStage(id,value);
+  if(table==='organisations' && field==='pipeline_stage'){
+    const opportunityId=await ensureOpportunityForOrganisationStage(id,value);
+    if(/pilot discussion|pilot active|proposal sent|won/i.test(String(value||'')) && opportunityId){
+      toast('Stage updated and opportunity synced');
+    }
+  }
   renderCurrent();
 }
 /* Kept as an alias — earlier code paths call setOrgPillField() directly. */
