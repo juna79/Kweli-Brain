@@ -1253,12 +1253,38 @@ function openPillPopover(event, orgId, field){
     'onclick="setPillField(\''+orgId+'\',\''+field+'\',\''+String(opt).replace(/'/g,"\\'")+'\')">'+esc(opt)+'</div>').join('');
   document.body.appendChild(pop);
 }
+async function ensureOpportunityForOrganisationStage(orgId, stage){
+  const org=byId(state.organisations,orgId); if(!org) return;
+  const stageText=String(stage||'');
+  const shouldBeOpportunity=/pilot discussion|pilot active|proposal sent|won/i.test(stageText);
+  if(!shouldBeOpportunity) return;
+
+  const existing=state.opportunities.find(op=>op.organisation_id===orgId && !op.archived_at && !/lost|closed/i.test(String(op.stage||op.status||'')));
+  if(existing){
+    if(existing.stage!==stageText) await dbUpdate('opportunities',existing.id,{stage:stageText,updated_by:myProfile.display_name});
+    return;
+  }
+
+  const created=await dbInsert('opportunities',{
+    organisation_id:orgId,
+    title:(org.name+' pilot').slice(0,200),
+    stage:stageText,
+    status:'Active',
+    priority:Number(org.priority||0),
+    next_action_summary:org.next_action_summary||null,
+    next_action_date:org.next_action_date||null,
+    created_by:myProfile.display_name,
+    updated_by:myProfile.display_name
+  });
+  await logActivity({activity_type:'Status change',title:'Opportunity created automatically: '+org.name+' — '+stageText,organisation_id:orgId,opportunity_id:created.id});
+}
 async function setPillField(id, field, value){
   closePillPopover();
   const peopleFields=['warmth'];
   const table = peopleFields.includes(field) ? 'people' : 'organisations';
   const patch = field==='priority' ? {priority: parseInt(value,10)} : {[field]: value};
   await dbUpdate(table, id, patch);
+  if(table==='organisations' && field==='pipeline_stage') await ensureOpportunityForOrganisationStage(id,value);
   renderCurrent();
 }
 /* Kept as an alias — earlier code paths call setOrgPillField() directly. */
@@ -2530,10 +2556,21 @@ function openTaskEditForm(id){
     ' <button class="btn danger" onclick="deleteTaskConfirm(\''+id+'\')">Delete</button>');
 }
 async function saveTaskEdit(id){
+  const t=byId(state.tasks,id); if(!t){toast('Follow-up not found');return;}
   const title=document.getElementById('f_tetitle').value.trim();
   if(!title){toast('Title required');return;}
-  await dbUpdate('tasks',id,{title, due_at:document.getElementById('f_tedue').value||null, description:taskDescriptionWithTime(t.description,document.getElementById('f_tetime').value), priority:document.getElementById('f_tepriority').value});
-  closeModal(); renderCurrent(); toast('Saved');
+  try{
+    await dbUpdate('tasks',id,{
+      title,
+      due_at:document.getElementById('f_tedue').value||null,
+      description:taskDescriptionWithTime(t.description,document.getElementById('f_tetime').value),
+      priority:document.getElementById('f_tepriority').value
+    });
+    closeModal(); renderCurrent(); toast('Saved');
+  }catch(e){
+    console.error('Follow-up edit failed',e);
+    toast('Save failed: '+(e&&e.message?e.message:'Please try again'));
+  }
 }
 async function deleteTaskConfirm(id){
   if(!confirm('Delete this follow-up? This cannot be undone.')) return;
