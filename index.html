@@ -2381,8 +2381,19 @@ function opportunityPriorityScore(op){
 }
 function vOpportunities(){
   const opps=[...state.opportunities].filter(o=>!o.archived_at).sort((a,b)=>{
-    const diff=opportunityPriorityScore(b)-opportunityPriorityScore(a);
-    if(diff) return diff;
+    // Stage is the strict queue. A lower-stage opportunity with a large manual
+    // priority score must never outrank Pilot discussion / Pilot active.
+    const stageDiff=stagePriorityScore(b.stage)-stagePriorityScore(a.stage);
+    if(stageDiff) return stageDiff;
+
+    // Priority and action urgency only rank opportunities within the same stage.
+    const priorityDiff=Number(b.priority||0)-Number(a.priority||0);
+    if(priorityDiff) return priorityDiff;
+    const aDue=!!(a.next_action_date && a.next_action_date<=today());
+    const bDue=!!(b.next_action_date && b.next_action_date<=today());
+    if(aDue!==bDue) return bDue-aDue;
+    const dateDiff=String(a.next_action_date||'9999-12-31').localeCompare(String(b.next_action_date||'9999-12-31'));
+    if(dateDiff) return dateDiff;
     return String(a.title||'').localeCompare(String(b.title||''));
   });
   const view=route.opportunitiesView=route.opportunitiesView||'card';
@@ -2395,7 +2406,7 @@ function vOpportunities(){
       '<div class="metric-tile"><div class="metric-value">'+active+'</div><div class="metric-label">Active</div></div>'+
       '<div class="metric-tile"><div class="metric-value">'+pilots+'</div><div class="metric-label">Pilot-stage</div></div>'+
       '<div class="metric-tile"><div class="metric-value">'+due+'</div><div class="metric-label">Action due</div></div>'+
-    '</div><div class="view-toolbar"><div class="faint" style="font-size:11.5px">Prioritised by opportunity score</div>'+twoViewSwitcher('opportunitiesView',view)+'</div>';
+    '</div><div class="view-toolbar"><div class="faint" style="font-size:11.5px">Queued by stage, then priority</div>'+twoViewSwitcher('opportunitiesView',view)+'</div>';
   if(!opps.length) return header+'<div class="empty"><div class="empty-ico">◈</div>No opportunities yet.</div>';
   if(view==='table'){
     return header+'<div class="card" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>'+
