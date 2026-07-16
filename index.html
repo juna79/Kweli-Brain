@@ -905,6 +905,14 @@ function moveCalendarAnchor(delta){
   calYear=calendarAnchorDate.getFullYear(); calMonth=calendarAnchorDate.getMonth(); renderCurrent();
 }
 function resetCalendarAnchor(){calendarAnchorDate=new Date();calYear=calendarAnchorDate.getFullYear();calMonth=calendarAnchorDate.getMonth();renderCurrent();}
+function taskCalendarTime(task){
+  const m=String(task&&task.description||'').match(/(?:^|\n)\[Calendar time: (\d{2}:\d{2})\](?:\n|$)/i);
+  return m?m[1]:'';
+}
+function taskDescriptionWithTime(description,time){
+  const clean=String(description||'').replace(/(?:^|\n)\[Calendar time: \d{2}:\d{2}\](?=\n|$)/ig,'').trim();
+  return time?('[Calendar time: '+time+']'+(clean?'\n'+clean:'')):clean||null;
+}
 function allCalendarItemsForRange(start,end){
   const out=[];
   const inRange=(dateKey)=>{
@@ -915,7 +923,8 @@ function allCalendarItemsForRange(start,end){
   state.tasks.forEach(t=>{
     const date=calendarDateKey(t.due_at);
     if(t.calendar_visible===false||!inRange(date)) return;
-    out.push({date,time:'',allDay:true,label:t.title,type:'tasks',done:['Completed','Cancelled','Closed / Lost'].includes(t.status),onclick:"openTaskModal('"+t.id+"')"});
+    const taskTime=taskCalendarTime(t);
+    out.push({date,time:taskTime,allDay:!taskTime,label:t.title,type:'tasks',done:['Completed','Cancelled','Closed / Lost'].includes(t.status),onclick:"openTaskModal('"+t.id+"')"});
   });
   state.meetings.forEach(m=>{
     const date=calendarDateKey(m.scheduled_at);
@@ -964,7 +973,7 @@ function renderWeekCalendarV3(){
    DATA LAYER
 --------------------------------------------------------------------------- */
 function isActionLikeKnowledge(text){
-  return /^(send|email|follow\s*up|contact|call|book|schedule|arrange|await|remind|prepare|draft|share|submit|check|ask|wait)/i.test(String(text||'').trim());
+  return /^(send|email|follow\s*up|contact|call|book|schedule|arrange|await|remind|prepare|draft|share|submit|check|ask|wait)\b/i.test(String(text||'').trim());
 }
 async function cleanupMisclassifiedTaskLessons(){
   const bad=(state.lessons_v2||[]).filter(l=>!l.archived_at && l.source_type==='task' && isActionLikeKnowledge(l.title));
@@ -1498,7 +1507,7 @@ function dailyWorkspaceData(dateISO){
   const timeline=[
     ...meetings.map(m=>({type:'meetings',time:new Date(m.scheduled_at),title:m.title,sub:orgName(m.organisation_id)||'',click:"go('meetingDetail','"+m.id+"')",record:m,done:m.meeting_status==='Completed'})),
     ...marketing.map(mi=>({type:'marketing',time:new Date(dateISO+'T14:00:00'),title:mi.title,sub:mi.item_type||'Marketing plan',click:"openMarketingDetail('"+mi.id+"')",record:mi,done:itemIsDone(mi)})),
-    ...allDue.map(t=>({type:'tasks',time:null,allDay:true,title:t.title,sub:orgName(t.organisation_id)||'Task',click:"openTaskModal('"+t.id+"')",record:t,done:['Completed','Cancelled','Closed / Lost'].includes(t.status)})),
+    ...allDue.map(t=>{const tt=taskCalendarTime(t); return {type:'tasks',time:tt?new Date(dateISO+'T'+tt+':00'):null,allDay:!tt,title:t.title,sub:orgName(t.organisation_id)||'Task',click:"openTaskModal('"+t.id+"')",record:t,done:['Completed','Cancelled','Closed / Lost'].includes(t.status)}}),
     ...team.map(m=>({type:'team',time:new Date(dateISO+'T17:00:00'),title:m.title,sub:'Team HQ',click:"openTeamNoteDetail('"+m.id+"')",record:m,done:m.status==='Done'}))
   ].sort((a,b)=>{
     if(a.allDay&&!b.allDay) return 1;
@@ -2468,6 +2477,7 @@ function openTaskForm(orgId,personId,opportunityId,dueDate){
     '<div class="field"><label class="fl">Title</label><input class="input" id="f_ttitle" placeholder="e.g. Email Rehan"></div>'+
     '<div class="field"><label class="fl">Organisation</label><select class="select" id="f_torg">'+orgOpts+'</select></div>'+
     '<div class="field"><label class="fl">Due date</label><input class="input" type="date" id="f_tdue" value="'+esc(dueDate||today())+'"></div>'+
+    '<div class="field"><label class="fl">Time (optional)</label><input class="input" type="time" id="f_ttime"><div class="faint" style="font-size:11px;margin-top:5px">Leave blank for Any time.</div></div>'+
     '<div class="field"><label class="fl">Priority</label><select class="select" id="f_tpriority">'+
       ['Normal','High','Urgent','Low'].map(p=>'<option>'+p+'</option>').join('')+'</select></div>'+
     '<input type="hidden" id="f_tperson" value="'+esc(personId||'')+'">'+
@@ -2482,7 +2492,7 @@ async function saveTaskForm(){
     opportunity_id: document.getElementById('f_topp').value||null,
     due_at: document.getElementById('f_tdue').value||null,
     priority: document.getElementById('f_tpriority').value,
-    status:'To Do', created_by_user_id: myProfile.id, assigned_to_user_id: myProfile.id
+    status:'To Do', description:taskDescriptionWithTime(null,document.getElementById('f_ttime').value), created_by_user_id: myProfile.id, assigned_to_user_id: myProfile.id
   };
   if(!payload.title){toast('Title is required');return;}
   const tdupe=state.tasks.find(t=>(t.organisation_id||null)===(payload.organisation_id||null) && normText(t.title)===normText(payload.title) && (t.due_at||'')===(payload.due_at||'') && !['Completed','Cancelled','Closed / Lost'].includes(t.status));
@@ -2496,7 +2506,7 @@ function openTaskModal(id){
   const t=byId(state.tasks,id); if(!t) return;
   const isFinal=['Completed','Cancelled','Closed / Lost'].includes(t.status);
   openModal('<h3>'+esc(t.title)+'</h3>'+
-    '<div class="muted" style="font-size:12px;margin-bottom:14px">'+esc(orgName(t.organisation_id))+' · '+t.status+(t.due_at?' · due '+fmtDate(t.due_at):'')+
+    '<div class="muted" style="font-size:12px;margin-bottom:14px">'+esc(orgName(t.organisation_id))+' · '+t.status+(t.due_at?' · due '+fmtDate(t.due_at):'')+(taskCalendarTime(t)?' at '+taskCalendarTime(t):' · Any time')+
       (isFinal?'':' <span class="link-btn" style="margin-left:8px" onclick="openTaskEditForm(\''+t.id+'\')">edit details</span>')+'</div>'+
     (isFinal ? '<div class="empty">This follow-up is closed. Outcome: '+esc(t.outcome||t.status)+'</div>' :
     '<div class="field"><label class="fl">What happened?</label><select class="select" id="f_outcome" onchange="document.getElementById(\'f_nextWrap\').style.display=this.value===\'Contract signed\'||this.value===\'Opportunity lost\'?\'none\':\'block\'">'+
@@ -2513,7 +2523,8 @@ function openTaskEditForm(id){
   const t=byId(state.tasks,id); if(!t) return;
   openModal('<h3>Edit follow-up</h3>'+
     '<div class="field"><label class="fl">Title</label><input class="input" id="f_tetitle" value="'+esc(t.title)+'"></div>'+
-    '<div class="field"><label class="fl">Due date</label><input class="input" type="date" id="f_tedue" value="'+(t.due_at||'')+'"></div>'+
+    '<div class="field"><label class="fl">Due date</label><input class="input" type="date" id="f_tedue" value="'+calendarDateKey(t.due_at)+'"></div>'+
+    '<div class="field"><label class="fl">Time (optional)</label><input class="input" type="time" id="f_tetime" value="'+taskCalendarTime(t)+'"><div class="faint" style="font-size:11px;margin-top:5px">Leave blank for Any time.</div></div>'+
     '<div class="field"><label class="fl">Priority</label><select class="select" id="f_tepriority">'+['Normal','High','Urgent','Low'].map(p=>'<option'+(t.priority===p?' selected':'')+'>'+p+'</option>').join('')+'</select></div>'+
     '<button class="btn gold" onclick="saveTaskEdit(\''+id+'\')">Save</button>'+
     ' <button class="btn danger" onclick="deleteTaskConfirm(\''+id+'\')">Delete</button>');
@@ -2521,7 +2532,7 @@ function openTaskEditForm(id){
 async function saveTaskEdit(id){
   const title=document.getElementById('f_tetitle').value.trim();
   if(!title){toast('Title required');return;}
-  await dbUpdate('tasks',id,{title, due_at:document.getElementById('f_tedue').value||null, priority:document.getElementById('f_tepriority').value});
+  await dbUpdate('tasks',id,{title, due_at:document.getElementById('f_tedue').value||null, description:taskDescriptionWithTime(t.description,document.getElementById('f_tetime').value), priority:document.getElementById('f_tepriority').value});
   closeModal(); renderCurrent(); toast('Saved');
 }
 async function deleteTaskConfirm(id){
