@@ -2071,7 +2071,17 @@ function kvEditableText(label,value,orgId,key){
 --------------------------------------------------------------------------- */
 function kvEditReal(label,value,table,id,column,kind){
   kind=kind||'text';
-  return '<div class="kv"><span class="k">'+label+'</span><span class="v"><span class="pill-editable" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="startRealEdit(this,\''+table+'\',\''+id+'\',\''+column+'\',\''+kind+'\')">'+esc(value||'Click to add')+'</span></span></div>';
+  const val=value||'';
+  const lower=String(column||'').toLowerCase();
+  const isEmail=lower==='email';
+  const isLink=['linkedin','website','url'].includes(lower);
+  let display='';
+  if(val && (isEmail||isLink)){
+    const href=isEmail ? ('mailto:'+val) : (/^https?:\/\//i.test(val)?val:'https://'+val);
+    const text=isEmail ? val : (lower==='linkedin'?'Open LinkedIn':'Visit website');
+    display='<a href="'+esc(href)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">'+esc(text)+'</a>'+ '<button class="link-btn" style="margin-left:10px;color:var(--faint)" onclick="event.preventDefault();event.stopPropagation();startRealEdit(this.parentElement,\''+table+'\',\''+id+'\',\''+column+'\',\''+kind+'\')">Edit</button>';
+  } else display='<span class="pill-editable" style="cursor:pointer;text-decoration:underline;text-decoration-style:dotted" onclick="startRealEdit(this,\''+table+'\',\''+id+'\',\''+column+'\',\''+kind+'\')">'+esc(val||'Click to add')+'</span>';
+  return '<div class="kv"><span class="k">'+label+'</span><span class="v">'+display+'</span></div>';
 }
 function startRealEdit(el,table,id,column,kind){
   const holder=document.createElement('span');
@@ -2142,12 +2152,7 @@ async function quickLogOrgActivity(orgId){
    maker — an old-style edit here would have silently overwritten that
    structured data with free text. */
 function openOrgForm(){
-  openModal('<h3>New organisation</h3>'+
-    '<div class="field"><label class="fl">Name</label><input class="input" id="f_name"></div>'+
-    '<div class="field"><label class="fl">Type</label><select class="select" id="f_type">'+
-      ['Prospect','Customer','Investor','Partner','Supplier','Regulator','Advisor organisation','Internal','Other'].map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+
-    '<div class="faint" style="font-size:11px;margin-bottom:10px">Everything else — sector, next action, tags, summary — can be added right on the organisation\u2019s page after it\u2019s created.</div>'+
-    '<button class="btn gold" onclick="saveOrgForm()">Create</button>');
+  openModal('<h3>New organisation</h3>'+ '<div class="field"><label class="fl">Name</label><input class="input" id="f_name"></div>'+ '<div class="field"><label class="fl">Type</label><select class="select" id="f_type">'+['Prospect','Customer','Investor','Partner','Supplier','Regulator','Advisor organisation','Internal','Other'].map(t=>'<option>'+t+'</option>').join('')+'</select></div>'+ '<div style="padding:12px;border:1px solid var(--line);border-radius:10px;margin:12px 0"><div class="fl" style="margin-bottom:10px">Primary contact (optional)</div><div class="field"><label class="fl">Full name</label><input class="input" id="f_org_person_name"></div><div class="field"><label class="fl">Role</label><input class="input" id="f_org_person_role"></div><div class="field"><label class="fl">Email</label><input class="input" id="f_org_person_email"></div><div class="field"><label class="fl">LinkedIn</label><input class="input" id="f_org_person_linkedin"></div></div>'+ '<div class="faint" style="font-size:11px;margin-bottom:10px">Add a primary contact now and the Brain will create their profile and link it automatically.</div>'+ '<button class="btn gold" onclick="saveOrgForm()">Create organisation</button>');
 }
 async function saveOrgForm(){
   const name=document.getElementById('f_name').value.trim();
@@ -2168,6 +2173,8 @@ async function saveOrgForm(){
     canonical_name
   };
   const created=await dbInsert('organisations',payload);
+  const personName=(document.getElementById('f_org_person_name')?.value||'').trim();
+  if(personName){ await dbInsert('people',{full_name:personName,role:(document.getElementById('f_org_person_role')?.value||'').trim()||null,email:(document.getElementById('f_org_person_email')?.value||'').trim()||null,linkedin:(document.getElementById('f_org_person_linkedin')?.value||'').trim()||null,primary_organisation_id:created.id,created_by:myProfile.display_name}); }
   closeModal(); go('organisationDetail', created.id);
 }
 
@@ -2345,15 +2352,10 @@ async function quickLogPersonActivity(id){
    LinkedIn are kept here (not just inline-only) because they're what the
    duplicate-detection check below actually needs at creation time. */
 function openPersonForm(orgId){
-  const orgOpts='<option value="">—</option>'+state.organisations.map(o=>'<option value="'+o.id+'"'+(orgId===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('');
-  openModal('<h3>New person</h3>'+
-    '<div class="field"><label class="fl">Full name</label><input class="input" id="f_pname"></div>'+
-    '<div class="field"><label class="fl">Organisation</label><select class="select" id="f_porg">'+orgOpts+'</select></div>'+
-    '<div class="field"><label class="fl">Email</label><input class="input" id="f_pemail"></div>'+
-    '<div class="field"><label class="fl">LinkedIn</label><input class="input" id="f_plinkedin"></div>'+
-    '<div class="faint" style="font-size:11px;margin-bottom:10px">Role, warmth, notes and everything else can be added right on their page after creation.</div>'+
-    '<button class="btn gold" onclick="savePersonForm()">Create</button>');
+  const orgOpts='<option value="">— No organisation —</option>'+state.organisations.map(o=>'<option value="'+o.id+'"'+(orgId===o.id?' selected':'')+'>'+esc(o.name)+'</option>').join('')+'<option value="__new__">＋ Create new organisation</option>';
+  openModal('<h3>New person</h3>'+ '<div class="field"><label class="fl">Full name</label><input class="input" id="f_pname"></div>'+ '<div class="field"><label class="fl">Organisation</label><select class="select" id="f_porg" onchange="toggleNewOrgFields(this.value===\'__new__\')">'+orgOpts+'</select></div>'+ '<div id="newOrgFields" style="display:none;padding:12px;border:1px solid var(--line);border-radius:10px;margin-bottom:12px"><div class="field"><label class="fl">New organisation name</label><input class="input" id="f_new_org_name"></div><div class="field"><label class="fl">Organisation type</label><select class="select" id="f_new_org_type">'+['Prospect','Customer','Investor','Partner','Supplier','Regulator','Advisor organisation','Internal','Other'].map(t=>'<option>'+t+'</option>').join('')+'</select></div></div>'+ '<div class="field"><label class="fl">Email</label><input class="input" id="f_pemail"></div>'+ '<div class="field"><label class="fl">LinkedIn</label><input class="input" id="f_plinkedin"></div>'+ '<div class="faint" style="font-size:11px;margin-bottom:10px">Select an existing organisation or create a new one here. The records will be linked automatically.</div>'+ '<button class="btn gold" onclick="savePersonForm()">Create person</button>');
 }
+function toggleNewOrgFields(show){ const el=document.getElementById('newOrgFields'); if(el) el.style.display=show?'block':'none'; }
 async function savePersonForm(){
   const email=document.getElementById('f_pemail').value.trim();
   const linkedin=document.getElementById('f_plinkedin').value.trim();
@@ -2364,8 +2366,15 @@ async function savePersonForm(){
   }
   const full_name=document.getElementById('f_pname').value.trim();
   if(!full_name){toast('Name is required');return;}
+  let organisationId=document.getElementById('f_porg').value||null;
+  if(organisationId==='__new__'){
+    const orgName=document.getElementById('f_new_org_name').value.trim(); if(!orgName){toast('New organisation name is required');return;}
+    const canonical_name=orgName.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+    const existing=state.organisations.find(o=>!o.archived_at && (o.canonical_name||'')===canonical_name);
+    if(existing) organisationId=existing.id; else { const createdOrg=await dbInsert('organisations',{name:orgName,canonical_name,organisation_type:document.getElementById('f_new_org_type').value,created_by:myProfile.display_name,updated_by:myProfile.display_name}); organisationId=createdOrg.id; }
+  }
   const payload={
-    full_name, primary_organisation_id: document.getElementById('f_porg').value||null,
+    full_name, primary_organisation_id: organisationId,
     email: email||null, linkedin: linkedin||null, created_by: myProfile.display_name
   };
   const created=await dbInsert('people',payload);
@@ -2381,19 +2390,8 @@ function opportunityPriorityScore(op){
 }
 function vOpportunities(){
   const opps=[...state.opportunities].filter(o=>!o.archived_at).sort((a,b)=>{
-    // Stage is the strict queue. A lower-stage opportunity with a large manual
-    // priority score must never outrank Pilot discussion / Pilot active.
-    const stageDiff=stagePriorityScore(b.stage)-stagePriorityScore(a.stage);
-    if(stageDiff) return stageDiff;
-
-    // Priority and action urgency only rank opportunities within the same stage.
-    const priorityDiff=Number(b.priority||0)-Number(a.priority||0);
-    if(priorityDiff) return priorityDiff;
-    const aDue=!!(a.next_action_date && a.next_action_date<=today());
-    const bDue=!!(b.next_action_date && b.next_action_date<=today());
-    if(aDue!==bDue) return bDue-aDue;
-    const dateDiff=String(a.next_action_date||'9999-12-31').localeCompare(String(b.next_action_date||'9999-12-31'));
-    if(dateDiff) return dateDiff;
+    const diff=opportunityPriorityScore(b)-opportunityPriorityScore(a);
+    if(diff) return diff;
     return String(a.title||'').localeCompare(String(b.title||''));
   });
   const view=route.opportunitiesView=route.opportunitiesView||'card';
@@ -2406,7 +2404,7 @@ function vOpportunities(){
       '<div class="metric-tile"><div class="metric-value">'+active+'</div><div class="metric-label">Active</div></div>'+
       '<div class="metric-tile"><div class="metric-value">'+pilots+'</div><div class="metric-label">Pilot-stage</div></div>'+
       '<div class="metric-tile"><div class="metric-value">'+due+'</div><div class="metric-label">Action due</div></div>'+
-    '</div><div class="view-toolbar"><div class="faint" style="font-size:11.5px">Queued by stage, then priority</div>'+twoViewSwitcher('opportunitiesView',view)+'</div>';
+    '</div><div class="view-toolbar"><div class="faint" style="font-size:11.5px">Prioritised by opportunity score</div>'+twoViewSwitcher('opportunitiesView',view)+'</div>';
   if(!opps.length) return header+'<div class="empty"><div class="empty-ico">◈</div>No opportunities yet.</div>';
   if(view==='table'){
     return header+'<div class="card" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>'+
