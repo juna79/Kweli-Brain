@@ -2765,7 +2765,19 @@ async function saveCaptureInteraction(kind,id){
     const created=await safeInsert('meetings',{title:'Meeting with '+(p?p.full_name:(orgName(organisationId)||'contact')),organisation_id:organisationId||null,scheduled_at:new Date().toISOString(),notes,outcomes:autoSummary(notes),next_steps:nextSteps||null,meeting_status:'Completed',ended_at:new Date().toISOString(),created_by:myProfile.display_name});
     if(created){meetingId=created.id;if(personId) await safeInsert('meeting_attendees',{meeting_id:meetingId,person_id:personId});}
   }
-  await logActivity({activity_type:type,title:type+': '+(p?p.full_name:(orgName(organisationId)||'interaction')),body:notes,organisation_id:organisationId,person_id:personId,meeting_id:meetingId});
+  // The activities table uses a strict database CHECK constraint. The labels in
+  // this form are user-friendly, but they are not all valid stored values.
+  // Normalise them before inserting so Phone call / WhatsApp / Email saves do
+  // not fail at the activity log step.
+  const activityTypeMap={
+    'Meeting':'Meeting',
+    'Phone call':'Call',
+    'WhatsApp':'Note',
+    'Email':'Email sent',
+    'Note':'Note'
+  };
+  const storedActivityType=activityTypeMap[type]||'Note';
+  await logActivity({activity_type:storedActivityType,title:type+': '+(p?p.full_name:(orgName(organisationId)||'interaction')),body:notes,organisation_id:organisationId,person_id:personId,meeting_id:meetingId});
   await propagateInteraction({organisationId,personId,meetingId,notes,nextSteps,interactionType:type});
   closeModal();
   if(kind==='person') go('personDetail',id); else go('organisationDetail',id);
