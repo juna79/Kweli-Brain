@@ -4498,10 +4498,10 @@ const CONTENT_LIBRARY=[
    suffix if the plan structure ever changes again, so an old partial run
    never blocks a fresh correct one.
 --------------------------------------------------------------------------- */
-const MARKETING_CAMPAIGN_KEY = 'quiet-editorial-6mo-v1';
+const MARKETING_CAMPAIGN_KEY = 'quiet-editorial-6mo-v2';
 const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2','weekly-rhythm-6mo-v3','weekly-rhythm-6mo-v4'];
-const WEEKLY_MIGRATION_VERSION = 'quiet_editorial_v1';
-const FORWARD_MARKETING_RESET_VERSION = 'forward_marketing_reset_2026_07_27_v1';
+const WEEKLY_MIGRATION_VERSION = 'quiet_editorial_v2';
+const FORWARD_MARKETING_RESET_VERSION = 'forward_marketing_reset_2026_07_27_v2';
 const FORWARD_MARKETING_START = '2026-07-27';
 
 const MONTHLY_THEMES_6MO_V2 = ['Trust & provenance','Insurance workflows','Document integrity','Practical verification','Institutional trust','Building Kweli'];
@@ -4544,7 +4544,7 @@ function buildCampaignForWeek(week, firstMonday){
   const weekNum=String(week+1).padStart(2,'0');
   const weekMonday=addCalendarDays(firstMonday,week*7);
   return {id:MARKETING_CAMPAIGN_KEY+'-week-'+weekNum,weekNum,theme:c.theme,kind:c.kind,hook:c.hook,angle:c.angle,
-    dates:{tue:addCalendarDays(weekMonday,1),thu:addCalendarDays(weekMonday,3)}};
+    dates:{mon:addCalendarDays(weekMonday,0),thu:addCalendarDays(weekMonday,3)}};
 }
 function readyLinkedInCopy(cp){
   return cp.hook+'\n\n'+cp.angle+'\n\nKweli provides an independent way to check whether a document is the same file originally registered by its issuer. It does not judge whether the contents are true. It verifies origin and integrity.\n\nhttps://kweli.solutions/';
@@ -4563,7 +4563,7 @@ function buildInsurancePlanRows(){
   const rows=[];
   for(let week=0;week<26;week++){
     const cp=buildCampaignForWeek(week,firstMonday);
-    rows.push(mkCampaignTask(cp,'linkedin',cp.kind+': '+cp.theme,'LinkedIn Post',cp.dates.tue,readyLinkedInCopy(cp)));
+    rows.push(mkCampaignTask(cp,'linkedin',cp.kind+': '+cp.theme,'LinkedIn Post',cp.dates.mon,readyLinkedInCopy(cp)));
     rows.push(mkCampaignTask(cp,'instagram',cp.kind+': '+cp.theme,'Instagram Post',cp.dates.thu,readyInstagramCopy(cp)));
   }
   return rows;
@@ -4629,10 +4629,13 @@ async function seedInsurancePlanBatched(){
   let created=0;
   for(let i=0;i<trulyMissing.length;i+=CHUNK){
     const chunk=trulyMissing.slice(i,i+CHUNK);
+    // Use a normal insert after the explicit existing-key check above.
+    // This avoids requiring a database UNIQUE constraint on seed_key, which
+    // was causing the calendar installer to fail on some existing schemas.
     const {data,error} = await sb.from('marketing_items')
-      .upsert(chunk, {onConflict:'seed_key', ignoreDuplicates:true})
+      .insert(chunk)
       .select();
-    if(error){ console.error('[Marketing plan] batch upsert failed:',error); toast('Marketing plan setup failed: '+error.message); throw error; }
+    if(error){ console.error('[Marketing plan] batch insert failed:',error); toast('Marketing calendar setup failed: '+error.message); throw error; }
     (data||[]).forEach(row=>{ if(!byId(state.marketing_items,row.id)) state.marketing_items.push(row); });
     created += (data||[]).length;
   }
@@ -4744,7 +4747,7 @@ async function resetForwardGeneratedMarketingOnce(){
   // Remove only auto-generated campaign rows from 20 July 2026 onward;
   // manual marketing records and all earlier completed history are untouched.
   if(state.migration_log.some(m=>m.step===FORWARD_MARKETING_RESET_VERSION && m.status==='ok')) return {removed:0, alreadyDone:true};
-  const generatedPrefixes=['insurance-verification-6mo-','weekly-campaigns-6mo-','weekly-rhythm-6mo-'];
+  const generatedPrefixes=['insurance-verification-6mo-','weekly-campaigns-6mo-','weekly-rhythm-6mo-','quiet-editorial-6mo-'];
   const eligible=state.marketing_items.filter(mi=>{
     if(!mi.scheduled_at || String(mi.scheduled_at).slice(0,10)<FORWARD_MARKETING_START) return false;
     const keyed=!!mi.seed_key && generatedPrefixes.some(p=>String(mi.seed_key).startsWith(p));
