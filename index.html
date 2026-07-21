@@ -1580,7 +1580,7 @@ function dailyWorkspaceData(dateISO){
 }
 async function markDayItemComplete(type,id){
   try{
-    if(type==='meetings') await dbUpdate('meetings',id,{meeting_status:'Completed',ended_at:new Date().toISOString()});
+    if(type==='meetings') await dbUpdate('meetings',id,{meeting_status:'Completed'});
     else if(type==='tasks') await dbUpdate('tasks',id,{status:'Completed'});
     else if(type==='marketing') await dbUpdate('marketing_items',id,{status:'Published',completed_at:new Date().toISOString()});
     else if(type==='team') await dbUpdate('team_messages_v2',id,{status:'Done'});
@@ -2693,12 +2693,14 @@ async function propagateInteraction({organisationId,personId,meetingId,notes,nex
     const org=byId(state.organisations,organisationId);
     const patch={last_interaction_at:now};
     if(summary) patch.current_summary=summary;
+    if(nextSteps){patch.next_action_summary=nextSteps;patch.next_action_date=addDays(today(),7);}
     if(/pilot/i.test(notes)) patch.pipeline_stage='Pilot Planning';
     if(/positive|support|agreed|introduc|keen|interested/i.test(notes)) patch.relationship_status='Warm';
     await dbUpdate('organisations',organisationId,patch);
     const activeOpp=state.opportunities.find(o=>o.organisation_id===organisationId&&o.status==='Active')||state.opportunities.find(o=>o.organisation_id===organisationId);
     if(activeOpp){
       const opPatch={};
+      if(nextSteps) opPatch.next_action=nextSteps;
       if(/pilot/i.test(notes)) opPatch.stage='Pilot Planning';
       if(Object.keys(opPatch).length) await dbUpdate('opportunities',activeOpp.id,opPatch);
     }
@@ -2720,10 +2722,12 @@ async function propagateInteraction({organisationId,personId,meetingId,notes,nex
     const person=byId(state.people,pid); if(!person) continue;
     const existing=String(person.notes||'').trim();
     const updateLine=(summary?summary:'Interaction recorded')+(nextSteps?' Next: '+nextSteps:'');
-    await dbUpdate('people',pid,{last_interaction_at:now,notes:(updateLine+(existing?'\n\n'+existing:'')).slice(0,4000),warmth:/positive|support|agreed|introduc|keen|interested/i.test(notes)?'Warm':person.warmth});
+    await dbUpdate('people',pid,{last_interaction_at:now,notes:(updateLine+(existing?'\n\n'+existing:'')).slice(0,4000),next_action_summary:nextSteps||person.next_action_summary||null,warmth:/positive|support|agreed|introduc|keen|interested/i.test(notes)?'Warm':person.warmth});
   }
-  // Meeting next steps remain attached to the meeting record. The Brain does not
-  // manufacture a reminder or follow-up task; the user creates one explicitly if needed.
+  if(nextSteps){
+    const duplicate=state.tasks.some(t=>t.organisation_id===organisationId&&normText(t.title)===normText(nextSteps.slice(0,120))&&!['Completed','Cancelled'].includes(t.status));
+    if(!duplicate) await safeInsert('tasks',{title:nextSteps.slice(0,120),description:nextSteps,organisation_id:organisationId||null,person_id:personId||null,opportunity_id:opportunityId||null,status:'To Do',priority:'Normal',due_at:addDays(today(),7),created_by_user_id:myProfile.id,assigned_to_user_id:myProfile.id});
+  }
   const objections=extractLines(notes,[/doesn.?t want/i,/do not want/i,/concern/i,/hesitat/i,/objection/i,/too expensive/i,/free pilot/i,/no api/i]);
   for(const line of objections.slice(0,3)) await safeInsert('objections',{organisation_id:organisationId||null,raised_by_person_id:personId||null,objection:line,status:'Open',created_by:myProfile.display_name});
   const decisions=extractLines(notes,[/agreed/i,/decided/i,/will introduce/i,/approved/i,/pilot/i]);
@@ -2932,8 +2936,8 @@ async function saveMeetingForm(id){
 function openMeetingNotesForm(id){
   const m=byId(state.meetings,id);
   openModal('<h3>Capture meeting — '+esc(m.title)+'</h3>'+ 
-    '<div class="field"><label class="fl">What happened?</label><textarea class="input" id="f_mnotes" rows="12" placeholder="Paste your notes. The Brain will preserve the meeting history and update relevant knowledge without creating automatic reminders.">'+esc(m.notes||'')+'</textarea></div>'+ 
-    '<div class="field"><label class="fl">Next step (record only)</label><input class="input" id="f_mnext" placeholder="Optional outcome to remember — this will not create a reminder" value="'+esc(m.next_steps||'')+'"></div>'+ 
+    '<div class="field"><label class="fl">What happened?</label><textarea class="input" id="f_mnotes" rows="12" placeholder="Paste your notes. The Brain will update the company, people, opportunity, timeline and follow-ups automatically.">'+esc(m.notes||'')+'</textarea></div>'+ 
+    '<div class="field"><label class="fl">Next action</label><input class="input" id="f_mnext" placeholder="e.g. Vishal to introduce us to Head of Motor" value="'+esc(m.next_steps||'')+'"></div>'+ 
     '<button class="btn gold" onclick="saveMeetingNotes(\''+id+'\')">Save and update Brain</button>', true);
 }
 async function saveMeetingNotes(id){
@@ -4498,79 +4502,221 @@ const CONTENT_LIBRARY=[
    suffix if the plan structure ever changes again, so an old partial run
    never blocks a fresh correct one.
 --------------------------------------------------------------------------- */
-const MARKETING_CAMPAIGN_KEY = 'quiet-editorial-6mo-v2';
-const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2','weekly-rhythm-6mo-v3','weekly-rhythm-6mo-v4'];
-const WEEKLY_MIGRATION_VERSION = 'quiet_editorial_v2';
-const FORWARD_MARKETING_RESET_VERSION = 'forward_marketing_reset_2026_07_27_v2';
-const FORWARD_MARKETING_START = '2026-07-27';
+const MARKETING_CAMPAIGN_KEY = 'weekly-rhythm-6mo-v4';
+const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2','weekly-rhythm-6mo-v3'];
+const WEEKLY_MIGRATION_VERSION = 'weekly_rhythm_v2';
+const FORWARD_MARKETING_RESET_VERSION = 'forward_marketing_reset_2026_07_20_v2';
+const FORWARD_MARKETING_START = '2026-07-20';
 
-const MONTHLY_THEMES_6MO_V2 = ['Trust & provenance','Insurance workflows','Document integrity','Practical verification','Institutional trust','Building Kweli'];
-/* Quiet editorial rhythm. No APIs, web scanning, videos, articles, X posts,
-   distribution chores or weekly review tasks. Every scheduled item is a
-   finished social draft requiring only a quick human review before posting. */
-const WEEK_SLOTS = ['linkedin','instagram'];
+const MONTHLY_THEMES_6MO_V2 = ['The Trust Problem','Insurance','Verification Infrastructure','Customer Stories','Future of Trust','Building the Category'];
+/* FIXED operating rhythm — identical every week, only the theme changes.
+   Mon: article + Instagram carousel. Tue: LinkedIn + X. Wed: exactly ONE
+   rotating support task (per-campaign). Thu: distribution only. Fri: Founder
+   Friday + review. Sat/Sun: nothing. This is a rhythm a founder can sustain,
+   not a content-maximising calendar. */
+const WEEK_SLOTS = ['article','instagram','linkedin','x','support','distribution','friday','review'];
 
+/* 26 weekly campaigns = a 6-month thematic arc. Each is ONE message driven
+   into the market for a week. Audience/objective seed the deliverables; the
+   founder reflection and distribution task derive from the SAME theme, never
+   a random topic. Edit these freely — they are just the starting sequence. */
 const CAMPAIGN_THEMES = [
-  {theme:'The Original Document Question', kind:'Insight', hook:'Before asking whether a claim is fraudulent, ask whether the evidence is still the original evidence.', angle:'Provenance comes before investigation.'},
-  {theme:'Did You Know: Digital Fingerprints', kind:'Did You Know', hook:'Did you know that changing even one character in a document creates a completely different digital fingerprint?', angle:'A tiny alteration becomes independently detectable.'},
-  {theme:'Claims Evidence Chain', kind:'Insurance', hook:'A claim can involve photographs, quotations, reports and invoices. The weak point is often the handoff between them.', angle:'Trust should follow evidence through the workflow.'},
-  {theme:'Myth: PDFs Cannot Be Changed', kind:'Myth vs Fact', hook:'Myth: a PDF is safe because it looks finished. Fact: a PDF can still be altered.', angle:'Appearance is not proof of origin.'},
-  {theme:'What Kweli Does Not Do', kind:'Explainer', hook:'Kweli does not decide whether the contents of a document are true.', angle:'It proves whether the file matches the one originally registered by its issuer.'},
-  {theme:'The Quiet Cost of Manual Verification', kind:'Operations', hook:'When teams have to phone, email or WhatsApp an issuer to confirm a document, verification becomes a bottleneck.', angle:'Independent verification removes unnecessary friction.'},
-  {theme:'Insurance Industry Conversation', kind:'Industry', hook:'As insurers discuss efficiency, automation and fraud, one basic question deserves more attention: can the supporting documents be trusted?', angle:'Verification belongs inside the operating model.'},
-  {theme:'Did You Know: Images Change Too', kind:'Did You Know', hook:'Did you know that cropping, replacing or editing an image changes its digital fingerprint?', angle:'Claims photographs can be verified just like documents.'},
-  {theme:'Original Versus Truthful', kind:'Education', hook:'An original document can still contain incorrect information. An altered document can look completely convincing.', angle:'Integrity and truth are different questions.'},
-  {theme:'The Garage Quote Problem', kind:'Insurance', hook:'A repair quotation may pass through several hands before an insurer sees it.', angle:'Verification can show whether it is still the quotation the garage issued.'},
-  {theme:'Trust Infrastructure', kind:'Category', hook:'Payments needed infrastructure. Identity needed infrastructure. Digital documents now need trust infrastructure.', angle:'Verification should work quietly in the background.'},
-  {theme:'Myth: Blockchain Means Crypto', kind:'Myth vs Fact', hook:'Myth: blockchain is only about coins. Fact: one useful application is proving that a record existed in a specific form at a specific time.', angle:'The value is verifiability, not speculation.'},
-  {theme:'The Issuer Advantage', kind:'Issuer', hook:'The strongest person to verify a document is the organisation that issued it.', angle:'Issuers can give every downstream recipient independent proof.'},
-  {theme:'Did You Know: No File Upload', kind:'Did You Know', hook:'Did you know Kweli can verify a document without storing the document itself?', angle:'The fingerprint is created on the user’s device; the file remains private.'},
-  {theme:'Medical Claims Documents', kind:'Insurance', hook:'Medical claims rely on bills, reports and supporting records moving between institutions.', angle:'Each handoff is safer when the original issued file can be independently checked.'},
-  {theme:'A Document Can Look Perfect', kind:'Fraud', hook:'The document looked perfect. That was the problem.', angle:'Visual inspection is becoming weaker as alteration tools improve.'},
-  {theme:'Verification Before Automation', kind:'AI', hook:'Automating a workflow does not help if the documents entering it cannot be trusted.', angle:'AI and automation need verifiable inputs.'},
-  {theme:'Special Information: One Pixel', kind:'Special Info', hook:'One changed pixel is enough to create a different file fingerprint.', angle:'Integrity checks do not depend on a human spotting the difference.'},
-  {theme:'Claims Leakage', kind:'Insurance', hook:'Claims leakage is not always dramatic fraud. Sometimes it is a supporting document quietly changing during the process.', angle:'Provenance narrows a category of avoidable loss.'},
-  {theme:'What Verification Failed Means', kind:'Explainer', hook:'“Verification failed” does not automatically mean fraud.', angle:'It means the file does not match the version originally registered and should be reviewed.'},
-  {theme:'The Paperless Misconception', kind:'Digital', hook:'Paperless does not automatically mean tamper-proof.', angle:'Digital workflows still need a way to prove origin and integrity.'},
-  {theme:'Did You Know: Verification Anywhere', kind:'Did You Know', hook:'Did you know the same document can be verified wherever it is received?', angle:'Trust can travel with the file beyond the issuer’s own system.'},
-  {theme:'Independent Proof', kind:'Trust', hook:'“It came from our system” is useful. Independent proof that it has not changed is stronger.', angle:'Verification should not depend on access to the original platform.'},
-  {theme:'The Claims Workflow View', kind:'Insurance', hook:'Scene image. Garage quotation. Assessor report. Final invoice.', angle:'Each step can be registered and checked as one trusted evidence chain.'},
-  {theme:'Building from Nairobi', kind:'Founder', hook:'We are building Kweli from Nairobi because document trust is not an abstract problem here.', angle:'The infrastructure should be practical, affordable and built around real workflows.'},
-  {theme:'The Five-Second Check', kind:'Product', hook:'Document verification should not require a phone call, an email chain or access to another company’s database.', angle:'Upload, check and get a clear result in seconds.'}
+  {theme:'Motor Claims Fraud', problem:'Staged accidents and doctored motor documents drain motor portfolios.', audience:'Motor & general insurers', objective:'Get motor claims teams talking to us.', support:'FAQ', article:'The Staged Accident Problem Nobody Wants to Talk About'},
+  {theme:'Hospital & Medical Billing Fraud', problem:'Inflated and fabricated medical bills slip through because documents are trusted on sight.', audience:'Health insurers & medical schemes', objective:'Open conversations with medical claims leads.', support:'Email Version', article:'Why Medical Bills Are the Easiest Thing to Fake'},
+  {theme:'Fake Invoices in Claims', problem:'A convincing fake invoice is minutes of work and costs insurers real money.', audience:'Claims & finance leaders', objective:'Show why invoice authenticity matters.', support:'Short Video', article:'A Convincing Fake Invoice Takes Five Minutes'},
+  {theme:'Medical Report Verification', problem:'Medical reports get altered between the clinic and the claim.', audience:'Health insurers & assessors', objective:'Surface demand for report verification.', support:'FAQ', article:'The Medical Report That Changed Between the Clinic and the Claim'},
+  {theme:'Police Abstract & Report Verification', problem:'Police abstracts are routinely forged and rarely checked at source.', audience:'Motor & liability insurers', objective:'Start conversations on abstract verification.', support:'Case Study', article:'Nobody Actually Checks the Police Abstract'},
+  {theme:'Repair Quotation Fraud', problem:'Inflated garage and repair quotes ride on documents no one verifies.', audience:'Motor claims & assessors', objective:'Engage assessors on quote integrity.', support:'Short Video', article:'The Inflated Repair Quote Is a Document Problem'},
+  {theme:'Why Insurers Still Phone to Verify', problem:'Verification today means someone calling the issuer to ask "is this real?"', audience:'Insurance operations leaders', objective:'Frame Kweli as the end of manual verification.', support:'Founder Insight', article:'Your Verification Process Is a Phone Call'},
+  {theme:'Certificate Fraud', problem:'Certificates of all kinds are forged because there is no cheap way to prove issuance.', audience:'Certifiers, insurers & employers', objective:'Broaden the conversation beyond insurance.', support:'FAQ', article:'What a Certificate Actually Proves (And What It Doesn\'t)'},
+  {theme:'Import Documentation Trust', problem:'Import paperwork is easy to fake and expensive to check.', audience:'Trade, logistics & compliance leaders', objective:'Open conversations in trade.', support:'Email Version', article:'The Import Paperwork Nobody Can Verify'},
+  {theme:'Export Documentation Trust', problem:'Export documents underpin real money and cross many untrusting hands.', audience:'Exporters & trade finance', objective:'Reach trade & compliance teams.', support:'Case Study', article:'Export Documents Move Real Money Through Untrusting Hands'},
+  {theme:'Laboratory Report Integrity', problem:'Lab results are trusted downstream with no proof they were not altered.', audience:'Labs, certifiers & buyers', objective:'Engage the issuer side (labs).', support:'Short Video', article:'Can You Trust a Lab Result You Didn\'t Watch Get Made?'},
+  {theme:'Educational Certificate Verification', problem:'Fake degrees and transcripts are normalised and slow to check.', audience:'Employers & institutions', objective:'Show a second clear use case.', support:'FAQ', article:'The Fake Degree Is a Solved Problem We Haven\'t Deployed'},
+  {theme:'Procurement & Tender Document Fraud', problem:'Tender and procurement documents are forged where the money is largest.', audience:'Procurement & governance leaders', objective:'Reach corporate governance buyers.', support:'Case Study', article:'Where the Money Is Largest, the Documents Are Faked'},
+  {theme:'Supply Chain Document Trust', problem:'Every handoff in a supply chain assumes documents are genuine.', audience:'Operations & supply-chain leaders', objective:'Position verification across the chain.', support:'Email Version', article:'Every Handoff Assumes the Document Is Real'},
+  {theme:'The Hidden Cost of Manual Verification', problem:'Manual verification is slow, expensive and still misses fakes.', audience:'CIOs, COOs & risk leaders', objective:'Quantify the cost we remove.', support:'Founder Insight', article:'The Hidden Cost of “We\'ll Just Call to Confirm”'},
+  {theme:'Verification as Infrastructure', problem:'Trust is becoming an infrastructure layer, not a feature.', audience:'CIOs, innovation & risk leaders', objective:'Position Kweli as the verification layer.', support:'Founder Insight', article:'Trust Is Becoming Infrastructure'},
+  {theme:'Digital Document Authenticity', problem:'Documents are digital, but proving they are authentic is still analogue.', audience:'Digital transformation leaders', objective:'Own the authenticity conversation.', support:'Short Video', article:'Your Documents Are Digital. Proving They\'re Real Is Still Analogue.'},
+  {theme:'Blockchain Beyond Crypto', problem:'The useful part of blockchain is verifiable issuance, not tokens.', audience:'Technical & innovation leaders', objective:'Reframe blockchain around verification.', support:'FAQ', article:'The Useful Part of Blockchain Was Never the Coin'},
+  {theme:'Why AI Needs Verifiable Documents', problem:'AI amplifies whatever documents it is fed, real or fake.', audience:'CIOs & AI adopters', objective:'Tie verification to AI adoption.', support:'Email Version', article:'AI Will Happily Believe a Fake Document'},
+  {theme:'Lessons from Customer Conversations', problem:'What 30+ enterprise conversations actually taught us about document trust.', audience:'Founders, operators & our network', objective:'Pull replies from our network.', support:'Customer Story', article:'What Thirty Enterprise Conversations Taught Us About Trust'},
+  {theme:'Building Kweli in Africa', problem:'Why verification infrastructure has to be built here, for here.', audience:'Founders, ecosystem & investors', objective:'Build narrative and investor interest.', support:'Founder Insight', article:'Why We\'re Building Verification Infrastructure in Nairobi'},
+  {theme:'Growing Up in Kenya: Why Trust Matters', problem:'Where document trust breaks down every day, and why it shaped Kweli.', audience:'Founders & our network', objective:'Personal reach and connection.', support:'Founder Insight', article:'Growing Up Where Documents Can\'t Be Trusted'},
+  {theme:'Founder Mistakes We\u2019ve Made', problem:'The wrong turns \u2014 including building an exchange first.', audience:'Founders & operators', objective:'Earn trust through candour.', support:'Founder Insight', article:'We Built an Exchange Before We Understood the Problem'},
+  {theme:'Pilot Learnings', problem:'What early pilots taught us about where verification really bites.', audience:'Customers, partners & investors', objective:'Show real, honest progress.', support:'Customer Story', article:'What Our First Pilots Taught Us About Where Verification Bites'},
+  {theme:'The Future of Document Verification', problem:'Where verification infrastructure goes over the next decade.', audience:'CIOs, innovation leaders & investors', objective:'Set the category vision.', support:'Short Video', article:'Where Document Verification Goes Next'},
+  {theme:'Claims Leakage', problem:'Insurers lose millions because nobody has time to verify every supporting document.', audience:'Insurance & claims executives', objective:'Start conversations with claims managers.', support:'Case Study', article:'Claims Leakage: The Silent Margin Killer'}
 ];
 
+/* ---------------------------------------------------------------------------
+   Every row gets a deterministic seed_key of the form
+   'weekly-campaigns-6mo-v1-week-01-article'. This is the uniqueness
+   mechanism (real unique index). Building this list is pure, deterministic,
+   offline computation; no network call happens here.
+--------------------------------------------------------------------------- */
+/* The very next Monday strictly AFTER today — never today itself, even if
+   today happens to be a Monday. Weekend rollover (Sat/Sun -> Monday) falls
+   out of the same formula. Previously this walked BACKWARD to the current
+   week's Monday when today was Sunday (dow=0 gave -6, landing in the
+   past) — that bug is why a plan seeded on a Sunday could start days
+   before the seed even ran. */
+/* Timezone-safe calendar-date helpers. NEVER use toISOString() for schedule
+   generation — in timezones ahead of UTC (e.g. Nairobi, UTC+3) local midnight
+   converts to the previous day, shifting every scheduled date back one day.
+   These build and read LOCAL calendar dates and never touch UTC. */
+function dateKeyLocal(date){
+  const y=date.getFullYear();
+  const m=String(date.getMonth()+1).padStart(2,'0');
+  const d=String(date.getDate()).padStart(2,'0');
+  return y+'-'+m+'-'+d;
+}
+function addCalendarDays(base, days){
+  const d=new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  d.setDate(d.getDate()+days);
+  return d;
+}
+function weekdayOf(dateValue){
+  // Supabase may return a DATE as "YYYY-MM-DD" or a timestamp such as
+  // "YYYY-MM-DDT00:00:00+00:00". Always read only the calendar-date part;
+  // parsing the full timestamp can shift weekdays by timezone, while splitting
+  // without trimming makes the day component NaN (e.g. "20T00:00:00").
+  const m=String(dateValue||'').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(!m) return NaN;
+  return new Date(Number(m[1]), Number(m[2])-1, Number(m[3])).getDay();
+} // 0=Sun..6=Sat, local, no UTC shift
+function firstPlanMonday(from){
+  const d=new Date(from); d.setHours(0,0,0,0);
+  const dow=d.getDay(); // 0=Sun..6=Sat
+  let daysAhead=((1-dow+7)%7);
+  if(daysAhead===0) daysAhead=7; // today IS Monday — never seed onto today, use next week's Monday instead
+  d.setDate(d.getDate()+daysAhead);
+  return d;
+}
+function campaignKeyForWeek(week){ return 'wk'+String(week+1).padStart(2,'0'); }
+/* Up to three real CRM organisation names, most-recently-touched first, baked
+   into the distribution task title so it is self-contained. Falls back
+   cleanly when the CRM is empty. Recomputed each rebuild. */
+function seedDistributionNames(){
+  const orgs=(state.organisations||[]).filter(o=>!o.archived_at)
+    .sort((a,b)=>String(b.last_interaction_at||b.next_action_date||'').localeCompare(String(a.last_interaction_at||a.next_action_date||'')))
+    .map(o=>o.name).filter(Boolean).slice(0,3);
+  if(!orgs.length) return 'relevant CRM contacts';
+  if(orgs.length===1) return orgs[0];
+  if(orgs.length===2) return orgs[0]+' and '+orgs[1];
+  return orgs[0]+', '+orgs[1]+' and '+orgs[2];
+}
+function supportTaskTitle(support, theme){
+  const t=theme.toLowerCase();
+  switch(support){
+    case 'Founder Insight': return 'Founder insight: what researching '+t+' taught me';
+    case 'Case Study': return 'Case study: '+theme+' in practice';
+    case 'FAQ': return 'FAQ: '+theme+' — the questions buyers actually ask';
+    case 'Customer Story': return 'Customer story: '+theme;
+    case 'Short Video': return 'Short video: '+theme+' in 60 seconds';
+    default: return support+': '+theme;
+  }
+}
+/* ---------------------------------------------------------------------------
+   CAMPAIGN MODEL. Each week is ONE campaign object. Every one of its eight
+   tasks is derived from that single object and stamps the campaign's identity
+   (theme + article title) into its own fields. Tasks are NEVER assembled from
+   parallel articles[]/linkedin[]/x[] arrays and zipped together afterwards —
+   that is what let references drift across weeks. Build campaigns[], then for
+   each campaign create its Mon/Tue/Wed/Thu/Fri tasks in place.
+--------------------------------------------------------------------------- */
 function buildCampaignForWeek(week, firstMonday){
-  const c=CAMPAIGN_THEMES[week % CAMPAIGN_THEMES.length];
-  const weekNum=String(week+1).padStart(2,'0');
-  const weekMonday=addCalendarDays(firstMonday,week*7);
-  return {id:MARKETING_CAMPAIGN_KEY+'-week-'+weekNum,weekNum,theme:c.theme,kind:c.kind,hook:c.hook,angle:c.angle,
-    dates:{mon:addCalendarDays(weekMonday,0),thu:addCalendarDays(weekMonday,3)}};
+  const c = CAMPAIGN_THEMES[week % CAMPAIGN_THEMES.length];
+  const weekNum = String(week+1).padStart(2,'0');
+  const weekMonday = addCalendarDays(firstMonday, week*7);
+  return {
+    id: MARKETING_CAMPAIGN_KEY+'-week-'+weekNum,   // stable campaign id → seed_key prefix
+    weekNum,
+    theme: c.theme,
+    title: c.article || c.theme,                   // article headline = campaign title
+    audience: c.audience || null,
+    objective: c.objective || null,
+    problem: c.problem || '',
+    support: c.support || 'Founder Insight',
+    dates: {
+      mon: addCalendarDays(weekMonday, 0),
+      tue: addCalendarDays(weekMonday, 1),
+      wed: addCalendarDays(weekMonday, 2),
+      thu: addCalendarDays(weekMonday, 3),
+      fri: addCalendarDays(weekMonday, 4)
+    }
+  };
 }
-function readyLinkedInCopy(cp){
-  return cp.hook+'\n\n'+cp.angle+'\n\nKweli provides an independent way to check whether a document is the same file originally registered by its issuer. It does not judge whether the contents are true. It verifies origin and integrity.\n\nhttps://kweli.solutions/';
+/* Every task inherits title/audience/objective + campaign identity from the
+   parent campaign object it is passed. It cannot reference any other week. */
+function mkCampaignTask(cp, slot, title, type, date, note){
+  return {
+    seed_key: cp.id+'-'+slot,
+    title, item_type:type,
+    audience: cp.audience, objective: cp.objective,
+    status:STAGE_TO_DB_STATUS['Planned'], priority:'Normal', owner_user_id:myProfile.id,
+    scheduled_at: dateKeyLocal(date),
+    // campaign = theme (identity), sourceTitle = article headline. Both are
+    // read back by the per-week single-campaign verification.
+    description:serializeContentFields('Planned',{campaign:cp.theme, topic:cp.theme, sourceTitle:cp.title, notes:note})
+  };
 }
-function readyInstagramCopy(cp){
-  const lead=cp.kind==='Did You Know'?'DID YOU KNOW?':cp.kind==='Myth vs Fact'?'MYTH VS FACT':cp.kind.toUpperCase();
-  return lead+'\n\n'+cp.hook+'\n\n'+cp.angle+'\n\nKweli: independent document verification.\n\n#DocumentIntegrity #DigitalTrust #Kweli';
+function createMondayTasks(cp){
+  return [
+    mkCampaignTask(cp,'article','Write article: \u201c'+cp.title+'\u201d', 'Article', cp.dates.mon,
+      'THE source asset for the week.\nProblem: '+cp.problem+'\nAudience: '+cp.audience+'\nObjective: '+cp.objective+'\n\nResearch and write this one article. Everything else this week is derived from it.'),
+    mkCampaignTask(cp,'instagram','Create Instagram carousel from \u201c'+cp.title+'\u201d', 'Instagram Carousel', cp.dates.mon,
+      'Turn \u201c'+cp.title+'\u201d into a carousel \u2014 one idea per slide, cover \u2192 problem \u2192 how it happens \u2192 the shift \u2192 CTA. Clean navy/gold, few words per slide.')
+  ];
 }
-function mkCampaignTask(cp,slot,title,type,date,draft){
-  return {seed_key:cp.id+'-'+slot,title,item_type:type,audience:type==='LinkedIn Post'?'LinkedIn / institutional decision-makers':'Instagram / general awareness',
-    objective:'Ready to review and publish. No additional content creation required.',status:STAGE_TO_DB_STATUS['Planned'],priority:'Normal',owner_user_id:myProfile.id,
-    scheduled_at:dateKeyLocal(date),description:serializeContentFields('Planned',{campaign:cp.theme,topic:cp.kind,sourceTitle:cp.theme,notes:'READY-TO-POST DRAFT\n\n'+draft+'\n\nReview for accuracy and tone, then publish. No outreach or follow-up task is created.'})};
+function createTuesdayTasks(cp){
+  return [
+    mkCampaignTask(cp,'linkedin','Publish LinkedIn version of \u201c'+cp.title+'\u201d', 'LinkedIn Post', cp.dates.tue,
+      'Repurpose \u201c'+cp.title+'\u201d into ONE LinkedIn post. Same idea, not a new one. Sharp hook; end with a question that invites a reply.'),
+    mkCampaignTask(cp,'x','Publish X version of \u201c'+cp.title+'\u201d', 'X Post', cp.dates.tue,
+      'Repurpose \u201c'+cp.title+'\u201d into ONE X post (or a short thread). Blunter and more conversational than LinkedIn.')
+  ];
+}
+function createWednesdayTask(cp){
+  return [
+    mkCampaignTask(cp,'support', supportTaskTitle(cp.support, cp.theme), cp.support, cp.dates.wed,
+      'This week\u2019s single supporting asset, built from \u201c'+cp.title+'\u201d. Just this one \u2014 nothing else scheduled today.')
+  ];
+}
+function createThursdayTask(cp, crmNames){
+  return [
+    mkCampaignTask(cp,'distribution','Send this week\u2019s '+cp.theme+' article to '+crmNames, 'Distribution', cp.dates.thu,
+      'Distribution only \u2014 no new content.\n\n\u2022 Send \u201c'+cp.title+'\u201d to the most relevant people in your CRM (live suggestions are in this task and on Today).\n\u2022 Comment on 1\u20132 industry posts about '+cp.theme.toLowerCase()+'.\n\u2022 Follow up with anyone who engaged.')
+  ];
+}
+function createFridayTasks(cp){
+  return [
+    mkCampaignTask(cp,'friday','Founder Friday: a personal note from the '+cp.theme+' week', 'Founder Friday', cp.dates.fri,
+      'One personal post \u2014 what I learnt this week, the biggest customer lesson, building Kweli, a startup mistake, why trust matters, or a conversation from this week. Keep it personal and honest. No fabricated pilot claims.'),
+    mkCampaignTask(cp,'review','Weekly review: '+cp.theme+' campaign', 'Weekly Review', cp.dates.fri,
+      'Close out the week:\n\u2022 Article \u201c'+cp.title+'\u201d published?  LinkedIn published?  X published?\n\u2022 Distribution completed?\n\u2022 What conversations happened this week? Who engaged?\n\u2022 Pick next week\u2019s campaign theme.')
+  ];
 }
 function buildInsurancePlanRows(){
-  const firstMonday=new Date(2026,6,27); // Monday 27 July 2026
+  const firstMonday = new Date(2026, 6, 20); // fixed Monday anchor: 20 July 2026
+  const crmNames = seedDistributionNames();
+  // 1) Build exactly one campaign per week.
+  const campaigns=[];
+  for(let week=0; week<26; week++) campaigns.push(buildCampaignForWeek(week, firstMonday));
+  // 2) Derive all eight tasks per campaign, in place, from that one object.
   const rows=[];
-  for(let week=0;week<26;week++){
-    const cp=buildCampaignForWeek(week,firstMonday);
-    rows.push(mkCampaignTask(cp,'linkedin',cp.kind+': '+cp.theme,'LinkedIn Post',cp.dates.mon,readyLinkedInCopy(cp)));
-    rows.push(mkCampaignTask(cp,'instagram',cp.kind+': '+cp.theme,'Instagram Post',cp.dates.thu,readyInstagramCopy(cp)));
-  }
+  campaigns.forEach(cp=>{
+    createMondayTasks(cp).forEach(t=>rows.push(t));
+    createTuesdayTasks(cp).forEach(t=>rows.push(t));
+    createWednesdayTask(cp).forEach(t=>rows.push(t));
+    createThursdayTask(cp, crmNames).forEach(t=>rows.push(t));
+    createFridayTasks(cp).forEach(t=>rows.push(t));
+  });
   return rows;
 }
 function expectedSeedKeys(){
   const keys=[];
-  for(let week=0;week<26;week++){
+  for(let week=0; week<26; week++){
     const weekNum=String(week+1).padStart(2,'0');
     WEEK_SLOTS.forEach(slot=>keys.push(MARKETING_CAMPAIGN_KEY+'-week-'+weekNum+'-'+slot));
   }
@@ -4629,13 +4775,10 @@ async function seedInsurancePlanBatched(){
   let created=0;
   for(let i=0;i<trulyMissing.length;i+=CHUNK){
     const chunk=trulyMissing.slice(i,i+CHUNK);
-    // Use a normal insert after the explicit existing-key check above.
-    // This avoids requiring a database UNIQUE constraint on seed_key, which
-    // was causing the calendar installer to fail on some existing schemas.
     const {data,error} = await sb.from('marketing_items')
-      .insert(chunk)
+      .upsert(chunk, {onConflict:'seed_key', ignoreDuplicates:true})
       .select();
-    if(error){ console.error('[Marketing plan] batch insert failed:',error); toast('Marketing calendar setup failed: '+error.message); throw error; }
+    if(error){ console.error('[Marketing plan] batch upsert failed:',error); toast('Marketing plan setup failed: '+error.message); throw error; }
     (data||[]).forEach(row=>{ if(!byId(state.marketing_items,row.id)) state.marketing_items.push(row); });
     created += (data||[]).length;
   }
@@ -4747,7 +4890,7 @@ async function resetForwardGeneratedMarketingOnce(){
   // Remove only auto-generated campaign rows from 20 July 2026 onward;
   // manual marketing records and all earlier completed history are untouched.
   if(state.migration_log.some(m=>m.step===FORWARD_MARKETING_RESET_VERSION && m.status==='ok')) return {removed:0, alreadyDone:true};
-  const generatedPrefixes=['insurance-verification-6mo-','weekly-campaigns-6mo-','weekly-rhythm-6mo-','quiet-editorial-6mo-'];
+  const generatedPrefixes=['insurance-verification-6mo-','weekly-campaigns-6mo-','weekly-rhythm-6mo-'];
   const eligible=state.marketing_items.filter(mi=>{
     if(!mi.scheduled_at || String(mi.scheduled_at).slice(0,10)<FORWARD_MARKETING_START) return false;
     const keyed=!!mi.seed_key && generatedPrefixes.some(p=>String(mi.seed_key).startsWith(p));
@@ -4773,74 +4916,28 @@ async function resetForwardGeneratedMarketingOnce(){
 }
 
 async function autoSeedMarketingPlanIfNeeded(){
-  /* Calendar-first compatibility installer.
-     The live Brain database may use the original marketing_items schema,
-     which does not necessarily include seed_key or the newer migration
-     constraints. The editorial plan must still be visible. We therefore:
-       1. build the 52 planned items using only established columns;
-       2. inject any missing items into local state immediately, so Calendar,
-          Today and Marketing all render them on every login;
-       3. attempt to persist them using the original table fields only;
-       4. never block or hide the plan if persistence is restricted by RLS.
-     Existing meetings and manually-created marketing are untouched. */
-  const planned=buildInsurancePlanRows();
-  const identity=r=>String(r.title||'')+'|'+String(r.scheduled_at||'').slice(0,10)+'|'+String(r.item_type||'');
-  const existing=new Map(state.marketing_items.map(mi=>[identity(mi),mi]));
-  const virtual=[];
-
-  for(const raw of planned){
-    const key=identity(raw);
-    if(existing.has(key)) continue;
-    const row={
-      id:'quiet-plan-'+String(raw.seed_key||key).replace(/[^a-zA-Z0-9_-]/g,'-'),
-      title:raw.title,
-      item_type:raw.item_type,
-      audience:raw.audience||null,
-      objective:raw.objective||null,
-      status:'Scheduled',
-      priority:'Normal',
-      owner_user_id:myProfile.id,
-      scheduled_at:String(raw.scheduled_at).slice(0,10),
-      description:raw.description||'',
-      created_at:new Date().toISOString(),
-      updated_at:new Date().toISOString(),
-      __quiet_plan_virtual:true
-    };
-    state.marketing_items.push(row);
-    existing.set(key,row);
-    virtual.push(row);
-  }
-
-  // Render immediately. The plan no longer depends on a successful migration.
-  if(virtual.length && route && route.page) renderCurrent();
-
-  // Best-effort persistence using only columns already used by the original
-  // New Content Item form. A failure does not remove the visible calendar.
-  let persisted=0;
-  for(const row of virtual){
-    try{
-      const payload={
-        title:row.title,
-        item_type:row.item_type,
-        audience:row.audience,
-        objective:row.objective,
-        status:'Scheduled',
-        priority:'Normal',
-        owner_user_id:myProfile.id,
-        description:row.description,
-        scheduled_at:row.scheduled_at
-      };
-      const {data,error}=await sb.from('marketing_items').insert(payload).select().single();
-      if(error) throw error;
-      const idx=state.marketing_items.findIndex(mi=>mi.id===row.id);
-      if(idx>=0) state.marketing_items[idx]=data;
-      persisted++;
-    }catch(e){
-      console.warn('[Quiet marketing plan] Calendar item shown locally; database persistence unavailable:',e);
+  try{
+    const reset=await resetForwardGeneratedMarketingOnce();
+    if(reset.removed) toast('Marketing calendar cleaned — removed '+reset.removed+' duplicate/legacy generated item(s)');
+    await migrateToWeeklyCampaignsOnce();
+    const dedupResult=await dedupeMarketingItemsOnce();
+    if(dedupResult.removed || dedupResult.backfilled){
+      const parts=[];
+      if(dedupResult.removed) parts.push(dedupResult.removed+' duplicate(s) removed');
+      if(dedupResult.backfilled) parts.push(dedupResult.backfilled+' seed key(s) backfilled');
+      toast('Marketing plan cleanup: '+parts.join(', '));
     }
-  }
-  if(virtual.length){
-    toast('Marketing calendar loaded — '+planned.length+' planned posts from 27 July'+(persisted?' ('+persisted+' saved)':'')+'.');
+    const existingKeys = await fetchExistingCampaignSeedKeys();
+    const expected = expectedSeedKeys();
+    const missingCount = expected.filter(k=>!existingKeys.has(k)).length;
+    if(missingCount===0) return;
+    showSeedingOverlay(existingKeys.size>0 ? 'Completing your marketing plan…' : 'Setting up your 6-month marketing plan…');
+    const r=await seedInsurancePlanBatched();
+    if(r.created) toast('Marketing plan ready — '+r.created+' piece(s) added ('+(r.expected-missingCount+r.created)+'/'+r.expected+' total)');
+  } catch(e){
+    // already toasted inside seedInsurancePlanBatched/fetchExistingCampaignSeedKeys
+  } finally {
+    hideSeedingOverlay();
   }
 }
 function showSeedingOverlay(msg){
@@ -5694,7 +5791,7 @@ function vCampaignsTab(){
   const groups=buildCampaignGroups();
   if(!groups.length) return '<div class="empty">No campaigns yet. Use “Rebuild plan”, or “+ New item” with a Campaign set.</div>';
   const t=today();
-  return '<div class="page-sub" style="margin-bottom:14px">'+groups.length+' weekly campaign(s) · one useful theme each week, delivered as ready-to-review LinkedIn and Instagram drafts.</div>'+
+  return '<div class="page-sub" style="margin-bottom:14px">'+groups.length+' weekly campaign(s) · one theme a week, repurposed into '+WEEK_SLOTS.length+' deliverables and driven into real conversations.</div>'+
   groups.map(g=>{
     const current = g.start && g.end ? (t>=g.start && t<=g.end) : false;
     const upcoming = g.start && g.start>t;
@@ -5723,17 +5820,17 @@ function vCampaignsTab(){
 function vMarketing(){
   if(!state.marketing_items.length && !route.marketingOnboardingDismissed){
     return '<div class="page-head"><div><div class="eyebrow">Growth</div><div class="page-title">Marketing Assistant</div>'+
-      '<div class="page-sub">A quiet editorial calendar with finished LinkedIn and Instagram drafts. No APIs, videos or outreach chores.</div></div></div>'+
+      '<div class="page-sub">Your personal Head of Marketing — a content library plus a real editorial calendar.</div></div></div>'+
       '<div class="restore-panel"><div style="font-size:15px;font-weight:640;margin-bottom:8px">The plan should have been created automatically at sign-in</div>'+
       '<div class="muted" style="font-size:12.5px;margin-bottom:18px">If you\u2019re seeing this, automatic setup didn\u2019t complete — most likely a save was rejected (check Settings → Connection for a database error) rather than nothing having run. You can trigger it directly below.</div>'+
-      '<button class="btn gold" style="margin-right:10px" onclick="autoSeedMarketingPlanIfNeeded()">Build Quiet 6-Month Plan</button>'+
+      '<button class="btn gold" style="margin-right:10px" onclick="autoSeedMarketingPlanIfNeeded()">Build 6-Month Plan Now</button>'+
       '<button class="btn" onclick="dismissMarketingOnboarding()">Start Empty</button></div>';
   }
 
   const tab=route.mkTab||'campaigns';
   const tabs=[['campaigns','Campaigns'],['today','Today'],['library','Content Library'],['calendar','Editorial Calendar']];
   const header='<div class="page-head"><div><div class="eyebrow">Growth</div><div class="page-title">Marketing Assistant</div>'+
-    '<div class="page-sub">'+state.marketing_items.length+' ready-to-review content items — '+state.marketing_items.filter(mi=>mi.scheduled_at && mi.status!=='Published').length+' scheduled, '+
+    '<div class="page-sub">'+state.marketing_items.length+' items in the system — '+state.marketing_items.filter(mi=>mi.scheduled_at && mi.status!=='Published').length+' scheduled, '+
     state.marketing_items.filter(mi=>!mi.scheduled_at && getContentStage(mi)==='Planned').length+' unscheduled in the library</div></div>'+
     '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="rebuildInsurancePlan()">Rebuild plan</button>'+
     '<button class="btn" onclick="openGenerateCalendarPrompt()">Generate from library</button>'+
@@ -5772,17 +5869,17 @@ function vMarketingTodayTab(){
     const stage=getContentStage(nextUp);
     body+='<div class="card" style="border-color:var(--gold);margin-bottom:20px">'+
       '<div class="eyebrow">Today\u2019s Marketing</div>'+
-      '<div style="font-size:16px;font-weight:660;margin:8px 0">Ready to review: '+esc(nextUp.title)+'</div>'+
+      '<div style="font-size:16px;font-weight:660;margin:8px 0">Write: '+esc(nextUp.title)+'</div>'+
       '<div class="grid g2" style="margin-bottom:14px">'+
         kv('Audience',nextUp.audience||'—')+kv('Category',nextUp.item_type)+
-        kv('Review time','About 2 minutes')+kv('Stage',stage)+
+        kv('Estimated effort',estimateLabel(nextUp))+kv('Stage',stage)+
       '</div>'+
       (nextUp.objective?'<div class="muted" style="font-size:12.5px;margin-bottom:14px">'+esc(nextUp.objective)+'</div>':'')+
       '<div style="display:flex;gap:8px"><button class="btn gold" onclick="openContentForWriting(\''+nextUp.id+'\')">Open Draft</button>'+
       '<button class="btn" onclick="completeContentItem(\''+nextUp.id+'\')">Mark Complete</button></div>'+
     '</div>';
   } else {
-    body+='<div class="empty" style="margin-bottom:20px"><div class="empty-ico">📌</div>Nothing worth posting right now. Focus on customers.</div>';
+    body+='<div class="empty" style="margin-bottom:20px"><div class="empty-ico">📌</div>Nothing scheduled right now — generate an editorial calendar from the library.</div>';
   }
 
   const dsec=(title,arr,emptyNote)=>{
