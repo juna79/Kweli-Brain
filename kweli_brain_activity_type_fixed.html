@@ -328,7 +328,7 @@
   .cal-cell.today .cal-cell-num{color:var(--gold);font-weight:700}
   .cal-cell-more{font-size:10px;color:var(--faint);font-family:ui-monospace,monospace;padding:1px 2px}
   .cal-mini{background:var(--panel2);border-radius:6px;padding:3px 6px 3px 7px;font-size:10.5px;line-height:1.35;
-    cursor:pointer;display:flex;align-items:flex-start;gap:5px;border-left:2px solid var(--gold);transition:background .12s}
+    cursor:pointer;display:flex;align-items:flex-start;gap:5px;border-left:3px solid var(--gold);transition:background .12s}
   .cal-mini:hover{background:var(--raise)}
   .cal-mini.custom{border-left-color:var(--green)}
   .cal-mini.overdue{border-left-color:var(--red);background:rgba(224,101,75,.14)}
@@ -956,7 +956,7 @@ function renderDayCalendarV3(){
     const hh=String(h).padStart(2,'0')+':00';
     const slot=items.filter(it=>parseInt(it.time,10)===h);
     return '<div class="day-hour">'+hh+'</div><div class="day-slot" onclick="calDayView(\''+isoDate(d)+'\')">'+
-      slot.map(it=>'<div class="week-item" style="border-left-color:'+CAL_TYPE_COLOR[it.type]+'" onclick="event.stopPropagation();'+it.onclick+'">'+esc(it.time+' '+it.label)+'</div>').join('')+'</div>';
+      slot.map(it=>'<div class="week-item" style="border-left-color:'+CAL_TYPE_COLOR[it.type]+';background:'+(CAL_TYPE_BG[it.type]||'')+'" onclick="event.stopPropagation();'+it.onclick+'">'+esc(it.time+' '+it.label)+'</div>').join('')+'</div>';
   }).join('')+'</div>';
 }
 function renderWeekCalendarV3(){
@@ -968,7 +968,7 @@ function renderWeekCalendarV3(){
   return '<div class="week-grid"><div class="week-head"></div>'+days.map(d=>'<div class="week-head">'+d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric'})+'</div>').join('')+
     hours.map(h=>'<div class="week-time">'+String(h).padStart(2,'0')+':00</div>'+days.map(d=>{
       const date=isoDate(d),slot=items.filter(it=>it.date===date&&parseInt(it.time,10)===h);
-      return '<div class="week-cell" onclick="calDayView(\''+date+'\')">'+slot.map(it=>'<div class="week-item" style="border-left-color:'+CAL_TYPE_COLOR[it.type]+'" onclick="event.stopPropagation();'+it.onclick+'">'+esc(it.label)+'</div>').join('')+'</div>';
+      return '<div class="week-cell" onclick="calDayView(\''+date+'\')">'+slot.map(it=>'<div class="week-item" style="border-left-color:'+CAL_TYPE_COLOR[it.type]+';background:'+(CAL_TYPE_BG[it.type]||'')+'" onclick="event.stopPropagation();'+it.onclick+'">'+esc(it.label)+'</div>').join('')+'</div>';
     }).join('')).join('')+'</div>';
 }
 
@@ -1871,7 +1871,7 @@ async function uploadAssetForOrg(file,orgId){
 function vOrganisationDetail(){
   const o=byId(state.organisations,route.id);
   if(!o) return '<div class="empty">Organisation not found.</div>';
-  const opps=state.opportunities.filter(x=>x.organisation_id===o.id);
+  const opps=sortOpportunities(state.opportunities.filter(x=>x.organisation_id===o.id));
   const peopleHere=state.people.filter(p=>p.primary_organisation_id===o.id);
   const acts=state.activities.filter(a=>a.organisation_id===o.id).sort((a,b)=>new Date(b.occurred_at)-new Date(a.occurred_at));
   const orgTasks=state.tasks.filter(t=>t.organisation_id===o.id);
@@ -2405,16 +2405,56 @@ async function savePersonForm(){
 /* ---------------------------------------------------------------------------
    OPPORTUNITIES
 --------------------------------------------------------------------------- */
-function opportunityPriorityScore(op){
-  const dueBoost=op.next_action_date && op.next_action_date<=today()?45:0;
-  return stagePriorityScore(op.stage)+Number(op.priority||0)*10+dueBoost;
+/* Opportunity ordering: pilots must always surface first, full stop — never
+   outranked by a non-pilot opportunity that merely has a higher priority
+   number. That means stage is a hard group boundary (rank 1-8), never
+   blended into one composite score the way the old opportunityPriorityScore
+   did. Only within the same stage group do priority / next action / recent
+   activity break ties. Real stage values in this app (see openOppForm):
+   Identified, Contacted, Meeting done, Pilot discussion, Pilot active,
+   Proposal sent, Won, Lost, On hold — mapped onto the requested 7 groups,
+   with Won and the two pre-pilot engaged stages folded in sensibly. */
+function opportunityStageRank(stage){
+  const s=String(stage||'').toLowerCase().trim();
+  if(s==='pilot active') return 1;                 // Active Pilot
+  if(s==='won') return 2;                           // an already-converted relationship — kept near the top, not buried with Lost
+  if(s==='pilot discussion') return 3;               // Pilot Discussion
+  if(s==='proposal sent') return 4;                  // Proposal Sent
+  if(s==='contacted'||s==='meeting done') return 5;  // Qualified — engaged but not yet pilot/proposal
+  if(s==='identified') return 6;                     // Identified
+  if(s==='on hold') return 7;                        // On Hold
+  if(s==='lost') return 8;                           // Closed Lost
+  return 6; // unrecognised/blank stage — treat like Identified, never sink to the bottom silently
 }
-function vOpportunities(){
-  const opps=[...state.opportunities].filter(o=>!o.archived_at).sort((a,b)=>{
-    const diff=opportunityPriorityScore(b)-opportunityPriorityScore(a);
-    if(diff) return diff;
+/* "Most recent activity" = the later of the opportunity's own updated_at
+   and the latest logged activity linked to it (activities.opportunity_id
+   already exists and is used the same way in vOpportunityDetail). */
+function opportunityLastActivityAt(op, activityMap){
+  const linked=activityMap.get(op.id)||'';
+  const updated=op.updated_at||'';
+  return linked>updated?linked:updated;
+}
+function sortOpportunities(opps){
+  const activityMap=new Map();
+  state.activities.forEach(a=>{
+    if(!a.opportunity_id||!a.occurred_at) return;
+    const cur=activityMap.get(a.opportunity_id);
+    if(!cur||a.occurred_at>cur) activityMap.set(a.opportunity_id,a.occurred_at);
+  });
+  return [...opps].sort((a,b)=>{
+    const rankDiff=opportunityStageRank(a.stage)-opportunityStageRank(b.stage);
+    if(rankDiff) return rankDiff;
+    const prioDiff=Number(b.priority||0)-Number(a.priority||0); // highest priority first
+    if(prioDiff) return prioDiff;
+    const aDate=a.next_action_date||'9999-12-31', bDate=b.next_action_date||'9999-12-31';
+    if(aDate!==bDate) return aDate<bDate?-1:1; // earliest next action first
+    const aAct=opportunityLastActivityAt(a,activityMap), bAct=opportunityLastActivityAt(b,activityMap);
+    if(aAct!==bAct) return aAct>bAct?-1:1; // most recent activity first
     return String(a.title||'').localeCompare(String(b.title||''));
   });
+}
+function vOpportunities(){
+  const opps=sortOpportunities(state.opportunities.filter(o=>!o.archived_at));
   const view=route.opportunitiesView=route.opportunitiesView||'card';
   const active=opps.filter(o=>!['Won','Lost'].includes(o.stage)).length;
   const pilots=opps.filter(o=>/pilot/i.test(o.stage||'')).length;
@@ -2425,7 +2465,7 @@ function vOpportunities(){
       '<div class="metric-tile"><div class="metric-value">'+active+'</div><div class="metric-label">Active</div></div>'+
       '<div class="metric-tile"><div class="metric-value">'+pilots+'</div><div class="metric-label">Pilot-stage</div></div>'+
       '<div class="metric-tile"><div class="metric-value">'+due+'</div><div class="metric-label">Action due</div></div>'+
-    '</div><div class="view-toolbar"><div class="faint" style="font-size:11.5px">Prioritised by opportunity score</div>'+twoViewSwitcher('opportunitiesView',view)+'</div>';
+    '</div><div class="view-toolbar"><div class="faint" style="font-size:11.5px">Pilots first, then priority, next action and recent activity</div>'+twoViewSwitcher('opportunitiesView',view)+'</div>';
   if(!opps.length) return header+'<div class="empty"><div class="empty-ico">◈</div>No opportunities yet.</div>';
   if(view==='table'){
     return header+'<div class="card" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>'+
@@ -2992,6 +3032,10 @@ let calFilters={tasks:true, meetings:true, marketing:true, team:true};
 let calHideCompleted=false;
 const CAL_TYPE_COLOR={tasks:'var(--blue)', meetings:'var(--green)', marketing:'var(--gold)', team:'var(--amber)', assets:'var(--muted)'};
 const CAL_TYPE_ICON={tasks:'✅', meetings:'📅', marketing:'📢', team:'📌', assets:'📎'};
+/* Same low-opacity colored-pill technique already used throughout the app
+   (e.g. .warmth-hot/.warmth-warm) — applied here so each item type reads
+   as visually distinct at a glance, not just via a 3px border edge. */
+const CAL_TYPE_BG={tasks:'rgba(79,163,209,.14)', meetings:'rgba(70,185,138,.14)', marketing:'rgba(201,162,75,.14)', team:'rgba(224,163,64,.14)', assets:'rgba(255,255,255,.06)'};
 
 /* Monday-first month grid, including the leading/trailing days from
    adjacent months needed to fill complete weeks — exact port of V1's
@@ -3034,7 +3078,11 @@ function calendarItemsFor(year,month){
   return items;
 }
 function calMiniItem(it){
-  return '<div class="cal-mini'+(it.overdue?' overdue':'')+(it.done?' done':'')+'" style="border-left-color:'+CAL_TYPE_COLOR[it.type]+'" onclick="event.stopPropagation();'+it.onclick+'">'+
+  // Overdue/done already get their own background via the .overdue/.done CSS
+  // classes -- the type tint only applies to the normal, pending state, so
+  // it never fights with those existing states.
+  const typeBg=(!it.overdue && !it.done) ? (CAL_TYPE_BG[it.type]||'') : '';
+  return '<div class="cal-mini'+(it.overdue?' overdue':'')+(it.done?' done':'')+'" style="border-left-color:'+CAL_TYPE_COLOR[it.type]+(typeBg?';background:'+typeBg:'')+'" onclick="event.stopPropagation();'+it.onclick+'">'+
     '<span style="flex:none;margin-right:3px">'+(CAL_TYPE_ICON[it.type]||'•')+'</span>'+
     (it.done?'<span style="color:var(--green);flex:none">\u2713</span>':'')+
     '<span class="cal-mini-text">'+esc(it.label)+'</span></div>';
@@ -4508,33 +4556,34 @@ const CONTENT_LIBRARY=[
    calendar, not a task generator. Every entry below IS the post: a title,
    a platform, a scheduled date, a short description and full ready-to-post
    copy (plus an optional image suggestion). Nothing here creates a "write
-   X" task — the writing is already done. Replaces the old weekly-rhythm
-   generator (CAMPAIGN_THEMES / WEEK_SLOTS / 8-tasks-per-week), deleted
-   below in favour of this static, hand-curated plan.
+   X" task — the writing is already done.
 
-   Rules this plan follows (per the marketing refactor brief):
-     - Starts Monday 27 July 2026, runs ~6 months (26 weeks), FIXED anchor —
-       never "next Monday from today."
-     - Max 2 LinkedIn posts/week, max 1 Instagram post/week. Not every week
-       gets Instagram. Some weeks are intentionally empty ("Nothing worth
-       posting this week. Focus on customers.") rather than padded.
-     - Rotates the 14 approved content types (Thought Leadership, Did You
-       Know?, Myth vs Fact, Insurance/Banking/Trade Insight, AI & Document
-       Fraud, Document Integrity, Trust Infrastructure, Claims Workflow,
-       Credentials, Provenance, Digital Trust, Founder Insight-occasionally).
-     - Event posts use only well-established, low-risk recurring dates:
-       Cybersecurity Awareness Month (October), International Fraud
-       Awareness Week (mid-November), International Anti-Corruption Day
-       (9 December). No fabricated conference dates, no live/API data.
-     - Substance is drawn from Kweli's own previously-approved strategy
-       themes (motor/medical/invoice/certificate fraud, verification
-       infrastructure, trade & banking document trust, founder story) —
-       rewritten as finished posts instead of "go write an article" tasks.
+   FIXED WEEKLY RHYTHM (every week, Monday 27 July 2026 through late January
+   2027 — 26 weeks, no exceptions):
+     Mon — Flagship Thought Leadership Day: LinkedIn flagship article + a
+           standalone X post (its own independently-written take, not "read
+           the article"). Topics rotate: Insurance, Banking, Healthcare,
+           Trade, AI, Document Trust, Trust Infrastructure, Fraud, Document
+           Integrity.
+     Tue — Commercial Story Day: one LinkedIn post rotating format (customer
+           story, industry case study, use case, problem/solution, "what
+           if...", real conversations), grounded in realistic workflows —
+           no fabricated named customers or invented outcomes.
+     Wed — Educational Day: one LinkedIn post rotating type (Did You Know?,
+           Myth vs Fact, Insurance/Banking/Trade Insight, AI Fraud, Trust
+           Infrastructure, Document Integrity).
+     Thu — Visual Day: one Instagram-first post (carousel, workflow,
+           diagram, explainer, simple graphic).
+     Fri — Founder Day: one honest, non-corporate LinkedIn post from the
+           founder's own rotating topic list.
+     Sat/Sun — nothing, every week, by design.
+   That's 6 items/week x 26 weeks = 156 fully ready-to-post items, no
+   placeholders, no "write this later."
 --------------------------------------------------------------------------- */
-const CURATED_CALENDAR_KEY = 'curated-editorial-6mo-v1';
+const CURATED_CALENDAR_KEY = 'curated-editorial-6mo-v2';
 const MARKETING_CAMPAIGN_KEY = CURATED_CALENDAR_KEY;
-const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2','weekly-rhythm-6mo-v3','weekly-rhythm-6mo-v4'];
-const WEEKLY_MIGRATION_VERSION = 'weekly_rhythm_v3';
+const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2','weekly-rhythm-6mo-v3','weekly-rhythm-6mo-v4','curated-editorial-6mo-v1'];
+const WEEKLY_MIGRATION_VERSION = 'weekly_rhythm_v4';
 const FORWARD_MARKETING_RESET_VERSION = 'forward_marketing_reset_2026_07_20_v2';
 const FORWARD_MARKETING_START = '2026-07-20';
 
@@ -4575,264 +4624,275 @@ const PLAN_DAY_OFFSET = {mon:0, tue:1, wed:2, thu:3, fri:4};
    entries below don't have to repeat it. An entry can still override with
    its own `audience`. */
 const AUDIENCE_BY_TYPE = {
-  'Insurance Insight':'Motor & health insurers, claims leaders',
-  'Claims Workflow':'Claims & assessment teams',
-  'Document Integrity':'Risk, compliance & operations leaders',
-  'Trade Insight':'Trade finance & compliance teams',
-  'Banking Insight':'Banking compliance & KYC teams',
+  'Insurance':'Motor & health insurers, claims leaders',
+  'Banking':'Banking compliance & KYC teams',
+  'Healthcare':'Health insurers, medical schemes, clinicians',
+  'Trade':'Trade finance & compliance teams',
+  'AI':'CIOs & AI/automation leaders',
+  'Document Trust':'CIOs, innovation & risk leaders',
   'Trust Infrastructure':'CIOs, innovation & risk leaders',
-  'Thought Leadership':'Founders, operators & investors',
+  'Fraud':'Risk, compliance & claims leaders',
+  'Document Integrity':'Risk, compliance & operations leaders',
+  'Insurance Insight':'Motor & health insurers, claims leaders',
+  'Banking Insight':'Banking compliance & KYC teams',
+  'Trade Insight':'Trade finance & compliance teams',
+  'AI Fraud':'CIOs & AI/automation leaders',
   'Myth vs Fact':'General audience — trust & fraud',
   'Did You Know?':'General audience — trust & fraud',
-  'Credentials':'Employers, certifiers & institutions',
-  'Provenance':'Claims, compliance & assessment teams',
-  'Digital Trust':'Operations & supply-chain leaders',
-  'AI & Document Fraud':'CIOs & AI/automation leaders',
-  'Founder Insight':'Founders, our network & investors'
+  'Customer story':'Prospects & customers across verticals',
+  'Industry case study':'Prospects & customers across verticals',
+  'Use case':'Prospects & customers across verticals',
+  'Problem/Solution':'Prospects & customers across verticals',
+  'What if...':'Prospects & customers across verticals',
+  'Real conversations':'Prospects & customers across verticals',
+  'Carousel':'General audience — Instagram',
+  'Workflow':'General audience — Instagram',
+  'Diagram':'General audience — Instagram',
+  'Explainer':'General audience — Instagram',
+  'Simple graphic':'General audience — Instagram',
+  'Educational visual':'General audience — Instagram',
+  'Banking process':'General audience — Instagram',
+  'Trade flow':'General audience — Instagram',
+  'Verification flow':'General audience — Instagram',
+  'Building Kweli':'Founders, our network & investors',
+  'Lessons from pilots':'Founders, our network & investors',
+  'Startup life':'Founders, our network & investors',
+  'AI observations':'Founders, our network & investors',
+  'Interesting document stories':'Founders, our network & investors',
+  'Progress updates':'Founders, our network & investors',
+  'Wins':'Founders, our network & investors',
+  'Failures':'Founders, our network & investors',
+  'Honest reflections':'Founders, our network & investors',
+  'What I learnt this week':'Founders, our network & investors',
+  'Interesting customer conversations':'Founders, our network & investors'
 };
 const DEFAULT_IMAGE_SUGGESTION='Optional — simple navy/gold graphic with the opening line as the headline; plain text also performs well on LinkedIn.';
 
 /* ===========================================================================
-   THE CALENDAR ITSELF — 26 weeks, Monday 27 July 2026 through mid/late
-   January 2027 (~6 months). Weeks 6, 14, 22 and 23 are deliberately left
-   empty (end-of-summer lull, a breather after the October push, and the
-   Christmas/New Year weeks) rather than padded with filler.
+   THE CALENDAR ITSELF — 26 weeks, Monday 27 July 2026 through late January
+   2027 (~6 months). Every week runs the full Mon-Fri rhythm above; Saturday
+   and Sunday are never scheduled.
 =========================================================================== */
 const CURATED_CALENDAR_WEEKS = [
 {w:1, items:[
-  {day:'tue', platform:'LinkedIn', type:'Insurance Insight', title:'The staged accident problem nobody wants to talk about',
-    desc:'Opens the calendar with the sharpest, most concrete fraud pattern in motor claims.',
+  {day:'mon', platform:'LinkedIn', type:'Insurance', title:'The staged accident problem nobody wants to talk about',
+    desc:'Flagship Monday article — motor claims fraud, opening the new weekly rhythm.',
     copy:`A staged accident is not hard to fake. Two cars, a quiet road, a story that holds together for the first three questions an adjuster asks.
 
 What's hard is proving, cheaply and quickly, that the police report, the garage invoice and the medical note that follow are what they claim to be — issued by who they say, when they say, unaltered since.
 
 Most motor insurers still verify the way they did ten years ago: someone picks up the phone and asks the issuer "is this real?" That doesn't scale, and it doesn't catch the well-prepared cases.
 
-We built Kweli because verification shouldn't depend on whether the right person happens to answer the phone that day.
+We built Kweli because verification shouldn't depend on whether the right person happens to answer the phone that day. Every document in a claim — the abstract, the invoice, the medical note — can carry a fast, independent answer to "is this genuine, and has it changed since issue?"
 
-If you sit in claims or fraud risk for a motor book — what's the one document type you'd most want an independent, instant answer on?`},
-  {day:'thu', platform:'LinkedIn', type:'Thought Leadership', title:'Trust is becoming infrastructure',
-    desc:"Positions Kweli's category thesis for a broader, non-insurance audience.",
-    copy:`Twenty years ago, moving money between banks meant trusting a slow web of correspondent relationships and phone calls. Then payment rails became infrastructure — invisible, boring, and load-bearing.
+If you sit in claims or fraud risk for a motor book: what's the one document type you'd most want an instant, independent answer on?`},
+  {day:'mon', platform:'X', type:'Insurance', title:'A staged accident is easy. The paperwork is the hard part to fake well.',
+    desc:'Standalone X version of the Monday flagship — same idea, written fresh for the format.',
+    copy:`A staged accident is easy to act out. What's actually hard is making every document behind it — police abstract, garage invoice, medical note — hold up to independent checking.
 
-Verifying whether a document is genuine is where payments were before that shift. Every institution still does it manually: a call to the issuer, a squint at a signature, a hope that nobody bothered to fake it well.
+Most insurers still "verify" by phoning the issuer and hoping. That's not a process, that's a bottleneck with a phone number.
 
-We think document trust is becoming the same kind of infrastructure — not a feature bolted onto one product, but a layer underneath insurance, banking, trade and hiring alike.
+We're building the instant version.`},
+  {day:'tue', platform:'LinkedIn', type:'Problem/Solution', title:'The five-minute invoice',
+    desc:'Commercial story — invoice fraud in claims, problem/solution framing.',
+    copy:`The problem: a convincing fake invoice takes about five minutes to produce — a genuine template, a changed amount, a new date. It takes longer to process the claim than to forge the document behind it.
 
-Infrastructure is unglamorous by design. That's rather the point.`},
-  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'A fake invoice takes five minutes to make',
-    desc:'Bite-size fact opening the Did You Know? series.',
+The solution isn't asking claims handlers to become forensic examiners. It's giving them a fast, independent way to confirm a document is genuine and unaltered before it's trusted — the same speed as forgery, applied the other direction.
+
+That's a narrower problem than "stop all fraud," and a far more solvable one.`},
+  {day:'wed', platform:'LinkedIn', type:'Did You Know?', title:'Did you know a fake invoice takes five minutes to make?',
+    desc:'Wednesday educational bite.',
     copy:`Did you know? A convincing fake invoice takes about five minutes to produce — and most finance and claims teams still have no fast way to check if one is real.
 
-That's the gap Kweli exists to close: instant, independent verification of the documents your business already runs on.
+That gap is exactly what verification infrastructure exists to close: an instant, independent answer instead of a five-minute head start for whoever has the printer.`},
+  {day:'thu', platform:'Instagram', type:'Carousel', title:'Document lifecycle: from issued to verified',
+    desc:'Instagram carousel — the document lifecycle, visual explainer.',
+    copy:`Every document has a life: issued, shared, relied on, sometimes altered along the way.
 
-#DocumentIntegrity #TrustInfrastructure`,
-    image:"Simple navy/gold slide — bold stat '5 minutes' with a small subhead 'is all it takes to fake an invoice.'"}
+This carousel walks through that lifecycle — and where an independent verification check fits in, quietly, at the point someone needs to trust it.
+
+Swipe through: Issued → Shared → Relied on → Verified.
+
+#DocumentLifecycle #TrustInfrastructure`,
+    image:'4-slide carousel, navy/gold, one word per slide (Issued / Shared / Relied on / Verified) with a simple icon each, final slide shows a checkmark badge.'},
+  {day:'fri', platform:'LinkedIn', type:'Building Kweli', title:'Starting the week with the same problem, every week, on purpose',
+    desc:'Founder Friday — opens the new rhythm with why the repetition is deliberate.',
+    copy:`Starting a new rhythm this week: same structure every week, from now on. Monday a real problem, Tuesday a real scenario, Wednesday something quick to learn, Thursday something to look at, Friday something honest from me.
+
+The temptation with a startup blog is to chase novelty — a new angle every week, because repetition feels lazy. I think that's backwards for infrastructure. Nobody remembers the fortieth "revolutionary" post. They remember the company that said the same true thing, calmly, for six months straight.
+
+So: same rhythm, every week. Let's see how it goes.`}
 ]},
 {w:2, items:[
-  {day:'tue', platform:'LinkedIn', type:'Claims Workflow', title:'Why medical bills are the easiest thing to fake',
-    desc:'Opens the hospital/medical billing fraud theme for health insurers.',
+  {day:'mon', platform:'LinkedIn', type:'Banking', title:'What a certificate actually proves (and what it doesn’t)',
+    desc:'Flagship — banking/KYC document trust, separating three distinct claims.',
+    copy:`A certificate proves that, at some point, someone issued a document making a claim. It does not prove the claim is still true, that the copy in front of you is unaltered, or that it was actually the named issuer who created it — three separate things routinely collapsed into one glance at a logo and a signature.
+
+Banks relying on certificates for KYC, compliance or collateral documentation are usually trusting all three at once, on the strength of the first.
+
+Separating those questions — issued by whom, unaltered since when, still valid now — is a more precise way to think about document trust than "does it look right." It's also a more checkable one: each question has a fast, independent answer once you stop asking them as one.
+
+For banking compliance teams: how much of your onboarding process is collecting documents versus actually verifying them?`},
+  {day:'mon', platform:'X', type:'Banking', title:'A certificate proves someone issued it. That’s it.',
+    desc:'X version.',
+    copy:`A certificate proves someone issued it at some point. That's all.
+
+It doesn't prove the copy in front of you is unaltered, or that it's still valid, or that whoever handed it to you didn't change a number.
+
+Three separate questions. Most KYC processes answer none of them.`},
+  {day:'tue', platform:'LinkedIn', type:'Use case', title:'How Kweli helps banks',
+    desc:'Commercial story — KYC onboarding use case.',
+    copy:`Picture a bank onboarding a new business customer: a certificate of incorporation, a proof of address, a company registration document — three files, collected, filed, rarely independently confirmed.
+
+The use case is straightforward: at the point a document is uploaded, an independent check confirms it's genuine and unaltered before it becomes part of the customer's file. Not a new form to fill in — the same document, checked faster than a phone call, before anyone downstream inherits the risk of trusting it blind.
+
+That's the shape of most of our banking conversations: not "replace your KYC process," but "add the one step it's currently missing."`},
+  {day:'wed', platform:'LinkedIn', type:'Banking Insight', title:'Collecting documents isn’t the same as verifying them',
+    desc:'Wednesday educational.',
+    copy:`Most KYC checklists are thorough about collecting the right documents and thin on confirming they're genuine. Those are two different steps, and only one of them currently gets done at scale.
+
+The fix isn't a bigger checklist — it's the existing checklist backed by a fast, independent way to confirm each document is what it claims to be.`},
+  {day:'thu', platform:'Instagram', type:'Workflow', title:'The KYC file, before and after',
+    desc:'Instagram workflow visual.',
+    copy:`Before: a folder of documents nobody independently checked.
+After: the same folder, each document carrying a fast, independent confirmation.
+
+Same paperwork. Real trust.
+
+#KYC #BankingInsight #DocumentTrust`,
+    image:'Split-screen graphic: left a stack of question-mark-tagged documents, right the same stack with green checkmarks. Simple navy/gold.'},
+  {day:'fri', platform:'LinkedIn', type:'AI observations', title:'What I keep noticing in banking conversations',
+    desc:'Founder Friday.',
+    copy:`Something I keep noticing in banking conversations this month: nobody disputes that document verification matters. What varies wildly is where they think the risk actually sits — some teams worry about the certificate, others about the ID, almost nobody about the address proof, which is usually the easiest of the three to fake.
+
+I don't have a tidy conclusion here, just an observation: risk perception in KYC seems to track "how official it looks," not "how easy it is to forge." Those are often inversely related.`}
+]},
+{w:3, items:[
+  {day:'mon', platform:'LinkedIn', type:'Healthcare', title:'Why medical bills are the easiest thing to fake',
+    desc:'Flagship — hospital/medical billing fraud.',
     copy:`A medical bill is a spreadsheet with a letterhead. Change three line items, print it on the right paper, and most claims processes will never know the difference — because nobody calls the hospital to confirm every invoice, and the ones that do get checked are picked almost at random.
 
 Health insurers lose real money to inflated and fabricated medical bills not because their assessors are careless, but because manual verification simply cannot cover the volume.
 
 Verification infrastructure changes the economics: instead of spot-checking a sample and hoping, every document can carry a fast, independent answer to "is this genuine, and has it been altered since issue?"
 
-That's a workflow question as much as a fraud question — and it's the one we spend most of our time on.`},
-  {day:'thu', platform:'LinkedIn', type:'Myth vs Fact', title:'Myth: verification slows deals down',
-    desc:'Reframes verification as faster than the manual process it replaces.',
-    copy:`Myth: adding verification into a claims or onboarding process makes it slower.
+That's a workflow question as much as a fraud question — and it's the one we spend most of our time on with health insurers and medical schemes.`},
+  {day:'mon', platform:'X', type:'Healthcare', title:'A medical bill is a spreadsheet with a letterhead',
+    desc:'X version.',
+    copy:`A medical bill is a spreadsheet with a letterhead. Change three numbers, keep the letterhead, and most claims processes never know.
 
-Fact: what's actually slow today is a person picking up the phone, waiting on hold, and calling the issuer to confirm a document by voice — then writing up notes nobody else can search.
+Health insurers don't have a fraud-detection problem so much as a verification-speed problem. Nobody has time to call every hospital.`},
+  {day:'tue', platform:'LinkedIn', type:'What if...', title:'What if every medical claim carried its own proof of authenticity?',
+    desc:'Commercial story — "what if" framing for medical claims.',
+    copy:`What if every medical bill, discharge summary and lab result attached to a claim already carried a fast, independent answer to "is this genuine"?
 
-An instant, independent check is faster than the phone call it replaces, not slower than doing nothing. The friction people remember is the old manual process, not the idea of verification itself.
+Not a new form for the hospital to fill in. Not a slower process for the patient. Just the same documents, moving through the same claims workflow, with one quiet difference: nobody downstream has to trust them on faith.
 
-The real question isn't "verification or speed" — it's which manual step you're finally ready to stop doing by hand.`}
-]},
-{w:3, items:[
-  {day:'tue', platform:'LinkedIn', type:'Document Integrity', title:'A convincing fake invoice takes five minutes',
-    desc:'Names the asymmetry between minutes-to-forge and days-to-verify.',
-    copy:`Ask any claims handler how they'd fake an invoice and most can describe it in under a minute: take a genuine template, change the amounts, adjust the date, done. It takes longer to file the claim than to forge the document behind it.
+That's less a feature request and more a description of where document-heavy claims processes are heading — because the alternative, spot-checking a sample and hoping, doesn't scale with volume.`},
+  {day:'wed', platform:'LinkedIn', type:'Insurance Insight', title:'The medical report that changed between the clinic and the claim',
+    desc:'Wednesday educational.',
+    copy:`A medical report leaves the clinic as one document. By the time it reaches a claims desk, it may have passed through two or three hands.
 
-That asymmetry — minutes to fake, hours or days to verify — is the entire reason claims leakage from invoice fraud persists at insurers who are otherwise very good at their jobs.
+Nobody along that chain is necessarily dishonest. But nobody can prove the report hasn't changed either — that's the real problem: not "who lied," but "how would you know."`},
+  {day:'thu', platform:'Instagram', type:'Diagram', title:'The claims workflow, verification added',
+    desc:'Instagram diagram — claims workflow with verification step.',
+    copy:`The claims workflow most insurers already run — with one new step added quietly in the middle: independent document verification, before anything is trusted.
 
-Closing that gap doesn't require catching every fraudster. It requires making genuine verification as fast as forgery, so the economics stop favouring the person with the printer.
+Submit → Verify → Assess → Pay.
 
-That's a narrower, more solvable problem than "stop all fraud" — and it's the one worth funding.`},
-  {day:'wed', platform:'Instagram', type:'Credentials', title:'A certificate is only as trustworthy as the process behind it',
-    desc:'Visual intro to the Credentials theme.',
-    copy:`A certificate is only as trustworthy as the process behind it.
+#ClaimsWorkflow #InsuranceInsight`,
+    image:'Horizontal 4-step flow diagram: Submit, Verify (highlighted gold), Assess, Pay. Clean icons, navy background.'},
+  {day:'fri', platform:'LinkedIn', type:'Interesting document stories', title:'The document detail that keeps coming up',
+    desc:'Founder Friday.',
+    copy:`A detail that keeps coming up in conversations with health insurers this month: it's rarely the big, obviously-fabricated bill that causes the real damage. It's the mostly-real one with two altered line items — genuine enough to pass a glance, wrong enough to matter.
 
-Anyone can print a professional-looking certificate. What they can't do is fake an independent, instant answer to: was this actually issued, by whom, and is it unchanged since?
-
-That's the layer Kweli adds underneath certificates, licences and credentials of every kind.
-
-#Credentials #Verification #DocumentTrust`,
-    image:"Split visual: left a certificate with a question mark, right the same certificate with a green checkmark and 'Verified' badge."},
-  {day:'thu', platform:'LinkedIn', type:'Founder Insight', title:"Why we're building verification infrastructure in Nairobi",
-    desc:'Founder story — why build here first.',
-    copy:`People sometimes ask why we're building document verification infrastructure from Nairobi rather than somewhere the funding is easier to find.
-
-The honest answer: this is where the problem shows up first, most often, and with the least patience for a bad manual process. Insurers here process claims on paperwork that moves through more informal hands than in markets with tighter institutional plumbing — which makes the case for verification obvious, not theoretical.
-
-Building where the problem is sharpest tends to produce better infrastructure than building where it's merely discussed. If it works here, it will travel — the reverse is a much harder bet.
-
-We'd rather solve a real, present problem for real institutions than a hypothetical one for a future market.`}
+That's a harder problem than "catch the fakes," and I think it's the more honest way to describe what we're actually building toward.`}
 ]},
 {w:4, items:[
-  {day:'tue', platform:'LinkedIn', type:'Insurance Insight', title:'The medical report that changed between the clinic and the claim',
-    desc:'Medical report verification for health insurers and assessors.',
-    copy:`A medical report leaves the clinic as one document. By the time it reaches a claims desk, it may have passed through two or three hands — a patient, an intermediary, sometimes an agent with an incentive to help the numbers along.
-
-Nobody along that chain is necessarily dishonest. But nobody along that chain can prove the report hasn't changed either, and that's the actual problem: not "who lied," but "how would you know."
-
-Health insurers and assessors don't need to interrogate every claimant. They need a fast, independent way to confirm a report is exactly what the clinic issued — unaltered, on the record, checkable in seconds rather than days.
-
-That's a quieter kind of fraud prevention than most people picture, and a more useful one.`},
-  {day:'thu', platform:'LinkedIn', type:'Trade Insight', title:'The import paperwork nobody can verify',
-    desc:'Opens the trade/import documentation trust theme.',
+  {day:'mon', platform:'LinkedIn', type:'Trade', title:'The import paperwork nobody can verify',
+    desc:'Flagship — import/export document trust.',
     copy:`Import documentation moves fast, involves several parties who've often never met, and underpins real money changing hands at every step. It is also, by wide agreement among the trade and compliance people we talk to, some of the easiest paperwork in commerce to fake convincingly.
 
 The usual response is more signatures, more stamps, more layers of manual sign-off — which mostly slows down genuine trade without meaningfully stopping a well-prepared forgery.
 
 What actually helps is being able to independently confirm, quickly, that an import document is genuine and unaltered since issue — without adding another person to the approval chain.
 
-If you work in trade finance or compliance: how many documents in a typical file do you currently take on trust because checking them isn't practical?`}
+If you work in trade finance or compliance: how many documents in a typical file do you currently take on trust because checking them isn't practical?`},
+  {day:'mon', platform:'X', type:'Trade', title:'More signatures don’t stop a well-prepared forgery',
+    desc:'X version.',
+    copy:`Import paperwork gets more signatures, more stamps, more sign-offs every year. None of it stops a well-prepared forgery — it just slows down the genuine documents too.
+
+What actually helps: an independent, fast way to confirm a document is real. Not another signature.`},
+  {day:'tue', platform:'LinkedIn', type:'Real conversations', title:'A conversation with a trade finance team, paraphrased',
+    desc:'Commercial story — realistic trade-finance conversation.',
+    copy:`A conversation with a trade finance team, paraphrased: "We don't distrust our documents. We just have no fast way to confirm them, so we trust them by default and hope."
+
+That's not a criticism of the team — it's an accurate description of how most trade documentation gets handled industry-wide. Bills of lading, certificates of origin, inspection reports: genuinely checked by almost nobody, because checking properly means a phone call and a wait most deals can't afford.
+
+The fix isn't asking trade teams to distrust more. It's giving the documents a fast, independent way to prove themselves.`},
+  {day:'wed', platform:'LinkedIn', type:'Trade Insight', title:'A bill of lading is trusted on sight, almost everywhere',
+    desc:'Wednesday educational.',
+    copy:`A bill of lading determines who owns a shipment, whether it can be released, sometimes whether financing gets approved — and in most trade flows it's trusted on sight, the same way a certificate is: because it looks right, not because anyone independently confirmed it.
+
+Verifying it doesn't require a new relationship with every carrier. It requires making the check as fast as trusting it blindly already is.`},
+  {day:'thu', platform:'Instagram', type:'Explainer', title:'Trade flow: where trust breaks down',
+    desc:'Instagram explainer — trade document flow.',
+    copy:`A shipment touches a dozen hands before it's paid for. Trust gets inherited at every handoff, never earned.
+
+Here's where that chain actually breaks — and where an independent check changes the picture.
+
+#TradeInsight #DocumentTrust`,
+    image:'Chain-link diagram: Seller → Forwarder → Customs → Bank → Buyer, with one weak link highlighted in red, then a second version with a gold checkmark fixing it.'},
+  {day:'fri', platform:'LinkedIn', type:'Lessons from pilots', title:'What trade conversations taught us that insurance didn’t',
+    desc:'Founder Friday.',
+    copy:`Something trade conversations taught us that insurance conversations didn't: the document itself is rarely the only stakeholder's problem. In trade, three or four parties can be relying on the same paperwork simultaneously, each with a different reason to trust or distrust it.
+
+That changes how we think about who "the customer" for verification actually is. It's not always the party who's afraid of fraud — sometimes it's the party who most wants to be believed.`}
 ]},
 {w:5, items:[
-  {day:'tue', platform:'LinkedIn', type:'Provenance', title:'Nobody actually checks the police abstract',
-    desc:'Police abstract / provenance theme for motor & liability insurers.',
-    copy:`A police abstract is one of the most consequential documents in a motor claim — and one of the least checked. Ask most claims teams how they verify one, and the honest answer is: they don't, beyond looking at whether it looks right.
+  {day:'mon', platform:'LinkedIn', type:'AI', title:'AI will happily believe a fake document',
+    desc:'Flagship — AI and document fraud.',
+    copy:`An AI model reading a claim, an application or a contract has no idea whether the invoice or certificate behind it is genuine — it will process a well-forged document exactly as confidently as a real one.
 
-Police abstracts are forged more often than institutions like to admit, precisely because everyone assumes someone else already checked. That's not a comment on any one insurer's diligence — it's what happens when verification isn't built into the workflow anywhere.
+As more institutions plug AI into claims, underwriting and compliance workflows, the quality of the documents feeding those systems matters more, not less. Verifying inputs isn't a side conversation to AI adoption. It's a prerequisite for trusting what the AI produces.
 
-Provenance — being able to trace a document back to who actually issued it, and confirm nothing has changed since — closes that gap without requiring anyone to become a forensic document examiner.
+A well-forged document doesn't confuse an AI system — it gets processed with exactly the same confidence as a real one, which means automation can scale a fraud problem just as efficiently as it scales a good decision.
 
-It's a small, unglamorous fix for a problem that's been sitting in plain sight.`},
-  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'Inflated repair quotes are a top source of claims leakage',
-    desc:'Bite-size fact on repair quotation fraud.',
-    copy:`Did you know? Inflated repair quotes are one of the most common — and hardest to catch — sources of motor claims leakage, because nobody has time to independently check every garage invoice.
+If your team is automating decisions this year: what's verifying the documents before the model ever sees them?`},
+  {day:'mon', platform:'X', type:'AI', title:'AI doesn’t get suspicious. It just gets confident.',
+    desc:'X version.',
+    copy:`A forged document doesn't confuse an AI model. It gets read with exactly the same confidence as a real one.
 
-Kweli gives assessors a fast, independent answer instead of a guess.
+Automating a workflow without verifying its inputs doesn't remove the fraud risk. It just makes the wrong answer arrive faster.`},
+  {day:'tue', platform:'LinkedIn', type:'Industry case study', title:'How Kweli would stop invoice fraud reaching an AI underwriting model',
+    desc:'Commercial story — AI + invoice fraud case study framing.',
+    copy:`Consider an insurer piloting AI-assisted underwriting: documents come in, a model reads them, a recommendation comes out — fast, consistent, scalable.
 
-#ClaimsLeakage #MotorInsurance #Verification`,
-    image:"A garage repair invoice with a magnifying glass icon and a subtle upward-trending 'leakage' arrow."}
+Now consider the same pipeline with one forged invoice slipped into the input. The model doesn't hesitate. It reads the fake with the same confidence as the real ones around it, and the recommendation comes out just as fast, just as wrong.
+
+The fix sits before the model, not inside it: verify the document is genuine and unaltered first, then let the AI do what it's good at. That ordering — verify, then automate — is the difference between AI that scales good decisions and AI that scales bad ones just as efficiently.`},
+  {day:'wed', platform:'LinkedIn', type:'AI Fraud', title:'Automating a decision doesn’t verify its inputs',
+    desc:'Wednesday educational.',
+    copy:`Every institution automating claims or underwriting this year is making an implicit bet: that the documents feeding the model are genuine. Most haven't tested that bet, because verifying inputs isn't usually part of the automation project scope.
+
+Verifying documents before they reach the model is the part of the project that determines whether automation is actually safer, or just faster at being wrong.`},
+  {day:'thu', platform:'Instagram', type:'Simple graphic', title:'What AI sees vs what’s actually true',
+    desc:'Instagram simple graphic — AI confidence vs document authenticity.',
+    copy:`A fake document and a real one look identical to a model that was never asked to check.
+
+Confidence isn't the same as correctness. Verify first.
+
+#AIFraud #DocumentIntegrity`,
+    image:'Two identical-looking document icons side by side, one labelled "Real" one "Fake", both feeding into a robot icon giving the same thumbs-up — captioned "AI can\'t tell the difference. We can."'},
+  {day:'fri', platform:'LinkedIn', type:'AI observations', title:'The AI question I get asked most, and my honest answer',
+    desc:'Founder Friday.',
+    copy:`The AI question I get asked most this year: "Are you worried AI will make verification obsolete?" My honest answer: the opposite. Every AI system making decisions off documents needs those documents to be genuine, or it just gets confidently wrong at scale.
+
+I don't think that's a comfortable answer for people hoping AI solves the trust problem for free. It doesn't. It raises the stakes on getting it right upstream.`}
 ]},
-{w:6, items:[]},
-{w:7, items:[
-  {day:'tue', platform:'LinkedIn', type:'Document Integrity', title:'The inflated repair quote is a document problem',
-    desc:'Reframes repair quote inflation as a document integrity issue, not just negotiation.',
-    copy:`Everyone in motor claims knows repair quotes get inflated. Fewer people frame it correctly: it's not a negotiation problem, it's a document integrity problem. A quote is a document like any other — it can be altered, backdated, or issued by a garage that doesn't quite match the one on record.
-
-Assessors are good at spotting quotes that feel off. They're not equipped to independently verify hundreds of quotes a month against source, and nobody expects them to be.
-
-The fix isn't more scrutiny per assessor — it's making the underlying verification fast enough that scrutiny scales with claim volume instead of assessor headcount.
-
-That reframing — document integrity, not just negotiation — is where we start most conversations with claims leadership.`},
-  {day:'thu', platform:'LinkedIn', type:'Banking Insight', title:'The hidden cost of "we\'ll just call to confirm"',
-    desc:'Names the real cost of manual phone-call verification.',
-    copy:`Ask almost any bank or insurer how they verify a document today and you'll hear some version of: "we call to confirm." It sounds thorough. It's actually one of the most expensive, slowest, least auditable steps left in most operations — a person, a phone, a hope that the right contact picks up and tells the truth.
-
-Nobody has costed this properly, because it's spread across hundreds of small interruptions rather than one visible line item. But add up the minutes, the follow-up calls, the claims and applications sitting in limbo waiting on a callback, and it's a meaningful drag on throughput.
-
-Verification infrastructure doesn't remove judgment from the process. It removes the phone call from the part of the process that shouldn't need one.`},
-  {day:'wed', platform:'Instagram', type:'Myth vs Fact', title:'Myth: blockchain verification publishes your documents',
-    desc:'Corrects the common blockchain-exposure misconception.',
-    copy:`Myth: blockchain-based verification means your documents get published on a public ledger for anyone to see.
-
-Fact: Kweli verifies issuance and integrity without ever exposing what's inside the document. Proof, not publication.
-
-#DigitalTrust #BlockchainBeyondCrypto`,
-    image:"A closed document icon with a small lock, beside an open padlock labelled 'content stays private' and a checkmark labelled 'authenticity proven.'"}
-]},
-{w:8, items:[
-  {day:'tue', platform:'LinkedIn', type:'Trust Infrastructure', title:'Your verification process is a phone call',
-    desc:'Names the manual phone-call reality most institutions still run on.',
-    copy:`Strip away the workflow diagrams and most institutional "verification processes" reduce to the same step: someone calls or emails the issuer and asks whether a document is real. It works, until volume rises, the issuer is unreachable, or the forgery is good enough that a busy person on the phone doesn't catch it.
-
-That's not a criticism of the people doing it — it's a description of a process built before there was a faster alternative. There is one now.
-
-Verification infrastructure means that step becomes instant and independent, available to whoever in the organisation needs it, not gated behind one relationship or one person's availability.
-
-The phone call isn't wrong. It's just the version of this problem we haven't upgraded yet.`},
-  {day:'thu', platform:'LinkedIn', type:'Trade Insight', title:'Export documents move real money through untrusting hands',
-    desc:'Export documentation trust for trade & trade-finance teams.',
-    copy:`An export shipment can pass through a dozen parties before it's paid for — freight forwarders, banks, customs, insurers, buyers who've never met the seller. Every one of those parties is relying on paperwork issued by someone they don't fully trust, verified by nobody in particular.
-
-That's the quiet risk sitting inside trade finance: not fraud as a dramatic event, but fraud as background noise nobody has the bandwidth to filter out.
-
-Independent document verification doesn't replace trade finance controls — it gives every party in that chain a fast, shared way to confirm a document is genuine before real money moves on the strength of it.
-
-It's a small addition to a very old process, and it changes the risk calculation more than its size suggests.`}
-]},
-{w:9, items:[
-  {day:'tue', platform:'LinkedIn', type:'Claims Workflow', title:"Can you trust a lab result you didn't watch get made?",
-    desc:'Laboratory report integrity — an overlooked verification use case.',
-    copy:`Laboratories sit upstream of an enormous number of decisions — insurance claims, supply chain sign-offs, compliance filings — and almost nobody downstream of a lab report has any independent way to confirm it's genuine and unaltered. You either trust the letterhead, or you don't get the deal done.
-
-That's not a comment on labs' honesty. It's a comment on how little verification infrastructure exists once a report leaves the building it was produced in.
-
-Giving buyers, insurers and certifiers an independent way to confirm a lab report's provenance doesn't slow down commerce — it removes one more thing everyone was quietly hoping wouldn't matter.
-
-We think this is one of the more overlooked use cases for verification infrastructure, precisely because nobody frames lab reports as a "trust problem" until something goes wrong.`},
-  {day:'wed', platform:'Instagram', type:'Credentials', title:'The fake degree is a solved problem we haven’t deployed',
-    desc:'Educational certificate verification, visual.',
-    copy:`The fake degree is a solved problem we haven't deployed.
-
-Verifying an educational certificate shouldn't take weeks of emails to a registrar's office. It should take seconds — without the institution changing anything about how it issues credentials today.
-
-#Credentials #EducationVerification`,
-    image:"A graduation certificate icon with a stopwatch showing 'seconds, not weeks.'"},
-  {day:'thu', platform:'LinkedIn', type:'Founder Insight', title:"Growing up where documents can't be trusted",
-    desc:'Personal founder story tying lived experience to the mission.',
-    copy:`I grew up somewhere a genuine certificate and a very good forgery could sit side by side, and most institutions had no fast way to tell them apart. You learn early that "official-looking" and "genuine" are not the same claim, and that the gap between them is where a lot of quiet harm happens — false hires, false claims, false credibility.
-
-That's not a uniquely Kenyan problem. It's just more visible here, sooner, because fewer institutional shortcuts paper over it.
-
-Kweli exists because I'd rather build the infrastructure that closes that gap than keep working around it. It's a slower, less glamorous bet than most startup ideas — and I think it's the more useful one.`}
-]},
-{w:10, items:[
-  {day:'tue', platform:'LinkedIn', type:'Insurance Insight', title:'Where the money is largest, the documents are faked',
-    desc:'Procurement & tender document fraud.',
-    copy:`Procurement and tender fraud rarely gets discussed alongside insurance claims fraud, but the underlying problem is identical: a document (a bid, a certificate, a compliance letter) is trusted because it looks right, not because anyone independently confirmed it.
-
-The stakes are simply larger. Tender fraud sits on top of the biggest contracts an organisation signs, which means the documents involved are worth forging carefully — and worth verifying carefully in return.
-
-Governance and procurement leaders already know this. What's usually missing isn't awareness, it's a fast, practical way to check a document's authenticity without adding another approval layer to an already slow process.
-
-That's the gap we spend a lot of our time closing.`},
-  {day:'thu', platform:'LinkedIn', type:'Digital Trust', title:'Every handoff assumes the document is real',
-    desc:'Supply chain document trust.',
-    copy:`Trace any supply chain far enough and you'll find the same quiet assumption repeated at every handoff: this certificate, this invoice, this compliance letter is genuine, because the last person in the chain seemed to think so too.
-
-Nobody re-verifies at each step. It would be far too slow. So trust gets inherited rather than earned, all the way down the chain — right up until one forged document causes a problem, at which point everyone asks how nobody caught it.
-
-Verification infrastructure doesn't ask every party to re-check everything. It gives each handoff a fast, independent confirmation instead of an inherited assumption.
-
-That's a small shift in mechanics with a large effect on where risk actually sits.`}
-]},
-{w:11, items:[
-  {day:'tue', platform:'LinkedIn', type:'AI & Document Fraud', title:'AI will happily believe a fake document',
-    desc:'Cybersecurity Awareness Month — ties document integrity to AI adoption.',
-    copy:`Cybersecurity Awareness Month is usually about passwords and phishing. Worth adding to the list: the documents feeding your AI systems.
-
-An AI model reading a claim, an application or a contract has no idea whether the invoice or certificate behind it is genuine — it will process a well-forged document exactly as confidently as a real one. As more institutions plug AI into claims, underwriting and compliance workflows, the quality of the documents feeding those systems matters more, not less.
-
-Verifying inputs isn't a side conversation to AI adoption. It's a prerequisite for trusting what the AI produces.
-
-If your team is automating decisions this year, it's worth asking: what's verifying the documents before the model ever sees them?`},
-  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'Cybersecurity Awareness Month includes your documents too',
-    desc:'Instagram tie-in to Cybersecurity Awareness Month.',
-    copy:`Did you know? During Cybersecurity Awareness Month, most institutions review passwords and phishing training — but rarely audit whether the documents behind their claims and applications have ever been independently verified.
-
-Document integrity is part of your security posture too.
-
-#CybersecurityAwarenessMonth #DocumentIntegrity`,
-    image:"A shield split in half — one side a padlock (classic cybersecurity), the other a document with a checkmark — captioned 'Two sides of the same problem.'"}
-]},
-{w:12, items:[
-  {day:'tue', platform:'LinkedIn', type:'Thought Leadership', title:"Your documents are digital. Proving they're real is still analogue.",
-    desc:'Digital document authenticity.',
+{w:6, items:[
+  {day:'mon', platform:'LinkedIn', type:'Document Trust', title:'Your documents are digital. Proving they’re real is still analogue.',
+    desc:'Flagship — digital document authenticity.',
     copy:`Almost every document an institution handles today arrives as a PDF, a scan, or a digital form. Almost every way institutions verify those documents is still analogue: a phone call, an email to the issuer, a person eyeballing a signature.
 
 Digitising a document didn't digitise the trust behind it. That's the actual gap — not a lack of digital documents, but a lack of digital ways to prove they're genuine and unaltered.
@@ -4840,250 +4900,191 @@ Digitising a document didn't digitise the trust behind it. That's the actual gap
 Closing that gap doesn't require replacing how institutions issue documents today. It requires adding a verification layer underneath the documents that already exist.
 
 That's a much smaller ask than most "digital transformation" projects, and a more immediately useful one.`},
-  {day:'wed', platform:'Instagram', type:'Credentials', title:'Can anyone confirm it in seconds?',
-    desc:'Visual — the real standard for credential trust.',
-    copy:`A certificate, a licence, a diploma — all just documents claiming something is true.
+  {day:'mon', platform:'X', type:'Document Trust', title:'Digitising a document didn’t digitise the trust behind it',
+    desc:'X version.',
+    copy:`Your documents are digital. Proving they're real is still a phone call.
 
-The question worth asking isn't "does it look official?" It's "can anyone independently confirm it, in seconds, without calling the issuer?"
+Digitising a PDF didn't digitise the trust behind it. That's the actual gap, and it's smaller — and more fixable — than most "digital transformation" projects assume.`},
+  {day:'tue', platform:'LinkedIn', type:'Customer story', title:'A document trust story, the kind that never makes a case study',
+    desc:'Commercial story — a small, realistic, undramatic story.',
+    copy:`The document trust failures that actually cost money rarely make a dramatic case study. It's not a forged multimillion-dollar contract — it's a compliance officer spending forty minutes confirming one certificate is genuine, multiplied by every certificate that crosses their desk that month.
 
-That's the standard we build to.
+That's the realistic version of "digital transformation" in document-heavy operations: not a single dramatic save, but forty minutes returned, over and over, to the people currently doing verification by hand.`},
+  {day:'wed', platform:'LinkedIn', type:'Trust Infrastructure', title:'Verification infrastructure, defined precisely',
+    desc:'Wednesday educational — precise definition.',
+    copy:`"Verification infrastructure" gets used loosely. Precisely: a fast, independent way to answer three questions about any document — who issued it, has it changed since, and is that still true today — without exposing its contents to anyone who doesn't already have them.
 
-#Credentials #DigitalTrust`,
-    image:"Three overlapping document icons (certificate, licence, diploma), each with a small verified-checkmark badge in the corner."},
-  {day:'thu', platform:'LinkedIn', type:'Myth vs Fact', title:'Myth: blockchain for verification means crypto',
-    desc:'Blockchain beyond crypto — reframes the useful part.',
-    copy:`Myth: blockchain for document verification means crypto, tokens, and speculation.
+Not an AI that guesses if a document looks suspicious. Not a public database. Just those three questions, answered fast.`},
+  {day:'thu', platform:'Instagram', type:'Educational visual', title:'Digital doesn’t mean verified',
+    desc:'Instagram educational visual.',
+    copy:`A PDF isn't more trustworthy than paper. It's just easier to edit.
 
-Fact: the genuinely useful part was always the boring bit — a tamper-evident, independently checkable record of when something was issued and whether it's changed since. No coin required.
+Digital ≠ verified. That's the gap we close.
 
-We use that property because it solves a real problem (proving a document is genuine, without a phone call), not because it's fashionable. Most of what made blockchain famous is irrelevant to what makes it useful here.
+#DigitalTrust #DocumentIntegrity`,
+    image:'A PDF icon with an edit-pencil overlay, captioned "Just as easy to fake" next to a verified-badge version captioned "Actually checked."'},
+  {day:'fri', platform:'LinkedIn', type:'Progress updates', title:'Six weeks into the new rhythm',
+    desc:'Founder Friday — brief honest progress note.',
+    copy:`Six weeks into writing this way every week: it's harder than I expected to keep Friday honest instead of promotional. The instinct to turn every post into a pitch is strong, even on the day explicitly set aside not to.
 
-If "blockchain" makes you skeptical, that's fair. Judge the verification, not the word.`}
+Small win this week: a claims conversation that started with "we saw your post about medical bills" — which is exactly the kind of quiet, unglamorous proof that consistency beats a viral moment.`}
 ]},
-{w:13, items:[
-  {day:'tue', platform:'LinkedIn', type:'AI & Document Fraud', title:'The hidden cost of manual verification, revisited for AI',
-    desc:'Manual verification as the bottleneck automation trips over.',
-    copy:`We wrote a few weeks ago about the hidden cost of "we'll just call to confirm." Worth revisiting now that AI is entering claims and underwriting workflows: manual verification doesn't just cost time, it becomes the bottleneck an automated process trips over.
+{w:7, items:[
+  {day:'mon', platform:'LinkedIn', type:'Trust Infrastructure', title:'Trust is becoming infrastructure',
+    desc:'Flagship — category thesis.',
+    copy:`Twenty years ago, moving money between banks meant trusting a slow web of correspondent relationships and phone calls. Then payment rails became infrastructure — invisible, boring, and load-bearing.
 
-An AI system can triage a claim in seconds. If the document behind that claim still needs a human to phone the issuer, the automation gains nothing — the slow step just moved, it didn't disappear.
+Verifying whether a document is genuine is where payments were before that shift. Every institution still does it manually: a call to the issuer, a squint at a signature, a hope that nobody bothered to fake it well.
 
-Verification has to modernise at the same pace as the systems around it, or it quietly becomes the reason automation projects underdeliver.
+We think document trust is becoming the same kind of infrastructure — not a feature bolted onto one product, but a layer underneath insurance, banking, trade and hiring alike.
 
-That's a less-discussed risk of AI rollouts than most people expect, and one worth raising before the project, not after.`},
-  {day:'thu', platform:'LinkedIn', type:'Trust Infrastructure', title:'Where document verification goes next',
-    desc:'Closes out the Cybersecurity Awareness Month arc with the category vision.',
-    copy:`Closing out Cybersecurity Awareness Month with where we think this goes: verification stops being a manual step someone remembers to do, and becomes infrastructure sitting quietly underneath insurance, banking, trade and hiring — the way payment rails sit underneath commerce.
+Infrastructure is unglamorous by design. That's rather the point.`},
+  {day:'mon', platform:'X', type:'Trust Infrastructure', title:'Payments went from phone calls to infrastructure. Verification is next.',
+    desc:'X version.',
+    copy:`Payments used to mean phone calls and correspondent banking relationships. Then it became infrastructure — boring, invisible, load-bearing.
 
-Institutions won't "add verification" as a project. They'll simply stop being able to imagine operating without an instant, independent way to confirm a document is genuine.
+Document verification is exactly where payments used to be. We think it's next.`},
+  {day:'tue', platform:'LinkedIn', type:'Problem/Solution', title:'Verification shouldn’t depend on who answers the phone',
+    desc:'Commercial story.',
+    copy:`The problem: most institutional "verification" reduces to one step — someone calls or emails the issuer and asks if a document is real. It works until volume rises, the issuer is unreachable, or the forgery is good enough that a busy person doesn't catch it.
 
-That's a ten-year view, not a next-quarter one. But every infrastructure shift looks like a niche tool right up until it doesn't.
+The solution isn't a smarter person on the phone. It's making that step instant and independent, available to whoever needs it, not gated behind one relationship or one person's availability that day.`},
+  {day:'wed', platform:'LinkedIn', type:'Trust Infrastructure', title:'Your verification process is a phone call',
+    desc:'Wednesday educational.',
+    copy:`Strip away the workflow diagrams and most institutional "verification processes" reduce to the same step: someone calls or emails the issuer and asks whether a document is real.
 
-We'd rather be early and unglamorous than late and obvious.`}
+That's not a criticism of the people doing it — it's a description of a process built before there was a faster alternative. There is one now.`},
+  {day:'thu', platform:'Instagram', type:'Verification flow', title:'The old way vs the new way',
+    desc:'Instagram verification-flow visual.',
+    copy:`Old way: call the issuer, wait, hope.
+New way: check instantly, independently, done.
+
+Same question. Very different speed.
+
+#TrustInfrastructure #Verification`,
+    image:'Split graphic: left side a phone with a long hold-time clock, right side a checkmark appearing instantly. Navy/gold.'},
+  {day:'fri', platform:'LinkedIn', type:'Startup life', title:'The unglamorous bet we keep making',
+    desc:'Founder Friday.',
+    copy:`The bet we keep making, out loud, even though it's not the exciting version: infrastructure earns trust by being boring and correct for a long time, not by being exciting for a quarter.
+
+Startup life rewards the opposite instinct constantly — chase the exciting headline, the flashy demo, the dramatic before/after. We keep choosing the unglamorous version. Some weeks that feels like the wrong call. Most weeks, it feels like the only honest one.`}
 ]},
-{w:14, items:[]},
-{w:15, items:[
-  {day:'tue', platform:'LinkedIn', type:'Insurance Insight', title:'Claims leakage: the silent margin killer',
-    desc:'Claims leakage as a background, distributed cost.',
+{w:8, items:[
+  {day:'mon', platform:'LinkedIn', type:'Fraud', title:'Most document fraud isn’t dramatic',
+    desc:'Flagship — reframing fraud as a background cost, not rare events.',
+    copy:`Most document fraud isn't sophisticated. It's a changed number on an invoice, a certificate that was never quite issued the way it claims, a report altered slightly between two hands. It survives not because it's clever, but because nobody has time to check everything, so a background rate gets accepted as normal.
+
+That's closer to a background tax that most institutions quietly pay, distributed across thousands of small, unverified documents rather than concentrated in a few dramatic cases.
+
+The reason it feels rare is that most of it is never caught, not that it doesn't happen. Verification infrastructure doesn't just catch more fraud — it changes an invisible cost into a visible, manageable one.`},
+  {day:'mon', platform:'X', type:'Fraud', title:'Fraud isn’t rare. It’s just rarely caught.',
+    desc:'X version.',
+    copy:`Most document fraud isn't dramatic. It's a changed number, a slightly-off certificate, a report altered between two hands.
+
+It feels rare because most of it is never caught — not because it doesn't happen.`},
+  {day:'tue', platform:'LinkedIn', type:'Use case', title:'How Kweli protects certificates',
+    desc:'Commercial story — certificate protection use case.',
+    copy:`A certificate is meant to close a question, not open one — this person is qualified, this product is compliant, this batch passed inspection. But a certificate is also just a document, and documents can be altered after the fact.
+
+The use case is simple: whoever issues a certificate can give the holder — and anyone the holder shows it to — a fast, independent way to confirm it's genuine and unchanged. Not a new registry to check. The certificate itself, carrying its own proof.
+
+That's the shape of the conversation with certifiers, labs and professional bodies: protect the thing you already issue, not replace it.`},
+  {day:'wed', platform:'LinkedIn', type:'Document Integrity', title:'A convincing fake takes minutes. Verifying it shouldn’t take longer than filing the claim.',
+    desc:'Wednesday educational.',
+    copy:`Ask any claims handler how they'd fake an invoice and most can describe it in under a minute. That asymmetry — minutes to fake, hours or days to verify — is the entire reason claims leakage from invoice fraud persists at insurers who are otherwise very good at their jobs.
+
+Closing that gap doesn't require catching every fraudster. It requires making genuine verification as fast as forgery.`},
+  {day:'thu', platform:'Instagram', type:'Carousel', title:'Five ways a document gets faked (and how each gets caught)',
+    desc:'Instagram carousel — fraud methods.',
+    copy:`Changed numbers. Reused templates. Backdated approvals. Copied signatures. Altered certificates.
+
+Five common ways documents get faked — and what an independent check catches in each case.
+
+#FraudAwareness #DocumentIntegrity`,
+    image:'5-slide carousel, one fraud method per slide with a simple icon, final slide: "All five have one fix in common: independent verification."'},
+  {day:'fri', platform:'LinkedIn', type:'Wins', title:'A small win worth naming',
+    desc:'Founder Friday.',
+    copy:`A small win worth naming this week: a compliance team told us they'd stopped scheduling a monthly "spot check certificates" meeting, because the check now happens automatically at the point of upload. Nobody remembers to celebrate the meeting that no longer needs to exist.
+
+That's the real measure of infrastructure working — not a headline, just something tedious quietly not happening anymore.`}
+]},
+{w:9, items:[
+  {day:'mon', platform:'LinkedIn', type:'Document Integrity', title:'The inflated repair quote is a document problem',
+    desc:'Flagship — repair quotation fraud as document integrity.',
+    copy:`Everyone in motor claims knows repair quotes get inflated. Fewer people frame it correctly: it's not a negotiation problem, it's a document integrity problem. A quote is a document like any other — it can be altered, backdated, or issued by a garage that doesn't quite match the one on record.
+
+Assessors are good at spotting quotes that feel off. They're not equipped to independently verify hundreds of quotes a month against source, and nobody expects them to be.
+
+The fix isn't more scrutiny per assessor — it's making the underlying verification fast enough that scrutiny scales with claim volume instead of assessor headcount.
+
+That reframing — document integrity, not just negotiation — is where we start most conversations with claims leadership.`},
+  {day:'mon', platform:'X', type:'Document Integrity', title:'The inflated repair quote isn’t a negotiation problem',
+    desc:'X version.',
+    copy:`The inflated repair quote isn't a negotiation problem. It's a document integrity problem — a quote is just a document, and documents can be altered.
+
+Reframe it that way and the fix stops being "train assessors harder" and starts being "verify faster."`},
+  {day:'tue', platform:'LinkedIn', type:'Real conversations', title:'What an assessor told us, almost verbatim',
+    desc:'Commercial story — realistic conversation with a claims assessor.',
+    copy:`What an assessor told us, close to verbatim: "I can usually tell when a quote feels wrong. I can't tell you how, and I definitely can't check all of them."
+
+That's the honest state of most claims fraud detection today — real expertise, real instinct, no time to apply it at scale. Verification infrastructure doesn't replace that instinct. It gives it something to check against on every file, not just the ones that feel wrong.`},
+  {day:'wed', platform:'LinkedIn', type:'Insurance Insight', title:'Claims leakage: the silent margin killer',
+    desc:'Wednesday educational.',
     copy:`Claims leakage rarely shows up as a single dramatic loss. It shows up as a slow, steady margin erosion — a slightly inflated invoice here, an unverified certificate there, none of it big enough on its own to trigger an investigation.
 
-That's exactly why it survives: no single case looks worth the cost of manual verification, so insurers accept a background rate of leakage as the price of doing business at volume.
+The economics change once verification is fast and cheap enough to apply broadly instead of selectively.`},
+  {day:'thu', platform:'Instagram', type:'Workflow', title:'Claims workflow: where leakage hides',
+    desc:'Instagram claims-workflow visual.',
+    copy:`Leakage doesn't hide in one big fraud. It hides in dozens of small, unverified documents nobody had time to check.
 
-The economics change once verification is fast and cheap enough to apply broadly instead of selectively. Leakage stops being a rounding error you tolerate and becomes a number you can actually see and reduce.
-
-For claims leaders: do you currently know your real leakage rate, or an estimate built on the cases you happened to catch?`},
-  {day:'thu', platform:'LinkedIn', type:'Founder Insight', title:'We built an exchange before we understood the problem',
-    desc:'Founder story — the pivot away from the original exchange idea.',
-    copy:`Kweli didn't start as a verification company. It started as an exchange — a marketplace idea that sounded good in a pitch deck and solved a problem almost nobody we later spoke to actually had.
-
-It took real conversations with insurers, brokers and traders to hear the same specific frustration over and over: not "we need a marketplace," but "we have no fast way to know if this document is real." That's a narrower, less exciting-sounding problem. It's also the one people were actually willing to change their workflow for.
-
-The lesson wasn't "pivot faster." It was: talk to the market before you're attached to the idea, not after.
-
-We're glad we didn't ship the exchange.`},
-  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'Leakage is usually many small things, not one big thing',
-    desc:'Bite-size visual on claims leakage.',
-    copy:`Did you know? Claims leakage often isn't one big fraud — it's dozens of small, unverified documents that were never worth investigating individually.
-
-Fast, cheap verification changes that math entirely.
+Here's where it actually sits in the claims workflow.
 
 #ClaimsLeakage #InsuranceInsight`,
-    image:"A leaking bucket graphic with small document icons as the drips, labelled 'small, unverified, adds up.'"}
+    image:'Claims funnel diagram with small red leak-drops at each stage (intake, assessment, payout), each drop labelled with a document type.'},
+  {day:'fri', platform:'LinkedIn', type:'Honest reflections', title:'The thing I underestimated about this business',
+    desc:'Founder Friday.',
+    copy:`The thing I underestimated when we started: how much of this job is patiently explaining the same reframe over and over — "this isn't a fraud problem, it's a verification-speed problem" — to a new audience every week, in almost the same words.
+
+I used to think repeating myself meant I wasn't being interesting enough. Now I think it means the point is actually landing, one conversation at a time, and that's just what building a category looks like from the inside.`}
 ]},
-{w:16, items:[
-  {day:'tue', platform:'LinkedIn', type:'Document Integrity', title:'What thirty enterprise conversations taught us about trust',
-    desc:'Customer-conversation lessons — the market rarely names its own problem correctly.',
-    copy:`Over the past stretch of customer conversations, one pattern showed up almost everywhere, regardless of industry: nobody thinks they have a "verification problem." They think they have a claims problem, a compliance problem, an onboarding-speed problem — and it's only a few questions in that the actual bottleneck turns out to be the same thing: nobody can quickly confirm a document is genuine.
+{w:10, items:[
+  {day:'mon', platform:'LinkedIn', type:'Insurance', title:'Nobody actually checks the police abstract',
+    desc:'Flagship — insurance, second cycle, provenance angle.',
+    copy:`A police abstract is one of the most consequential documents in a motor claim — and one of the least checked. Ask most claims teams how they verify one, and the honest answer is: they don't, beyond looking at whether it looks right.
 
-That's a useful thing to notice as a founder. The market rarely describes its own problem in the words you'd use to solve it.
+Police abstracts are forged more often than institutions like to admit, precisely because everyone assumes someone else already checked. That's not a comment on any one insurer's diligence — it's what happens when verification isn't built into the workflow anywhere.
 
-It also means the sales conversation isn't "buy verification infrastructure" — it's "let's look at the specific document your team spends the most time doubting."
+Provenance — tracing a document back to who actually issued it, and confirming nothing has changed since — closes that gap without requiring anyone to become a forensic document examiner.
 
-That's a much easier conversation to have.`},
-  {day:'thu', platform:'LinkedIn', type:'Banking Insight', title:'What a certificate actually proves (and what it doesn’t)',
-    desc:'Splits credential trust into three separate, checkable claims.',
-    copy:`A certificate proves that, at some point, someone issued a document making a claim. It does not prove the claim is still true, that the copy in front of you is unaltered, or that it was actually the named issuer who created it — three separate things people routinely collapse into one glance at a logo and a signature.
+It's a small, unglamorous fix for a problem that's been sitting in plain sight.`},
+  {day:'mon', platform:'X', type:'Insurance', title:'Nobody checks the police abstract. Everyone assumes someone else did.',
+    desc:'X version.',
+    copy:`Nobody actually checks the police abstract in a motor claim. Everyone assumes someone else already did.
 
-Banks relying on certificates for KYC, compliance or collateral documentation are usually trusting all three at once, on the strength of the first.
+That's not diligence. That's a gap nobody built a process to close — until now.`},
+  {day:'tue', platform:'LinkedIn', type:'Industry case study', title:'How Kweli helps insurers close the abstract gap',
+    desc:'Commercial story.',
+    copy:`Consider a motor claim moving through a typical workflow: FNOL, police abstract attached, assessment, payout. At no point does anyone independently confirm the abstract is genuine — it's simply trusted because it arrived with the right stamp.
 
-Separating those questions — issued by whom, unaltered since when, still valid now — is a more precise (and more checkable) way to think about document trust than "does it look right."
+The case for change here isn't dramatic. It's one added step, at the point the abstract is uploaded, that turns "trusted because it looks official" into "confirmed, independently, in seconds." Everything else about the workflow stays exactly the same.`},
+  {day:'wed', platform:'LinkedIn', type:'Insurance Insight', title:'Provenance, not just presence',
+    desc:'Wednesday educational.',
+    copy:`Having a document isn't the same as knowing where it came from. Provenance means tracing a document back to its actual issuer and confirming nothing has changed since — a different, more useful question than "does this look genuine."`},
+  {day:'thu', platform:'Instagram', type:'Diagram', title:'Provenance, visualised',
+    desc:'Instagram diagram — provenance chain.',
+    copy:`Issuer → Document → You. Every link in that chain can be independently confirmed — that's provenance.
 
-It's a small reframing that changes what you actually need to verify.`}
+#Provenance #InsuranceInsight`,
+    image:'Simple 3-node chain diagram (Issuer, Document, You) with a checkmark on each link.'},
+  {day:'fri', platform:'LinkedIn', type:'Interesting customer conversations', title:'A claims manager asked me the best question this month',
+    desc:'Founder Friday.',
+    copy:`Best question I got asked this month, from a claims manager: "If verification is this fast, why hasn't someone built it already?"
+
+Honest answer: pieces of it existed, scattered across different tools and different assumptions about who'd pay for it. Nobody had put it together as one layer, for insurers specifically, priced for how they actually operate. That's most of what building a category actually is — not inventing something new, just finally assembling it properly.`}
 ]},
-{w:17, items:[
-  {day:'tue', platform:'LinkedIn', type:'Claims Workflow', title:"International Fraud Awareness Week: the fraud that isn't dramatic",
-    desc:'International Fraud Awareness Week — the undramatic, everyday version of fraud.',
-    copy:`This week is International Fraud Awareness Week, and most of the content around it will focus on the dramatic cases — the elaborate schemes, the headline numbers. Worth a word for the undramatic version, because it's the one institutions actually live with daily.
-
-Most document fraud isn't sophisticated. It's a changed number on an invoice, a certificate that was never quite issued the way it claims, a report altered slightly between two hands. It survives not because it's clever, but because nobody has time to check everything, so a background rate gets accepted as normal.
-
-Fraud awareness is useful. Fraud-checking infrastructure that doesn't depend on someone remembering to be suspicious is more useful.
-
-That's the gap we spend this week — and every week — closing.`},
-  {day:'thu', platform:'LinkedIn', type:'Myth vs Fact', title:'Myth: document fraud is rare',
-    desc:'International Fraud Awareness Week — reframes fraud as a background cost, not a rare event.',
-    copy:`Myth: document fraud is a rare, exceptional event that mostly happens to careless organisations.
-
-Fact: it's closer to a background tax that most institutions quietly pay, distributed across thousands of small, unverified documents rather than concentrated in a few dramatic cases.
-
-The reason it feels rare is that most of it is never caught, not that it doesn't happen. Verification infrastructure doesn't just catch more fraud — it changes an invisible cost into a visible, manageable one.
-
-Happy International Fraud Awareness Week. The real milestone isn't awareness — it's making verification routine enough that awareness stops being the main defence.`},
-  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'Most document fraud is quiet, not dramatic',
-    desc:'International Fraud Awareness Week visual.',
-    copy:`Did you know? It's International Fraud Awareness Week. Most document fraud isn't dramatic — it's small, quiet, and routinely accepted as an unavoidable cost of doing business.
-
-It doesn't have to be.
-
-#FraudAwarenessWeek #DocumentIntegrity`,
-    image:"A magnifying glass over a stack of ordinary-looking documents, one subtly highlighted, captioned 'Can you tell which one?'"}
-]},
-{w:18, items:[
-  {day:'tue', platform:'LinkedIn', type:'Trade Insight', title:'Every handoff assumes the document is real, part two',
-    desc:'Extends the supply-chain trust theme into trade finance specifically.',
-    copy:`A few weeks ago we wrote about how supply chains inherit trust rather than earn it at each handoff. Worth a follow-up: the same pattern shows up just as clearly in trade finance, where a single shipment can touch a bank, an insurer, a customs authority and a buyer, each relying on paperwork none of them independently checked.
-
-The instinct is to add more sign-offs. The actual fix is smaller: give each party in the chain a fast, independent way to confirm a document's authenticity at the moment they need it, rather than adding another layer of people trusting the layer before them.
-
-Fewer approvals, more verification. It's a better trade than it sounds.`},
-  {day:'thu', platform:'LinkedIn', type:'Credentials', title:'What a certificate proves, applied to hiring and licensing',
-    desc:'Extends the certificate-trust framework into employment and licensing.',
-    copy:`Employers and regulators verifying credentials face the same three-part problem we described for banks: was this issued by the named body, is this copy unaltered, and is it still valid — three questions routinely answered with one glance at a logo.
-
-The cost of getting it wrong isn't abstract. A forged professional licence or degree in the wrong hands is a hiring decision made on false information, sometimes in fields where that matters a great deal.
-
-Instant, independent credential verification isn't about distrusting applicants. It's about removing the one step in hiring that everyone currently does on faith rather than fact.
-
-That's a small process change with an outsized reduction in risk.`}
-]},
-{w:19, items:[
-  {day:'tue', platform:'LinkedIn', type:'Provenance', title:'What our first pilots taught us about where verification bites',
-    desc:'Pilot learnings — process pain vs theoretical fraud risk.',
-    copy:`Early pilots rarely confirm what you expected — they tell you something more specific. Ours taught us that the document type people most wanted verified wasn't always the one with the biggest fraud exposure; it was often the one causing the most operational friction, the document a team was manually chasing and re-checking every single week.
-
-That's a useful distinction. "Where's the fraud risk" and "where's the process pain" are related questions, but they don't always point at the same document.
-
-Designing verification infrastructure around actual daily friction, not just theoretical risk, is part of why the pilots stuck rather than stalling after the first month.
-
-It's a smaller insight than it sounds, and it changed how we prioritise.`},
-  {day:'thu', platform:'LinkedIn', type:'Thought Leadership', title:'What verification infrastructure actually means (and what it doesn’t)',
-    desc:'The canonical definitional piece — precise about what Kweli is and isn’t.',
-    copy:`"Verification infrastructure" gets used loosely, so worth being precise. It doesn't mean an AI that reads documents and guesses if they look suspicious. It doesn't mean a database of every document ever issued. And it doesn't mean publishing sensitive records anywhere public.
-
-It means a fast, independent way to answer three specific questions about any document: who issued it, has it changed since, and is that still true today — without exposing the document's contents to anyone who doesn't already have them.
-
-Everything we build sits underneath that definition. Not flashier, not broader — just reliably answering those three questions, at the speed institutions actually need them answered.
-
-Precision here matters more than ambition.`},
-  {day:'wed', platform:'Instagram', type:'Founder Insight', title:'The theme underneath everything we post',
-    desc:'Closes November with a short reflective quote card.',
-    copy:`Closing out November: the theme underneath everything we post is the same — trust shouldn't depend on a phone call, a hunch, or hoping nobody bothered to fake it well.
-
-Small, precise infrastructure. Big, quiet difference.
-
-#FounderInsight #TrustInfrastructure`,
-    image:"A simple quote-card, navy background, gold serif text reading 'Trust shouldn't depend on a phone call.'"}
-]},
-{w:20, items:[
-  {day:'tue', platform:'LinkedIn', type:'Document Integrity', title:'International Anti-Corruption Day: the paperwork behind it',
-    desc:'International Anti-Corruption Day (9 December) — the mechanical layer under corruption.',
-    copy:`December 9th is International Anti-Corruption Day, and most of the conversation focuses — rightly — on accountability and governance. Worth adding the quieter mechanical layer underneath a lot of corruption: documents that were never independently checked, because checking them wasn't practical at the volume institutions operate at.
-
-Procurement fraud, falsified compliance letters, backdated approvals — these aren't exotic techniques. They work because verification is manual, slow, and easy to skip when nobody's specifically looking.
-
-Anti-corruption efforts tend to focus on rules and oversight. Making the underlying documents fast and cheap to verify is a less-discussed lever, and one of the more practical ones institutions can actually pull this year.
-
-Good governance needs good infrastructure underneath it.`},
-  {day:'thu', platform:'LinkedIn', type:'Insurance Insight', title:'Getting ready for renewal season',
-    desc:'Year-end renewal season claims readiness.',
-    copy:`Renewal season concentrates a year's worth of claims, documentation and risk review into a few compressed weeks — exactly the conditions under which manual verification gets skipped, because there simply isn't time to phone every issuer on every file.
-
-That's worth naming plainly: the busiest period for claims and underwriting teams is also the period when document scrutiny is most likely to quietly drop, not because anyone decided it should, but because volume forces triage.
-
-Fast, independent verification doesn't ask teams to do more during renewal season. It removes the slowest step from the files that would otherwise get waved through on time pressure alone.
-
-If your renewal season is heavy, that's usually when this matters most, not least.`},
-  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'A lot of corruption runs on unchecked documents',
-    desc:'Anti-Corruption Day visual.',
-    copy:`Did you know? December 9th is International Anti-Corruption Day. A lot of corruption doesn't run on conspiracy — it runs on documents nobody had time to check.
-
-Faster verification is a real, practical part of the fix.
-
-#AntiCorruptionDay #DocumentIntegrity`,
-    image:"A stack of official-looking documents with a small padlock-and-checkmark icon, captioned 'Checked, not just signed.'"}
-]},
-{w:21, items:[
-  {day:'tue', platform:'LinkedIn', type:'Trust Infrastructure', title:'Closing out the year on trust',
-    desc:'Year-end reflection, ties the whole arc together.',
-    copy:`A year of these posts has circled one idea from a dozen angles: institutions have quietly accepted document fraud as background noise, because checking properly was too slow to do at scale. That's not a permanent condition — it's just the version of the problem that existed before fast, independent verification did.
-
-We don't think next year is the year every institution suddenly rebuilds its verification process. Infrastructure shifts are slower and less dramatic than that, and we'd be suspicious of anyone claiming otherwise.
-
-But we do think the direction is set: verification stops being a phone call and becomes a layer underneath everything else. Glad to be building the unglamorous part early.
-
-Thank you to everyone who's had one of these conversations with us this year.`},
-  {day:'thu', platform:'LinkedIn', type:'Myth vs Fact', title:'Myth: this is only an insurance problem',
-    desc:'Broadens the category beyond insurance ahead of year-end.',
-    copy:`Myth: document verification is mainly an insurance-industry concern.
-
-Fact: everywhere we've looked this year — banking, trade, education, procurement, hiring — the same gap shows up: documents are trusted because they look right, not because anyone independently confirmed it. Insurance just tends to notice the cost of that gap earliest, because claims leakage is easier to measure than most other industries' equivalent losses.
-
-The underlying problem is the same wherever paperwork underpins a decision worth money or trust. That's exactly why we built this as infrastructure rather than an insurance product with a different label.
-
-Wherever you sit, the question is the same one we keep asking: what document does your team currently trust without checking?`}
-]},
-{w:22, items:[]},
-{w:23, items:[]},
-{w:24, items:[
-  {day:'tue', platform:'LinkedIn', type:'Founder Insight', title:"What we're carrying into the new year",
-    desc:'New Year founder reflection — deliberately modest, not a big-ambitions post.',
-    copy:`New Year posts usually promise a bigger, bolder version of the company. Ours is quieter: the same problem, described more precisely, delivered a bit faster than we did last year.
-
-We spent the back half of last year hearing the same specific frustration across insurance, banking and trade — not "we need better technology," but "we have no fast way to know if this document is real." That clarity is worth more to us than a new list of ambitions.
-
-This year, we'd rather get better at the narrow thing than wider at a vague one. If that sounds unambitious, it's a deliberate bet: infrastructure earns trust by being boring and correct for a long time, not by being exciting for a quarter.
-
-Here's to more of the same, done better.`},
-  {day:'thu', platform:'LinkedIn', type:'Insurance Insight', title:'What claims teams should watch for this year',
-    desc:'New-year claims fraud vigilance note.',
-    copy:`A new year of policies means a new year of claims built on documents nobody has reason to distrust yet — which is exactly when a slightly-too-convenient invoice or a certificate issued a little too quickly is easiest to wave through.
-
-Fraud patterns don't reset in January, but scrutiny sometimes quietly does, especially on files that look routine. Worth a reminder heading into the year: the documents that feel least suspicious are often the ones least likely to have been checked at all.
-
-That's not a call for more suspicion across the board — it's a call for verification that doesn't depend on a file feeling suspicious to trigger it.
-
-Wishing every claims team a lighter leakage year than the last.`},
-  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'Fraud doesn’t take a New Year’s break',
-    desc:'New Year visual tie-in.',
-    copy:`Did you know? Fraud doesn't take a New Year's break — but scrutiny sometimes quietly does, on files that look routine.
-
-Verification that doesn't depend on suspicion catches what routine-looking cases hide.
-
-#NewYear #ClaimsLeakage`,
-    image:"A calendar flipping to January with a small document icon and a subtle caution flag."}
-]},
-{w:25, items:[
-  {day:'tue', platform:'LinkedIn', type:'Banking Insight', title:'KYC documents deserve the same scrutiny as claims',
-    desc:'Extends claims-leakage thinking into banking onboarding.',
+{w:11, items:[
+  {day:'mon', platform:'LinkedIn', type:'Banking', title:'KYC documents deserve the same scrutiny as claims',
+    desc:'Flagship — banking, second cycle, onboarding leakage.',
     copy:`Insurers talk about claims leakage. Banks should talk about onboarding leakage — the slow accumulation of accounts opened on the strength of an ID document, a proof of address or a company registration certificate that nobody independently confirmed, because KYC checklists focus on collecting documents, not verifying them.
 
 Collecting the right documents and confirming they're genuine are two different steps, and most onboarding processes are thorough about the first and thin on the second.
@@ -5091,53 +5092,579 @@ Collecting the right documents and confirming they're genuine are two different 
 That gap doesn't need a bigger checklist. It needs the existing checklist backed by a fast, independent way to confirm each document is what it claims to be.
 
 For banking compliance teams: how much of your KYC process is collection versus actual verification?`},
-  {day:'thu', platform:'LinkedIn', type:'AI & Document Fraud', title:'Automating decisions means automating trust in bad documents too',
-    desc:'AI adoption risk if inputs are never verified.',
-    copy:`Every institution automating claims, underwriting or onboarding this year is making an implicit bet: that the documents feeding the model are genuine. Most haven't actually tested that bet, because verifying inputs isn't usually part of the automation project scope — the focus goes to the model, not what it's reading.
+  {day:'mon', platform:'X', type:'Banking', title:'Onboarding leakage is claims leakage’s quieter cousin',
+    desc:'X version.',
+    copy:`Insurers talk about claims leakage. Banks should talk about onboarding leakage — accounts opened on documents nobody independently checked.
 
-A well-forged document doesn't confuse an AI system. It gets processed with exactly the same confidence as a real one, which means automation can scale a fraud problem just as efficiently as it scales a good decision.
+Same root cause. Nobody's given it a name yet.`},
+  {day:'tue', platform:'LinkedIn', type:'Customer story', title:'The account that shouldn’t have opened',
+    desc:'Commercial story — realistic onboarding scenario.',
+    copy:`A realistic version of how onboarding leakage happens: a company registration certificate, slightly altered, submitted alongside otherwise-genuine paperwork. Nothing about the file looks unusual. The account opens.
 
-Verifying documents before they reach the model isn't a nice-to-have alongside AI adoption. It's the part of the project that determines whether automation is actually safer, or just faster at being wrong.`}
+Nobody in that story was careless. The checklist was followed exactly as designed — collect the documents, file them, move on. The step that was missing wasn't more scrutiny from a human. It was an independent check that doesn't get tired by the two-hundredth file of the day.`},
+  {day:'wed', platform:'LinkedIn', type:'Banking Insight', title:'Three questions every KYC document should answer',
+    desc:'Wednesday educational.',
+    copy:`Issued by whom. Unaltered since when. Still valid now. Every KYC document implicitly makes all three claims, and most onboarding processes check none of them independently — just the fact that a document exists at all.`},
+  {day:'thu', platform:'Instagram', type:'Banking process', title:'Onboarding, with one step added',
+    desc:'Instagram banking-process visual.',
+    copy:`Same onboarding flow. One quiet step added: verify before file.
+
+#BankingInsight #KYC`,
+    image:'Simple horizontal flow: Collect → Verify (highlighted) → File → Approve. Navy/gold, minimal icons.'},
+  {day:'fri', platform:'LinkedIn', type:'Building Kweli', title:'Why banking conversations move slower than insurance ones',
+    desc:'Founder Friday.',
+    copy:`Something I've noticed: banking conversations move slower than insurance ones, and it took me a while to understand why. Insurers feel claims leakage directly, every quarter, as a number. Banks feel onboarding leakage as risk — real, but harder to point at on a spreadsheet.
+
+Building Kweli has meant learning to make an invisible cost visible before we can talk about fixing it. That's a different sales conversation to the one I expected when we started.`}
 ]},
-{w:26, items:[
-  {day:'tue', platform:'LinkedIn', type:'Thought Leadership', title:'The coming divide between verified and unverifiable institutions',
-    desc:'Closing thought-leadership piece — the category vision.',
-    copy:`As verification infrastructure becomes normal in some sectors, a quieter divide starts to form: institutions whose documents can be independently confirmed in seconds, and institutions whose documents still require a phone call and a hope. That divide will show up first as a speed advantage, then as a trust advantage — partners and regulators will simply prefer dealing with the side that can prove things quickly.
+{w:12, items:[
+  {day:'mon', platform:'LinkedIn', type:'Healthcare', title:'Can you trust a lab result you didn’t watch get made?',
+    desc:'Flagship — healthcare, second cycle, lab report integrity.',
+    copy:`Laboratories sit upstream of an enormous number of decisions — insurance claims, medical treatment, compliance filings — and almost nobody downstream of a lab report has any independent way to confirm it's genuine and unaltered. You either trust the letterhead, or you don't get the decision made.
 
-Nobody will announce this divide. It'll just become slightly harder, quarter over quarter, to do business with institutions still running on manual verification, the way it slowly became harder to do business with anyone still sending paper cheques.
+That's not a comment on labs' honesty. It's a comment on how little verification infrastructure exists once a report leaves the building it was produced in.
 
-Being on the right side of that divide isn't about technology adoption for its own sake — it's about not being the slow, unverifiable option in five years' time.`},
-  {day:'thu', platform:'LinkedIn', type:'Credentials', title:'The fake degree is a solved problem we haven’t deployed',
-    desc:'Closing piece — echoes the opening theme, deployment not invention.',
-    copy:`Fake degrees and inflated transcripts are one of the most talked-about, least technically difficult fraud problems to solve — the verification pattern is straightforward, the institutions involved are usually cooperative, and the fraud is common enough that everyone in hiring has a story about it.
+Giving insurers, clinicians and certifiers an independent way to confirm a lab report's provenance doesn't slow anything down — it removes one more thing everyone was quietly hoping wouldn't matter.
 
-What's missing isn't a solution. It's deployment: most employers still verify credentials the old way, if they verify them at all, because nobody made the fast version the default.
+We think this is one of the more overlooked use cases for verification infrastructure, precisely because nobody frames lab reports as a "trust problem" until something goes wrong.`},
+  {day:'mon', platform:'X', type:'Healthcare', title:'You either trust the lab letterhead, or the decision doesn’t happen',
+    desc:'X version.',
+    copy:`A lab result leaves the building as one document. Everyone downstream either trusts the letterhead or nothing gets decided.
 
-That's true of a lot of what we build. The hard part is rarely the verification method — it's making the fast, correct way easier to reach for than the slow, manual habit everyone already has.
+There's no independent check in between. There should be.`},
+  {day:'tue', platform:'LinkedIn', type:'Problem/Solution', title:'The report that changed between the lab and the claim',
+    desc:'Commercial story.',
+    copy:`The problem: a lab report can be altered between the moment it's produced and the moment it lands on a claims desk, and nobody along that chain has a fast way to check.
 
-Closing this run of posts on the same note we opened with six months ago: the gap isn't technology. It's habit.`},
-  {day:'wed', platform:'Instagram', type:'Founder Insight', title:'Six months, one thread',
-    desc:'Closing quote card for the 6-month arc.',
-    copy:`Six months of posts, one thread underneath all of them: institutions trust documents because they look right, not because anyone checked. We think that's about to change, quietly and slowly, the way infrastructure always does.
+The solution: the report carries its own proof, from the moment it's issued — an independent, instant answer to "is this the same document the lab actually produced." No new relationship required between the lab and whoever's relying on the result downstream.`},
+  {day:'wed', platform:'LinkedIn', type:'Trust Infrastructure', title:'The overlooked verification use case',
+    desc:'Wednesday educational.',
+    copy:`Lab reports rarely get discussed as a "trust problem" until something goes wrong. But they sit upstream of claims, treatment decisions and compliance filings — exactly the kind of high-stakes, rarely-checked document verification infrastructure is built for.`},
+  {day:'thu', platform:'Instagram', type:'Verification flow', title:'From lab to decision, verified',
+    desc:'Instagram flow visual.',
+    copy:`Lab → Report → Decision. One weak link, closed.
 
-Thank you for reading along.
+#Healthcare #DocumentIntegrity`,
+    image:'3-node flow (Lab, Report, Decision) with the middle node highlighted gold and a checkmark badge.'},
+  {day:'fri', platform:'LinkedIn', type:'Lessons from pilots', title:'What a healthcare pilot conversation taught us',
+    desc:'Founder Friday.',
+    copy:`A healthcare-adjacent pilot conversation taught us something we hadn't fully appreciated: in medical contexts, the person most anxious about document trust often isn't the insurer — it's the clinician, worried about being blamed for a decision made on a report they never independently saw get altered.
+
+That reframed a lot of how we now talk about this use case: it's not just a fraud-prevention pitch, it's a liability-reduction one too.`}
+]},
+{w:13, items:[
+  {day:'mon', platform:'LinkedIn', type:'Trade', title:'Export documents move real money through untrusting hands',
+    desc:'Flagship — trade, second cycle.',
+    copy:`An export shipment can pass through a dozen parties before it's paid for — freight forwarders, banks, customs, insurers, buyers who've never met the seller. Every one of those parties is relying on paperwork issued by someone they don't fully trust, verified by nobody in particular.
+
+That's the quiet risk sitting inside trade finance: not fraud as a dramatic event, but fraud as background noise nobody has the bandwidth to filter out.
+
+Independent document verification doesn't replace trade finance controls — it gives every party in that chain a fast, shared way to confirm a document is genuine before real money moves on the strength of it.
+
+It's a small addition to a very old process, and it changes the risk calculation more than its size suggests.`},
+  {day:'mon', platform:'X', type:'Trade', title:'A dozen parties, one document, zero independent checks',
+    desc:'X version.',
+    copy:`A shipment can pass through a dozen parties before it's paid for. Every one of them trusts the paperwork because the last party in the chain seemed to.
+
+That's inherited trust, not earned trust. Different thing entirely.`},
+  {day:'tue', platform:'LinkedIn', type:'Use case', title:'How Kweli protects certificates of origin',
+    desc:'Commercial story — trade documents use case.',
+    copy:`A certificate of origin determines duties, eligibility, sometimes whether a shipment clears customs at all — and it's routinely trusted on sight by every party downstream of whoever issued it.
+
+The use case: the issuing authority gives the certificate its own fast, independent proof of authenticity, checkable by any party in the chain — bank, customs, buyer — without a phone call to the issuer. Same certificate, same process, one new layer of confidence underneath it.`},
+  {day:'wed', platform:'LinkedIn', type:'Trade Insight', title:'Fewer approvals, more verification',
+    desc:'Wednesday educational.',
+    copy:`The instinct in trade finance is to add more sign-offs when trust is a concern. The actual fix is smaller: give each party a fast, independent way to confirm a document's authenticity at the moment they need it — not another layer of people trusting the layer before them.`},
+  {day:'thu', platform:'Instagram', type:'Trade flow', title:'The trade chain, and where trust breaks',
+    desc:'Instagram trade-flow visual.',
+    copy:`Seller → Forwarder → Bank → Customs → Buyer. Trust gets inherited at every step. One weak link breaks the whole chain.
+
+#TradeInsight #DocumentTrust`,
+    image:'5-node chain diagram, one node highlighted red then fixed to gold checkmark in a before/after split.'},
+  {day:'fri', platform:'LinkedIn', type:'What I learnt this week', title:'What I learnt this week, trade edition',
+    desc:'Founder Friday.',
+    copy:`What I learnt this week: trade finance people are, without exception, extremely precise about which specific document type worries them most — and it's almost never the one I would have guessed. This week it was warehouse receipts, twice, from two unrelated conversations.
+
+I don't have a grand theory yet for why that keeps happening. Just noting it, because it's exactly the kind of pattern you only see by having a lot of specific conversations instead of a few general ones.`}
+]},
+{w:14, items:[
+  {day:'mon', platform:'LinkedIn', type:'AI', title:'The hidden cost of manual verification, for AI teams',
+    desc:'Flagship — AI, second cycle, automation bottleneck.',
+    copy:`We've written before about the hidden cost of "we'll just call to confirm." Worth revisiting for teams building AI into claims and underwriting workflows: manual verification doesn't just cost time, it becomes the bottleneck an automated process trips over.
+
+An AI system can triage a claim in seconds. If the document behind that claim still needs a human to phone the issuer, the automation gains nothing — the slow step just moved, it didn't disappear.
+
+Verification has to modernise at the same pace as the systems around it, or it quietly becomes the reason automation projects underdeliver.
+
+That's a less-discussed risk of AI rollouts than most people expect, and one worth raising before the project, not after.`},
+  {day:'mon', platform:'X', type:'AI', title:'Automation doesn’t remove your slowest step. It just relocates it.',
+    desc:'X version.',
+    copy:`An AI system can triage a claim in seconds. If verifying the document still needs a phone call, the automation gained nothing — the slow step just moved.
+
+Fix the slow step. Then automate.`},
+  {day:'tue', platform:'LinkedIn', type:'Industry case study', title:'How Kweli helps AI underwriting teams',
+    desc:'Commercial story.',
+    copy:`Consider an underwriting team rolling out an AI model to triage applications. The model is fast, consistent, and confident — right up until it processes a document nobody verified, at which point it's just as fast and confident about the wrong answer.
+
+The fix sits at the front of the pipeline, not inside the model: verify every document as it enters, before the AI ever reads it. That single addition is often the difference between an automation project that ships and one that quietly gets rolled back after the first bad decision makes headlines internally.`},
+  {day:'wed', platform:'LinkedIn', type:'AI Fraud', title:'A well-forged document doesn’t confuse a model',
+    desc:'Wednesday educational.',
+    copy:`A well-forged document gets read by an AI model with exactly the same confidence as a genuine one. Automation doesn't add scepticism — it removes the human who might have paused. Verify inputs, or automation just scales the mistake faster.`},
+  {day:'thu', platform:'Instagram', type:'Explainer', title:'Where verification belongs in an AI pipeline',
+    desc:'Instagram explainer.',
+    copy:`Document → Verify → AI model → Decision. Not the other order.
+
+#AIFraud #Verification`,
+    image:'4-step pipeline diagram, "Verify" step highlighted gold and positioned clearly before the AI-model icon.'},
+  {day:'fri', platform:'LinkedIn', type:'Failures', title:'A mistake worth admitting about our early AI positioning',
+    desc:'Founder Friday.',
+    copy:`A mistake worth admitting: early on we pitched ourselves partly as "AI-powered fraud detection," because it tested well. It was also slightly dishonest about what we actually do — we're not detecting fraud with AI, we're verifying documents so that other people's AI (and humans) can trust what they're deciding on.
+
+Small distinction, but it matters, and I'm glad we corrected it before it became the story people told about us.`}
+]},
+{w:15, items:[
+  {day:'mon', platform:'LinkedIn', type:'Document Trust', title:'The useful part of blockchain was never the coin',
+    desc:'Flagship — Document Trust, second cycle, blockchain beyond crypto.',
+    copy:`"Blockchain for document verification" makes some people skeptical, and fairly so — the word carries a lot of baggage. Worth being precise about what we actually use and why.
+
+The genuinely useful part was always the boring bit — a tamper-evident, independently checkable record of when something was issued and whether it's changed since. No coin required.
+
+We use that property because it solves a real problem — proving a document is genuine, without a phone call — not because it's fashionable. Most of what made blockchain famous is irrelevant to what makes it useful here.
+
+If "blockchain" makes you skeptical, that's fair. Judge the verification, not the word.`},
+  {day:'mon', platform:'X', type:'Document Trust', title:'No coin required',
+    desc:'X version.',
+    copy:`The useful part of blockchain was never the coin. It was the boring bit — a tamper-evident record nobody can quietly edit.
+
+That's what we use. No token, no speculation, just proof.`},
+  {day:'tue', platform:'LinkedIn', type:'Real conversations', title:'The skeptical question we get every week, almost verbatim',
+    desc:'Commercial story.',
+    copy:`The skeptical question we get almost every week, close to verbatim: "Is this just blockchain hype with extra steps?"
+
+Fair question, and the honest answer is no — we'd use whatever tamper-evident mechanism worked best, and this one happens to be cheap and fast at scale. The value isn't the technology, it's the outcome: an independent, instant answer to whether a document is genuine. We're happy to be judged on that outcome and ignore the buzzword entirely.`},
+  {day:'wed', platform:'LinkedIn', type:'Trust Infrastructure', title:'Proof, not publication',
+    desc:'Wednesday educational.',
+    copy:`A common misconception: verification means publishing your documents somewhere public. It doesn't. We verify issuance and integrity without ever exposing what's inside the document — proof, not publication.`},
+  {day:'thu', platform:'Instagram', type:'Simple graphic', title:'Private content, public proof',
+    desc:'Instagram simple graphic.',
+    copy:`Your document stays private. The proof it's genuine doesn't have to.
+
+#DigitalTrust #Provenance`,
+    image:'A closed document with a lock icon, next to a separate small "verified" badge icon — captioned "Content stays private. Authenticity is provable."'},
+  {day:'fri', platform:'LinkedIn', type:'AI observations', title:'Explaining the tech without sounding defensive',
+    desc:'Founder Friday.',
+    copy:`Something I'm still working on: explaining the underlying tech without sounding defensive about it. It's easy to over-correct into "we're NOT a blockchain company" so hard that it sounds like I'm ashamed of the tool, which isn't true either.
+
+The honest version is boring: we use whatever works, and right now that includes a tamper-evident ledger for one specific job. Saying that plainly, without over-explaining, is harder than it sounds.`}
+]},
+{w:16, items:[
+  {day:'mon', platform:'LinkedIn', type:'Trust Infrastructure', title:'Where document verification goes next',
+    desc:'Flagship — Trust Infrastructure, second cycle, category vision.',
+    copy:`Verification stops being a manual step someone remembers to do, and becomes infrastructure sitting quietly underneath insurance, banking, trade and hiring — the way payment rails sit underneath commerce.
+
+Institutions won't "add verification" as a project. They'll simply stop being able to imagine operating without an instant, independent way to confirm a document is genuine.
+
+That's a ten-year view, not a next-quarter one. But every infrastructure shift looks like a niche tool right up until it doesn't.
+
+We'd rather be early and unglamorous than late and obvious.`},
+  {day:'mon', platform:'X', type:'Trust Infrastructure', title:'Every infrastructure shift looks niche until it doesn’t',
+    desc:'X version.',
+    copy:`Verification becomes infrastructure the same way payments did: quietly, underneath everything, until nobody can imagine operating without it.
+
+Every infrastructure shift looks niche right up until it doesn't.`},
+  {day:'tue', platform:'LinkedIn', type:'What if...', title:'What if verification just... stopped being a project?',
+    desc:'Commercial story — what-if framing for infrastructure adoption.',
+    copy:`What if, in a few years, "verify this document" stopped being a project a compliance team scopes and budgets, and just became something that happens automatically, the same way "encrypt this connection" stopped being a decision anyone makes consciously?
+
+That's the shift we're building toward — not a product institutions choose to adopt, but a layer that's simply there, the way HTTPS just is now.`},
+  {day:'wed', platform:'LinkedIn', type:'Document Integrity', title:'The gap isn’t technology. It’s habit.',
+    desc:'Wednesday educational.',
+    copy:`The verification pattern for most document fraud is straightforward, and the fraud is common enough that everyone in the relevant field has a story about it. What's missing isn't a solution — it's deployment. Nobody made the fast version the default yet.`},
+  {day:'thu', platform:'Instagram', type:'Educational visual', title:'Infrastructure you don’t notice',
+    desc:'Instagram educational visual.',
+    copy:`You don't think about HTTPS anymore. Document verification is heading the same way.
 
 #TrustInfrastructure #Kweli`,
-    image:"A simple closing quote-card, navy/gold, reading 'The gap isn't technology. It's habit.' with the Kweli mark."}
-]}
-];
+    image:'A padlock browser-bar icon fading into a document-verification checkmark icon, captioned "Infrastructure you stop noticing."'},
+  {day:'fri', platform:'LinkedIn', type:'Progress updates', title:'Sixteen weeks in',
+    desc:'Founder Friday.',
+    copy:`Sixteen weeks into this rhythm now. The honest progress update: more of our best conversations are starting from someone quoting a specific line back to us than I expected when we started writing this consistently.
+
+Slow, compounding, unglamorous — exactly the kind of progress that's hard to put in a pitch deck and easy to feel good about on a Friday.`}
+]},
+{w:17, items:[
+  {day:'mon', platform:'LinkedIn', type:'Fraud', title:'International Fraud Awareness Week: the fraud that isn’t dramatic',
+    desc:'Flagship — Fraud, second cycle, timed to Fraud Awareness Week (mid-November).',
+    copy:`This week is International Fraud Awareness Week, and most of the content around it will focus on the dramatic cases — the elaborate schemes, the headline numbers. Worth a word for the undramatic version, because it's the one institutions actually live with daily.
+
+Most document fraud isn't sophisticated. It survives not because it's clever, but because nobody has time to check everything, so a background rate gets accepted as normal.
+
+Fraud awareness is useful. Fraud-checking infrastructure that doesn't depend on someone remembering to be suspicious is more useful.
+
+That's the gap we spend this week — and every week — closing.`},
+  {day:'mon', platform:'X', type:'Fraud', title:'Fraud Awareness Week: the real milestone isn’t awareness',
+    desc:'X version.',
+    copy:`It's International Fraud Awareness Week. Most fraud isn't dramatic — it's quiet and routinely accepted as a cost of doing business.
+
+The real milestone isn't awareness. It's making verification routine enough that awareness stops being the main defence.`},
+  {day:'tue', platform:'LinkedIn', type:'Real conversations', title:'A fraud-week conversation worth repeating',
+    desc:'Commercial story.',
+    copy:`A conversation worth repeating from this week: a risk lead told us their fraud-awareness training covers phishing and social engineering thoroughly, and document fraud barely at all — because there's no simple training slide for "verify every document," only an infrastructure fix.
+
+That's the honest gap Fraud Awareness Week rarely names: some fraud gets stopped by training people to be careful. Some fraud only gets stopped by removing the need for anyone to remember to be.`},
+  {day:'wed', platform:'LinkedIn', type:'Did You Know?', title:'Most document fraud is quiet, not dramatic',
+    desc:'Wednesday educational, Fraud Awareness Week.',
+    copy:`Did you know? It's International Fraud Awareness Week. Most document fraud isn't dramatic — it's small, quiet, and routinely accepted as an unavoidable cost of doing business. It doesn't have to be.`},
+  {day:'thu', platform:'Instagram', type:'Simple graphic', title:'Can you tell which one is fake?',
+    desc:'Instagram simple graphic — Fraud Awareness Week.',
+    copy:`A magnifying glass over a stack of ordinary-looking documents. Can you tell which one is fake?
+
+Neither could we, by eye. That's the point.
+
+#FraudAwarenessWeek #DocumentIntegrity`,
+    image:'A magnifying glass over 5 near-identical document icons, one subtly highlighted, captioned "Can you tell which one?"'},
+  {day:'fri', platform:'LinkedIn', type:'Honest reflections', title:'What Fraud Awareness Week gets right, and what it misses',
+    desc:'Founder Friday.',
+    copy:`What Fraud Awareness Week gets right: naming the problem out loud, once a year, matters. What it misses, honestly: awareness campaigns quietly put the burden back on individual vigilance, when most of the fraud we see succeeds precisely because vigilance doesn't scale.
+
+I'd rather build the thing that doesn't need anyone to remember to be careful. That's less inspiring as a hashtag, and more useful as a company.`}
+]},
+{w:18, items:[
+  {day:'mon', platform:'LinkedIn', type:'Document Integrity', title:'Where the money is largest, the documents are faked',
+    desc:'Flagship — Document Integrity, second cycle, procurement/tender fraud.',
+    copy:`Procurement and tender fraud rarely gets discussed alongside insurance claims fraud, but the underlying problem is identical: a document — a bid, a certificate, a compliance letter — is trusted because it looks right, not because anyone independently confirmed it.
+
+The stakes are simply larger. Tender fraud sits on top of the biggest contracts an organisation signs, which means the documents involved are worth forging carefully — and worth verifying carefully in return.
+
+Governance and procurement leaders already know this. What's usually missing isn't awareness, it's a fast, practical way to check a document's authenticity without adding another approval layer to an already slow process.
+
+That's the gap we spend a lot of our time closing.`},
+  {day:'mon', platform:'X', type:'Document Integrity', title:'The bigger the contract, the more worth forging carefully',
+    desc:'X version.',
+    copy:`Procurement fraud and claims fraud are the same problem at different scale. A document trusted because it looks right, not because anyone checked.
+
+The bigger the contract, the more worth forging carefully.`},
+  {day:'tue', platform:'LinkedIn', type:'Problem/Solution', title:'One added step in procurement, not another approval layer',
+    desc:'Commercial story.',
+    copy:`The problem: procurement teams already move slowly, so the instinct when fraud is a concern is to add another sign-off — which slows genuine bids down without meaningfully stopping a well-prepared forgery.
+
+The solution: verify the documents themselves — compliance certificates, bid bonds, registration papers — independently and instantly, at submission. One added step, not another layer of people trusting the layer before them.`},
+  {day:'wed', platform:'LinkedIn', type:'Document Integrity', title:'What a certificate proves, applied to procurement',
+    desc:'Wednesday educational.',
+    copy:`A compliance certificate submitted with a tender proves someone issued it at some point. It doesn't prove it's unaltered or still valid. Procurement teams routinely trust all three claims on the strength of the first — exactly where the largest contracts are most worth forging carefully.`},
+  {day:'thu', platform:'Instagram', type:'Carousel', title:'Anti-corruption starts with checked documents',
+    desc:'Instagram carousel, timed loosely to Anti-Corruption Day (Dec 9) territory.',
+    copy:`A lot of corruption doesn't run on conspiracy. It runs on documents nobody had time to check.
+
+Faster verification is a real, practical part of the fix.
+
+#DocumentIntegrity #Governance`,
+    image:'3-slide carousel: a stack of tender documents, a magnifying glass, a checkmark badge — minimal navy/gold.'},
+  {day:'fri', platform:'LinkedIn', type:'Building Kweli', title:'The procurement conversations surprised me',
+    desc:'Founder Friday.',
+    copy:`The procurement conversations have surprised me more than any other vertical — the people most worried about tender fraud are often the procurement teams themselves, not just auditors after the fact. They know exactly where the weak points are; they've just never had a fast enough tool to close them.
+
+Building Kweli keeps teaching me that the "we already know the problem, we just lack the tool" conversation is far more common than the "we've never thought about this" one.`}
+]},
+{w:19, items:[
+  {day:'mon', platform:'LinkedIn', type:'Insurance', title:'Claims leakage is a distributed problem, not a dramatic one',
+    desc:'Flagship — Insurance, third cycle, claims leakage economics.',
+    copy:`Claims leakage rarely shows up as a single dramatic loss. It shows up as a slow, steady margin erosion — a slightly inflated invoice here, an unverified certificate there, none of it big enough on its own to trigger an investigation.
+
+That's exactly why it survives: no single case looks worth the cost of manual verification, so insurers accept a background rate of leakage as the price of doing business at volume.
+
+The economics change once verification is fast and cheap enough to apply broadly instead of selectively. Leakage stops being a rounding error you tolerate and becomes a number you can actually see and reduce.
+
+For claims leaders: do you currently know your real leakage rate, or an estimate built on the cases you happened to catch?`},
+  {day:'mon', platform:'X', type:'Insurance', title:'Leakage isn’t one big fraud. It’s a thousand small ones.',
+    desc:'X version.',
+    copy:`Claims leakage isn't one dramatic fraud. It's a thousand small, unverified documents nobody thought was worth investigating individually.
+
+Cheap, fast verification changes that math entirely.`},
+  {day:'tue', platform:'LinkedIn', type:'Industry case study', title:'How Kweli helps insurers see real leakage',
+    desc:'Commercial story.',
+    copy:`Consider a mid-sized motor book: thousands of small claims a year, each with two or three supporting documents, almost none independently checked because the cost of checking outweighs any single claim's size.
+
+The case study isn't one dramatic catch — it's the aggregate. Once verification is cheap enough to run on every document instead of a sample, leakage stops being an estimate built on the cases you happened to catch, and becomes a number you can actually see, track and reduce quarter over quarter.`},
+  {day:'wed', platform:'LinkedIn', type:'Myth vs Fact', title:'Myth: document fraud is rare',
+    desc:'Wednesday educational.',
+    copy:`Myth: document fraud is a rare, exceptional event.
+
+Fact: it's closer to a background tax most institutions quietly pay, spread across thousands of small, unverified documents. It feels rare because most of it is never caught.`},
+  {day:'thu', platform:'Instagram', type:'Simple graphic', title:'Small leaks, real cost',
+    desc:'Instagram simple graphic — leakage visual.',
+    copy:`A leaking bucket, one drop per unverified document. None of them look big. All of them add up.
+
+#ClaimsLeakage #InsuranceInsight`,
+    image:'A leaking bucket illustration with small document icons as drips, captioned "Small, unverified, adds up."'},
+  {day:'fri', platform:'LinkedIn', type:'Wins', title:'A leakage number worth sharing',
+    desc:'Founder Friday.',
+    copy:`A win worth sharing without over-claiming: a claims team told us that once they could see verification results across every file instead of a sample, patterns showed up they'd genuinely never spotted before — not fraud rings, just quietly repeated small inflation from a handful of the same garages.
+
+Nothing dramatic. Just visibility they didn't have a month earlier. That's usually what a real win looks like here.`}
+]},
+{w:20, items:[
+  {day:'mon', platform:'LinkedIn', type:'Banking', title:'The hidden cost of “we’ll just call to confirm”',
+    desc:'Flagship — Banking, third cycle, cost of manual verification.',
+    copy:`Ask almost any bank how they verify a document today and you'll hear some version of: "we call to confirm." It sounds thorough. It's actually one of the most expensive, slowest, least auditable steps left in most operations — a person, a phone, a hope that the right contact picks up and tells the truth.
+
+Nobody has costed this properly, because it's spread across hundreds of small interruptions rather than one visible line item. But add up the minutes, the follow-up calls, the applications sitting in limbo waiting on a callback, and it's a meaningful drag on throughput.
+
+Verification infrastructure doesn't remove judgment from the process. It removes the phone call from the part of the process that shouldn't need one.`},
+  {day:'mon', platform:'X', type:'Banking', title:'“We’ll just call to confirm” is the most expensive sentence in banking ops',
+    desc:'X version.',
+    copy:`"We'll just call to confirm" sounds thorough. It's actually one of the slowest, least auditable steps left in banking ops.
+
+Nobody's costed it properly. It's spread across a hundred small interruptions instead of one line item.`},
+  {day:'tue', platform:'LinkedIn', type:'Use case', title:'How Kweli speeds up business account opening',
+    desc:'Commercial story.',
+    copy:`Consider business account opening: a registration certificate, a proof of address, a director's ID — each one, in a thorough bank, confirmed by a phone call or an email that can take days to get a reply.
+
+The use case is simple: replace the phone call with an instant, independent check at the point of upload. The account opening timeline compresses from days of waiting on callbacks to minutes of actual review — without lowering the bar on what gets checked.`},
+  {day:'wed', platform:'LinkedIn', type:'Banking Insight', title:'The phone call isn’t wrong. It’s just not upgraded yet.',
+    desc:'Wednesday educational.',
+    copy:`Most institutional "verification processes" reduce to the same step: someone calls the issuer and asks if a document is real. That's not wrong — it's a description of a process built before there was a faster alternative. There is one now.`},
+  {day:'thu', platform:'Instagram', type:'Banking process', title:'Days to minutes',
+    desc:'Instagram banking-process visual.',
+    copy:`Old onboarding: days waiting on a callback.
+New onboarding: minutes, verified instantly.
+
+#BankingInsight #KYC`,
+    image:'A calendar icon crossed out next to a stopwatch icon showing minutes — simple before/after, navy/gold.'},
+  {day:'fri', platform:'LinkedIn', type:'Progress updates', title:'Twenty weeks of the same rhythm',
+    desc:'Founder Friday.',
+    copy:`Twenty weeks of the same Monday-to-Friday rhythm now, and the thing I notice most isn't the content — it's how much easier planning got once the structure stopped being a decision. I used to spend real time each week deciding what to post. Now I spend that time deciding what to say, which is the part that actually matters.`}
+]},
+{w:21, items:[
+  {day:'mon', platform:'LinkedIn', type:'Healthcare', title:'What thirty enterprise conversations taught us about medical documents',
+    desc:'Flagship — Healthcare, third cycle, customer-conversation lessons.',
+    copy:`Across a stretch of customer conversations touching healthcare, one pattern showed up repeatedly: nobody thinks they have a "verification problem." They think they have a claims problem, a compliance problem, a treatment-authorisation problem — and it's only a few questions in that the actual bottleneck turns out to be the same thing: nobody can quickly confirm a medical document is genuine.
+
+That's a useful thing to notice as a founder. The market rarely describes its own problem in the words you'd use to solve it.
+
+It also means the conversation isn't "buy verification infrastructure" — it's "let's look at the specific document your team spends the most time doubting."`},
+  {day:'mon', platform:'X', type:'Healthcare', title:'Nobody thinks they have a verification problem. They do.',
+    desc:'X version.',
+    copy:`Nobody in healthcare thinks they have a "verification problem." They think they have a claims problem, a compliance problem.
+
+A few questions in, it's always the same root cause: nobody can quickly confirm a document is genuine.`},
+  {day:'tue', platform:'LinkedIn', type:'Customer story', title:'The authorisation letter that took three days to confirm',
+    desc:'Commercial story — realistic scenario.',
+    copy:`A realistic scenario: a treatment pre-authorisation letter arrives slightly irregular — not obviously fake, just enough to give a claims handler pause. Confirming it genuinely means calling the issuing provider, which takes three days to return a call, during which the patient's treatment is delayed.
+
+That's not a fraud story. It's a speed story with a fraud-shaped cost — and it's exactly the kind of case an instant, independent check resolves in minutes instead of days.`},
+  {day:'wed', platform:'LinkedIn', type:'Document Integrity', title:'The document that changed between two hands',
+    desc:'Wednesday educational.',
+    copy:`A medical document rarely gets deliberately falsified by the people relying on it — it just passes through hands that each have a small incentive to help the numbers along. Nobody along that chain can prove it hasn't changed. That's the real problem.`},
+  {day:'thu', platform:'Instagram', type:'Explainer', title:'Three days to three minutes',
+    desc:'Instagram explainer.',
+    copy:`Confirming a document by phone: days. Confirming it independently: minutes.
+
+The patient shouldn't wait for the slower option.
+
+#Healthcare #Verification`,
+    image:'A clock showing "3 days" crossed out next to a stopwatch showing "3 minutes" — clean, navy/gold.'},
+  {day:'fri', platform:'LinkedIn', type:'Interesting document stories', title:'The healthcare story that stuck with me',
+    desc:'Founder Friday.',
+    copy:`A story that's stuck with me from a healthcare conversation: a claims handler described waiting on a callback to confirm an authorisation letter while a patient's procedure sat delayed. Nobody was being fraudulent — the system just had no faster way to build trust than a phone call that took days to answer.
+
+That's the version of this problem that motivates me most. It's not really about catching bad actors. It's about not making sick people wait on a phone call.`}
+]},
+{w:22, items:[
+  {day:'mon', platform:'LinkedIn', type:'Trade', title:'The carbon registry problem nobody talks about',
+    desc:'Flagship — Trade, third cycle, carbon credit document trust.',
+    copy:`Carbon credits depend entirely on paperwork most buyers never independently check: registration certificates, verification reports, retirement records — each one trusted because it came from a registry with a credible name, rarely confirmed beyond that.
+
+As carbon markets grow, so does the incentive to forge or duplicate credits, and the infrastructure to independently verify a credit's documentation hasn't kept pace with the money now moving through the market.
+
+This isn't a hypothetical risk. It's the same document-trust gap we see in insurance and trade, applied to a market where the underlying "product" is entirely paper-based to begin with — which makes verification not a nice-to-have, but close to the whole game.`},
+  {day:'mon', platform:'X', type:'Trade', title:'A carbon credit is entirely paperwork. Verify the paperwork.',
+    desc:'X version.',
+    copy:`A carbon credit's entire value rests on paperwork most buyers never independently check.
+
+When the "product" is entirely paper-based, document verification isn't a nice-to-have. It's close to the whole game.`},
+  {day:'tue', platform:'LinkedIn', type:'What if...', title:'What if every carbon credit came with independent proof?',
+    desc:'Commercial story — what-if, carbon registry.',
+    copy:`What if a buyer could independently confirm a carbon credit's registration and retirement documentation in seconds, instead of trusting a registry name and moving on?
+
+That's less a hypothetical and more a description of where carbon markets need to go as trading volume grows — because a market built entirely on trusted paperwork is only as strong as the weakest unverified document in it.`},
+  {day:'wed', platform:'LinkedIn', type:'Trade Insight', title:'When the product is the paperwork',
+    desc:'Wednesday educational.',
+    copy:`Most industries verify documents that support a physical product. Carbon markets are unusual: the document largely is the product. That makes independent verification not an add-on to the transaction, but close to the core of what's being traded.`},
+  {day:'thu', platform:'Instagram', type:'Diagram', title:'Carbon credit trust, mapped',
+    desc:'Instagram diagram.',
+    copy:`Registry → Certificate → Buyer. When the paperwork is the product, every link matters.
+
+#TradeInsight #DocumentTrust`,
+    image:'3-node chain diagram (Registry, Certificate, Buyer) with a leaf icon, checkmarks on each link.'},
+  {day:'fri', platform:'LinkedIn', type:'AI observations', title:'A market I didn’t expect to end up thinking about',
+    desc:'Founder Friday.',
+    copy:`Carbon markets are a category I didn't expect to end up thinking about this much when we started. But once you notice that the "product" in a lot of ESG and carbon trading is entirely a document, the document-trust problem becomes impossible to unsee.
+
+Sometimes the most interesting use cases aren't the ones you go looking for — they're the ones that show up because the underlying problem is the same everywhere you look closely enough.`}
+]},
+{w:23, items:[
+  {day:'mon', platform:'LinkedIn', type:'AI', title:'What thirty enterprise conversations taught us about AI adoption',
+    desc:'Flagship — AI, third cycle, adoption lessons.',
+    copy:`Across enterprise conversations about AI adoption this year, one pattern kept repeating: teams are excited about what AI can decide, and far less prepared to answer what it's deciding from.
+
+Document quality rarely makes it onto the AI project checklist, because it's assumed — the same way data quality gets assumed until a model starts producing strange results and someone finally checks the inputs.
+
+We think that assumption is the single biggest hidden risk in enterprise AI rollouts touching claims, underwriting or compliance. Not the model. What it's reading.
+
+If you're scoping an AI project this year: has anyone explicitly owned the question of whether the documents feeding it are genuine?`},
+  {day:'mon', platform:'X', type:'AI', title:'AI projects assume document quality. That’s the risk.',
+    desc:'X version.',
+    copy:`Every AI rollout checklist covers data quality. Almost none cover document authenticity — it's just assumed.
+
+That assumption is the biggest hidden risk in enterprise AI touching claims or underwriting.`},
+  {day:'tue', platform:'LinkedIn', type:'Problem/Solution', title:'The AI checklist item nobody adds',
+    desc:'Commercial story.',
+    copy:`The problem: AI project scoping documents cover model accuracy, data privacy, integration — and almost never "who verifies the documents this model reads."
+
+The solution is a one-line addition to that checklist, backed by infrastructure that already exists: verify documents at ingestion, before they reach the model. Small scope change, large risk reduction, and it rarely adds meaningful time to a project timeline that's already accounting for integration work anyway.`},
+  {day:'wed', platform:'LinkedIn', type:'AI Fraud', title:'The AI checklist item that’s always missing',
+    desc:'Wednesday educational.',
+    copy:`AI project scopes cover model accuracy and data privacy thoroughly. Document authenticity almost never makes the list — it's simply assumed. That assumption is exactly where a well-forged input does the most damage.`},
+  {day:'thu', platform:'Instagram', type:'Workflow', title:'The missing checklist item',
+    desc:'Instagram workflow visual.',
+    copy:`Model accuracy ✓. Data privacy ✓. Document verification — usually blank.
+
+Add the missing line.
+
+#AIFraud #Checklist`,
+    image:'A checklist graphic: Model accuracy (checked), Data privacy (checked), Document verification (empty box, highlighted red then gold checkmark added).'},
+  {day:'fri', platform:'LinkedIn', type:'AI observations', title:'The most common blind spot I see in AI projects',
+    desc:'Founder Friday.',
+    copy:`The most common blind spot I see in AI projects right now: enormous rigor on the model, almost none on what it's fed. I understand why — the model is the exciting, fundable part, and "are these documents real" sounds like a solved problem nobody needs to think about.
+
+It isn't solved. It's just invisible until it isn't.`}
+]},
+{w:24, items:[
+  {day:'mon', platform:'LinkedIn', type:'Document Trust', title:'What verification infrastructure actually means (and what it doesn’t)',
+    desc:'Flagship — Document Trust, third cycle, canonical definition.',
+    copy:`"Verification infrastructure" gets used loosely, so worth being precise. It doesn't mean an AI that reads documents and guesses if they look suspicious. It doesn't mean a database of every document ever issued. And it doesn't mean publishing sensitive records anywhere public.
+
+It means a fast, independent way to answer three specific questions about any document: who issued it, has it changed since, and is that still true today — without exposing the document's contents to anyone who doesn't already have them.
+
+Everything we build sits underneath that definition. Not flashier, not broader — just reliably answering those three questions, at the speed institutions actually need them answered.
+
+Precision here matters more than ambition.`},
+  {day:'mon', platform:'X', type:'Document Trust', title:'Three questions, precisely defined',
+    desc:'X version.',
+    copy:`Verification infrastructure, precisely: who issued it, has it changed since, is that still true today.
+
+Not an AI guessing if something looks suspicious. Not a public database. Just those three questions, answered fast.`},
+  {day:'tue', platform:'LinkedIn', type:'Industry case study', title:'How Kweli answers three questions, not one',
+    desc:'Commercial story.',
+    copy:`Consider a certifier issuing professional licences: today, "verified" usually means one glance at a logo. We split that into three separately checkable questions — issued by whom, unaltered since when, still valid now — because collapsing them into one glance is exactly where forged and lapsed credentials slip through.
+
+That precision is the whole case study. Not a bigger system, a more exact one.`},
+  {day:'wed', platform:'LinkedIn', type:'Trust Infrastructure', title:'Precision over ambition',
+    desc:'Wednesday educational.',
+    copy:`It would be easy to describe verification infrastructure as solving fraud broadly. We'd rather be precise: three specific, checkable questions, answered fast, without exposing document contents. Precision is what makes the claim trustworthy.`},
+  {day:'thu', platform:'Instagram', type:'Educational visual', title:'Three questions, one answer',
+    desc:'Instagram educational visual.',
+    copy:`Who issued it. Changed since? Still valid?
+
+Three questions. One fast, independent answer.
+
+#TrustInfrastructure #DocumentTrust`,
+    image:'Three numbered question icons converging into a single checkmark badge, navy/gold, minimal.'},
+  {day:'fri', platform:'LinkedIn', type:'Honest reflections', title:'Why I keep repeating the same definition',
+    desc:'Founder Friday.',
+    copy:`I keep repeating the same three-question definition of verification infrastructure, almost word for word, because I've watched what happens when a category's definition drifts — it gets used to describe everything, which means it ends up meaning nothing.
+
+Repeating myself here isn't a lack of new ideas. It's protecting the one idea that actually matters from becoming marketing mush.`}
+]},
+{w:25, items:[
+  {day:'mon', platform:'LinkedIn', type:'Trust Infrastructure', title:'The coming divide between verified and unverifiable institutions',
+    desc:'Flagship — Trust Infrastructure, third cycle, category vision closing arc.',
+    copy:`As verification infrastructure becomes normal in some sectors, a quieter divide starts to form: institutions whose documents can be independently confirmed in seconds, and institutions whose documents still require a phone call and a hope.
+
+That divide will show up first as a speed advantage, then as a trust advantage — partners and regulators will simply prefer dealing with the side that can prove things quickly.
+
+Nobody will announce this divide. It'll just become slightly harder, quarter over quarter, to do business with institutions still running on manual verification.
+
+Being on the right side of it isn't about technology adoption for its own sake — it's about not being the slow, unverifiable option in five years' time.`},
+  {day:'mon', platform:'X', type:'Trust Infrastructure', title:'A quiet divide is forming, and nobody will announce it',
+    desc:'X version.',
+    copy:`A quiet divide is forming: institutions that can prove a document is genuine in seconds, and institutions still stuck on a phone call.
+
+Nobody will announce it. It'll just get slightly harder to deal with the slow side, every quarter.`},
+  {day:'tue', platform:'LinkedIn', type:'Real conversations', title:'A regulator’s question that stuck with us',
+    desc:'Commercial story.',
+    copy:`A question from a regulator conversation that's stuck with us: "How would we know if an institution's verification process was actually working, versus just existing on paper?"
+
+We didn't have a perfect answer in the moment. But it's exactly the right question, and it's the one we think regulators will start asking more often as verification infrastructure matures — not "do you have a process," but "can you prove it works, fast, on demand."`},
+  {day:'wed', platform:'LinkedIn', type:'Trust Infrastructure', title:'The divide won’t be announced',
+    desc:'Wednesday educational.',
+    copy:`Institutions won't publicly split into "verified" and "unverifiable" camps. It'll just get quietly harder, deal by deal, to work with the slow side — the way it slowly became harder to do business with anyone still sending paper cheques.`},
+  {day:'thu', platform:'Instagram', type:'Simple graphic', title:'Two kinds of institutions',
+    desc:'Instagram simple graphic.',
+    copy:`Seconds to prove. Or days to hope.
+
+Which side are you building toward?
+
+#TrustInfrastructure #Kweli`,
+    image:'Split graphic: left "Seconds" with a checkmark, right "Days" with a phone icon — stark, navy/gold contrast.'},
+  {day:'fri', platform:'LinkedIn', type:'Startup life', title:'Betting on a divide that hasn’t happened yet',
+    desc:'Founder Friday.',
+    copy:`Startup life sometimes means describing a divide that hasn't fully happened yet and hoping you're early rather than wrong. That's an uncomfortable place to build from, honestly — there's no proof yet, just a pattern we're confident enough in to keep showing up for.
+
+Ask me again in a year whether the divide was real.`}
+]},
+{w:26, items:[
+  {day:'mon', platform:'LinkedIn', type:'Fraud', title:'This is only an insurance problem — myth, closing the arc',
+    desc:'Flagship — Fraud, third cycle, closing the six-month arc.',
+    copy:`Myth: document verification is mainly an insurance-industry concern.
+
+Fact: everywhere we've looked over six months of writing this — banking, trade, healthcare, AI, procurement — the same gap shows up: documents are trusted because they look right, not because anyone independently confirmed it. Insurance just tends to notice the cost of that gap earliest, because claims leakage is easier to measure than most other industries' equivalent losses.
+
+The underlying problem is the same wherever paperwork underpins a decision worth money or trust. That's exactly why we built this as infrastructure rather than an insurance product with a different label.
+
+Wherever you sit, the question is the same one we've kept asking: what document does your team currently trust without checking?`},
+  {day:'mon', platform:'X', type:'Fraud', title:'Six months, one underlying problem everywhere we looked',
+    desc:'X version.',
+    copy:`Six months of writing this, across insurance, banking, trade, healthcare, AI: same underlying problem everywhere. Documents trusted because they look right, not because anyone checked.
+
+That's exactly why we built infrastructure, not a niche product.`},
+  {day:'tue', platform:'LinkedIn', type:'Real conversations', title:'The question we asked in every single conversation this year',
+    desc:'Commercial story — closing the arc.',
+    copy:`One question, asked in nearly every conversation this year, across every industry: "What document does your team currently trust without checking?" Nobody has ever answered "none." Everybody has an answer, usually within a few seconds.
+
+That's the real evidence behind six months of these posts — not a survey, not a report, just the same honest answer showing up again and again in rooms that had no reason to coordinate with each other.`},
+  {day:'wed', platform:'LinkedIn', type:'Trust Infrastructure', title:'The thread underneath every post this year',
+    desc:'Wednesday educational, closing.',
+    copy:`Insurance, banking, trade, healthcare, AI, procurement — different rooms, same gap: documents trusted because they look right, not because anyone independently confirmed it. That's the thread underneath every post in this rhythm.`},
+  {day:'thu', platform:'Instagram', type:'Carousel', title:'Six months, one thread',
+    desc:'Instagram carousel, closing the arc.',
+    copy:`Insurance. Banking. Trade. Healthcare. AI. Procurement.
+
+Six industries, one underlying gap: trust without checking.
+
+Thank you for reading along this year.
+
+#TrustInfrastructure #Kweli`,
+    image:'6-slide carousel, one industry per slide with a simple icon, final slide: "One thread underneath all of it: the gap isn\'t technology. It\'s habit."'},
+  {day:'fri', platform:'LinkedIn', type:'Honest reflections', title:'Six months, one thread, closing the year',
+    desc:'Founder Friday, closing.',
+    copy:`Closing this run of Friday posts the same way we opened: honestly. Six months of the same rhythm taught me that consistency is a harder discipline than any single good post — it's easy to write something sharp once, much harder to show up in the same shape every week and mean it each time.
+
+The gap we're closing isn't technology. It's habit — ours as much as anyone's. Thank you for reading along.`}
+]}];
 
 /* Builds the flat marketing_items rows from the curated calendar above.
    Pure, deterministic, offline — no network call, no CRM dependency (this
    plan never references organisations/contacts, unlike the old distribution
-   tasks it replaces). */
+   tasks it replaces). Three platforms now: LinkedIn, X and Instagram. */
 function buildInsurancePlanRows(){
   const rows=[];
   CURATED_CALENDAR_WEEKS.forEach(week=>{
     (week.items||[]).forEach((item,i)=>{
       const weekMonday=addCalendarDays(PLAN_START, (week.w-1)*7);
       const date=addCalendarDays(weekMonday, PLAN_DAY_OFFSET[item.day]);
-      const itemType=item.platform==='Instagram' ? 'Instagram Caption' : 'LinkedIn Post';
+      const itemType=item.platform==='Instagram' ? 'Instagram Caption' : item.platform==='X' ? 'X Post' : 'LinkedIn Post';
       rows.push({
         seed_key: MARKETING_CAMPAIGN_KEY+'-week-'+String(week.w).padStart(2,'0')+'-'+item.day+'-'+(i+1),
         title: item.title,
@@ -5369,7 +5896,7 @@ function confirmInstallCuratedMarketingPlan(){
   const expected=expectedSeedKeys().length;
   const proceed=confirm(
     'Install the curated 6-month marketing plan?\n\n'+
-    '• Adds up to '+expected+' ready-to-post marketing items (LinkedIn + Instagram posts, each with finished copy).\n'+
+    '• Adds up to '+expected+' ready-to-post marketing items (LinkedIn, X and Instagram posts, each with finished copy).\n'+
     '• Will NOT delete or change any meetings, tasks, or existing calendar entries.\n'+
     '• Safe to run more than once — items already installed are found by their seed_key and skipped, so it will never duplicate work or redo a plan that’s already installed.'
   );
@@ -5480,14 +6007,15 @@ function marketingStatusInfo(){
   return { campaign:MARKETING_CAMPAIGN_KEY, count:mi.length, current, legacy, deletable, preserved,
     expected:expectedSeedKeys().length, lastRebuild:last?last.created_at:null };
 }
-/* Validates the CURATED calendar's own rules, not the old fixed 8-slots/week
-   rhythm: max 2 LinkedIn + 1 Instagram per calendar week, no weekend dates,
-   unique seed_keys, and the total row count matches what the curated data
-   actually specifies (some weeks are intentionally empty by design, so
-   "weeks present" is reported but never required to equal 26). */
+/* Validates the fixed weekly rhythm: every week Mon-Fri populated exactly
+   (Monday = 1 LinkedIn + 1 X, Tue/Wed/Fri = 1 LinkedIn each, Thu = 1
+   Instagram), Saturday and Sunday always empty, unique seed_keys, and the
+   total row count + week count match what the curated data specifies (all
+   26 weeks are populated in this rhythm — none are intentionally empty). */
 function verifyRhythmItems(items){
   const plan=items.filter(mi=>mi.seed_key && mi.seed_key.startsWith(MARKETING_CAMPAIGN_KEY+'-week-'));
   const dayName={0:'Sunday',1:'Monday',2:'Tuesday',3:'Wednesday',4:'Thursday',5:'Friday',6:'Saturday'};
+  const dayKeyOf={0:'sun',1:'mon',2:'tue',3:'wed',4:'thu',5:'fri',6:'sat'};
   const errors=[];
   const seen=new Set();
   plan.forEach(mi=>{ if(seen.has(mi.seed_key)) errors.push('Duplicate seed_key: '+mi.seed_key); seen.add(mi.seed_key); });
@@ -5495,21 +6023,31 @@ function verifyRhythmItems(items){
   plan.forEach(mi=>{
     const m=mi.seed_key.match(/-week-(\d\d)-/); if(!m) return;
     const wk=m[1];
-    const b=byWeek[wk]=byWeek[wk]||{linkedin:0,instagram:0};
+    const b=byWeek[wk]=byWeek[wk]||{mon:0,tue:0,wed:0,thu:0,fri:0,monLinkedIn:0,monX:0};
     if(!mi.scheduled_at){ errors.push('Week '+wk+' ('+mi.seed_key.split('-').pop()+'): no scheduled date'); return; }
     const dow=weekdayOf(mi.scheduled_at);
-    if(dow===0||dow===6) errors.push('Week '+wk+': '+mi.seed_key.split('-').pop()+' lands on '+dayName[dow]+' ('+mi.scheduled_at+')');
-    if(mi.item_type==='LinkedIn Post') b.linkedin++;
-    else if(mi.item_type==='Instagram Caption') b.instagram++;
+    if(dow===0||dow===6) errors.push('Week '+wk+': '+mi.seed_key.split('-').pop()+' lands on '+dayName[dow]+' ('+mi.scheduled_at+') — weekends must stay empty');
+    const dayKey=dayKeyOf[dow];
+    if(b[dayKey]!==undefined) b[dayKey]++;
+    if(dayKey==='mon'){
+      if(mi.item_type==='LinkedIn Post') b.monLinkedIn++;
+      if(mi.item_type==='X Post') b.monX++;
+    }
   });
   Object.keys(byWeek).sort().forEach(wk=>{
     const b=byWeek[wk];
-    if(b.linkedin>2) errors.push('Week '+wk+': '+b.linkedin+' LinkedIn posts (max 2)');
-    if(b.instagram>1) errors.push('Week '+wk+': '+b.instagram+' Instagram posts (max 1)');
+    if(b.mon!==2) errors.push('Week '+wk+': Monday has '+b.mon+' item(s) (expected 2 — 1 LinkedIn + 1 X)');
+    if(b.monLinkedIn!==1) errors.push('Week '+wk+': Monday LinkedIn count = '+b.monLinkedIn+' (expected 1)');
+    if(b.monX!==1) errors.push('Week '+wk+': Monday X count = '+b.monX+' (expected 1)');
+    if(b.tue!==1) errors.push('Week '+wk+': Tuesday has '+b.tue+' item(s) (expected 1)');
+    if(b.wed!==1) errors.push('Week '+wk+': Wednesday has '+b.wed+' item(s) (expected 1)');
+    if(b.thu!==1) errors.push('Week '+wk+': Thursday has '+b.thu+' item(s) (expected 1)');
+    if(b.fri!==1) errors.push('Week '+wk+': Friday has '+b.fri+' item(s) (expected 1)');
   });
   const weeks=Object.keys(byWeek).length;
   const expectedCount=expectedSeedKeys().length;
   if(plan.length!==expectedCount) errors.push('Total plan rows = '+plan.length+' (expected '+expectedCount+')');
+  if(weeks!==26) errors.push('Weeks present = '+weeks+' (expected 26 — every week is populated in this rhythm, none intentionally empty)');
   return { weeks, count:plan.length, ok:errors.length===0, errors };
 }
 function verifyRhythm(){ return verifyRhythmItems(state.marketing_items); }
@@ -5641,7 +6179,7 @@ function vMarketingRebuildPanel(){
   const clean = info.legacy===0 && info.current===info.expected;
   return '<div class="card" style="border:1px solid var(--gold);box-shadow:0 0 0 1px rgba(212,175,55,.15)">'+
     '<div style="font-weight:680;font-size:15px;margin-bottom:4px">Marketing plan</div>'+
-    '<div class="muted" style="font-size:12px;margin-bottom:12px">Curated editorial calendar — max 2 LinkedIn + 1 Instagram per week, some weeks deliberately left empty. '+info.expected+' finished, ready-to-post items across the 6-month plan.</div>'+
+    '<div class="muted" style="font-size:12px;margin-bottom:12px">Fixed weekly rhythm — Mon flagship (LinkedIn + X) · Tue commercial story · Wed educational · Thu Instagram visual · Fri founder. Every weekday populated, weekends always empty. '+info.expected+' finished, ready-to-post items across the 6-month plan.</div>'+
     kv('Current campaign key', esc(info.campaign), true)+
     kv('Items in current plan', info.current+' / '+info.expected, true, info.current===info.expected?'var(--gold)':'var(--amber,#F59E0B)')+
     kv('Legacy / old seeded items', info.legacy, true, info.legacy?'var(--amber,#F59E0B)':'')+
@@ -6242,7 +6780,7 @@ function distributionSuggestionHtml(){
 function vCampaignsTab(){
   const groups=buildCampaignGroups();
   const t=today();
-  return '<div class="page-sub" style="margin-bottom:14px">A curated, ready-to-post editorial calendar — max 2 LinkedIn + 1 Instagram post a week. Some weeks are deliberately left light.</div>'+
+  return '<div class="page-sub" style="margin-bottom:14px">A curated, ready-to-post editorial calendar — every weekday has something prepared (Mon flagship, Tue story, Wed educational, Thu Instagram, Fri founder). Weekends stay empty.</div>'+
   groups.map(g=>{
     const current = t>=g.start && t<=g.end;
     const upcoming = g.start>t;
@@ -6572,7 +7110,7 @@ function searchIndex(q){
   const groups=[];
   groups.push(['Organisations', state.organisations.filter(o=>{ const meta=getOrgMeta(o); return hit(o.name)||hit(o.sector)||hit(o.current_summary)||hit(meta.champion)||hit(meta.decisionMaker)||meta.tags.some(t=>hit(t)); }).map(o=>({label:o.name,sub:o.organisation_type,go:"go('organisationDetail','"+o.id+"')"}))]);
   groups.push(['People', state.people.filter(p=>hit(p.full_name)||hit(p.role)||hit(p.notes)).map(p=>({label:p.full_name,sub:p.role||'',go:"go('personDetail','"+p.id+"')"}))]);
-  groups.push(['Opportunities', state.opportunities.filter(o=>hit(o.title)||hit(o.problem)||hit(o.kweli_angle)).map(o=>({label:o.title,sub:o.stage,go:"go('opportunityDetail','"+o.id+"')"}))]);
+  groups.push(['Opportunities', sortOpportunities(state.opportunities.filter(o=>hit(o.title)||hit(o.problem)||hit(o.kweli_angle))).map(o=>({label:o.title,sub:o.stage,go:"go('opportunityDetail','"+o.id+"')"}))]);
   groups.push(['Activities', state.activities.filter(a=>hit(a.title)||hit(a.body)).slice(0,8).map(a=>({label:a.title,sub:fmtDate(a.occurred_at),go:a.organisation_id?"go('organisationDetail','"+a.organisation_id+"')":"void(0)"}))]);
   groups.push(['Meetings', state.meetings.filter(m=>hit(m.title)||hit(m.notes)).map(m=>({label:m.title,sub:fmtDate(m.scheduled_at),go:"go('meetingDetail','"+m.id+"')"}))]);
   groups.push(['Tasks', state.tasks.filter(t=>hit(t.title)||hit(t.description)).map(t=>({label:t.title,sub:t.status,go:"openTaskModal('"+t.id+"')"}))]);
