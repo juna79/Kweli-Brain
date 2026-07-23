@@ -831,7 +831,10 @@ async function onSignedIn(session){
   document.getElementById('appRoot').style.display='flex';
   document.getElementById('whoami').textContent=myProfile.display_name;
   await loadAll();
-  await autoSeedMarketingPlanIfNeeded();
+  // The curated marketing plan is never installed automatically. It only
+  // happens when the user explicitly clicks "Install Curated Marketing
+  // Plan" (Marketing page or Settings → Data recovery) and confirms —
+  // see installCuratedMarketingPlan().
   subscribeRealtime();
   subscribePresence();
   renderNav();
@@ -5330,30 +5333,67 @@ async function resetForwardGeneratedMarketingOnce(){
   return {removed, alreadyDone:false};
 }
 
-async function autoSeedMarketingPlanIfNeeded(){
+/* ---------------------------------------------------------------------------
+   INSTALL CURATED MARKETING PLAN — explicit, user-initiated only. NEVER
+   called automatically at sign-in (see onSignedIn). The user must click
+   "Install Curated Marketing Plan" (Marketing page or Settings → Data
+   recovery) and confirm first via confirmInstallCuratedMarketingPlan().
+   installCuratedMarketingPlan() itself is idempotent and safe to run any
+   number of times: it checks real seed_key values in the database before
+   inserting anything (fetchExistingCampaignSeedKeys / seedInsurancePlanBatched)
+   and only ever inserts items that are actually missing — it never touches
+   meetings, tasks, existing calendar entries, or duplicates an item that's
+   already installed.
+--------------------------------------------------------------------------- */
+function confirmInstallCuratedMarketingPlan(){
+  const expected=expectedSeedKeys().length;
+  const proceed=confirm(
+    'Install the curated 6-month marketing plan?\n\n'+
+    '• Adds up to '+expected+' ready-to-post marketing items (LinkedIn + Instagram posts, each with finished copy).\n'+
+    '• Will NOT delete or change any meetings, tasks, or existing calendar entries.\n'+
+    '• Safe to run more than once — items already installed are found by their seed_key and skipped, so it will never duplicate work or redo a plan that’s already installed.'
+  );
+  if(!proceed) return;
+  installCuratedMarketingPlan();
+}
+async function installCuratedMarketingPlan(){
+  showSeedingOverlay('Installing the curated marketing plan…');
+  const result={added:0, skipped:0, errors:null};
   try{
     const reset=await resetForwardGeneratedMarketingOnce();
-    if(reset.removed) toast('Marketing calendar cleaned — removed '+reset.removed+' duplicate/legacy generated item(s)');
     await migrateToWeeklyCampaignsOnce();
     const dedupResult=await dedupeMarketingItemsOnce();
-    if(dedupResult.removed || dedupResult.backfilled){
-      const parts=[];
-      if(dedupResult.removed) parts.push(dedupResult.removed+' duplicate(s) removed');
-      if(dedupResult.backfilled) parts.push(dedupResult.backfilled+' seed key(s) backfilled');
-      toast('Marketing plan cleanup: '+parts.join(', '));
+    const existingKeys=await fetchExistingCampaignSeedKeys();
+    const expected=expectedSeedKeys();
+    const missingCount=expected.filter(k=>!existingKeys.has(k)).length;
+    if(missingCount===0){
+      result.added=0;
+      result.skipped=expected.length;
+    } else {
+      const r=await seedInsurancePlanBatched();
+      result.added=r.created;
+      result.skipped=r.existing+(r.backfilled||0);
     }
-    const existingKeys = await fetchExistingCampaignSeedKeys();
-    const expected = expectedSeedKeys();
-    const missingCount = expected.filter(k=>!existingKeys.has(k)).length;
-    if(missingCount===0) return;
-    showSeedingOverlay(existingKeys.size>0 ? 'Completing your marketing plan…' : 'Setting up your 6-month marketing plan…');
-    const r=await seedInsurancePlanBatched();
-    if(r.created) toast('Marketing plan ready — '+r.created+' piece(s) added ('+(r.expected-missingCount+r.created)+'/'+r.expected+' total)');
+    if(reset.removed || dedupResult.removed || dedupResult.backfilled){
+      result.cleanup=[
+        reset.removed?reset.removed+' legacy duplicate(s) removed':null,
+        dedupResult.removed?dedupResult.removed+' duplicate(s) removed':null,
+        dedupResult.backfilled?dedupResult.backfilled+' seed key(s) backfilled':null
+      ].filter(Boolean).join(', ');
+    }
   } catch(e){
-    // already toasted inside seedInsurancePlanBatched/fetchExistingCampaignSeedKeys
+    result.errors=(e&&e.message)||String(e);
   } finally {
     hideSeedingOverlay();
   }
+  renderCurrent();
+  openModal('<h3>Curated marketing plan</h3>'+
+    kv('Items added', result.added)+
+    kv('Items skipped (already installed)', result.skipped)+
+    (result.cleanup?kv('Legacy cleanup', esc(result.cleanup)):'')+
+    kv('Errors', result.errors?('<span style="color:var(--red)">'+esc(result.errors)+'</span>'):'None')+
+    '<div class="faint" style="font-size:11px;margin-top:10px">Nothing else was changed — meetings, tasks and existing calendar entries are untouched.</div>');
+  return result;
 }
 function showSeedingOverlay(msg){
   let el=document.getElementById('seedingOverlay');
@@ -6215,9 +6255,9 @@ function vMarketing(){
   if(!state.marketing_items.length && !route.marketingOnboardingDismissed){
     return '<div class="page-head"><div><div class="eyebrow">Growth</div><div class="page-title">Marketing Assistant</div>'+
       '<div class="page-sub">Your personal Head of Marketing — a content library plus a real editorial calendar.</div></div></div>'+
-      '<div class="restore-panel"><div style="font-size:15px;font-weight:640;margin-bottom:8px">The plan should have been created automatically at sign-in</div>'+
-      '<div class="muted" style="font-size:12.5px;margin-bottom:18px">If you\u2019re seeing this, automatic setup didn\u2019t complete — most likely a save was rejected (check Settings → Connection for a database error) rather than nothing having run. You can trigger it directly below.</div>'+
-      '<button class="btn gold" style="margin-right:10px" onclick="autoSeedMarketingPlanIfNeeded()">Build 6-Month Plan Now</button>'+
+      '<div class="restore-panel"><div style="font-size:15px;font-weight:640;margin-bottom:8px">No marketing plan installed yet</div>'+
+      '<div class="muted" style="font-size:12.5px;margin-bottom:18px">Nothing is created automatically \u2014 install the curated 6-month plan below whenever you\u2019re ready, or start with an empty library.</div>'+
+      '<button class="btn gold" style="margin-right:10px" onclick="confirmInstallCuratedMarketingPlan()">Install Curated Marketing Plan</button>'+
       '<button class="btn" onclick="dismissMarketingOnboarding()">Start Empty</button></div>';
   }
 
@@ -6226,7 +6266,8 @@ function vMarketing(){
   const header='<div class="page-head"><div><div class="eyebrow">Growth</div><div class="page-title">Marketing Assistant</div>'+
     '<div class="page-sub">'+state.marketing_items.length+' items in the system — '+state.marketing_items.filter(mi=>mi.scheduled_at && mi.status!=='Published').length+' scheduled, '+
     state.marketing_items.filter(mi=>!mi.scheduled_at && getContentStage(mi)==='Planned').length+' unscheduled in the library</div></div>'+
-    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="rebuildInsurancePlan()">Rebuild plan</button>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="confirmInstallCuratedMarketingPlan()">Install Curated Marketing Plan</button>'+
+    '<button class="btn" onclick="rebuildInsurancePlan()">Rebuild plan</button>'+
     '<button class="btn" onclick="openGenerateCalendarPrompt()">Generate from library</button>'+
     '<button class="btn gold" onclick="openMarketingForm()">+ New item</button></div></div>'+
     '<div class="seg" style="margin-bottom:20px">'+tabs.map(([id,label])=>'<button class="'+(tab===id?'active':'')+'" onclick="route.mkTab=\''+id+'\';renderCurrent()">'+label+'</button>').join('')+'</div>';
@@ -7001,9 +7042,10 @@ function vSettings(){
     body='<div class="card"><div style="font-size:14.5px;font-weight:640;margin-bottom:8px">Restore from the 10 July 2026 Snapshot</div>'+
       '<div class="muted" style="font-size:12.5px;margin-bottom:16px">Re-applies the organisations, opportunities, investor profiles ('+SNAPSHOT_INVESTORS.length+' investors, including full relationship notes), decisions ('+SNAPSHOT_DECISIONS.length+') and meetings ('+SNAPSHOT_MEETINGS.length+') recorded in the Snapshot. Safe to run any number of times — every record is matched first; only missing records and empty fields are filled in, nothing existing is ever overwritten.</div>'+
       '<button class="btn gold" onclick="runSnapshotRestore()">Restore from Snapshot</button></div>'+
-      '<div class="card" style="margin-top:16px;border-color:var(--gold)"><div style="font-size:14.5px;font-weight:640;margin-bottom:8px">6-Month Marketing Plan (automatic)</div>'+
-      '<div class="muted" style="font-size:12.5px;margin-bottom:16px">Kweli\u2019s current strategy — insurance claims fraud/leakage, invoice &amp; certificate fraud, verification infrastructure, and the founder journey — is created automatically at sign-in if it doesn\u2019t already exist. Rebuild it here only if you need to reset it (this deletes and recreates every item tagged to this plan; manual edits to those items are lost).</div>'+
+      '<div class="card" style="margin-top:16px;border-color:var(--gold)"><div style="font-size:14.5px;font-weight:640;margin-bottom:8px">6-Month Marketing Plan (manual install)</div>'+
+      '<div class="muted" style="font-size:12.5px;margin-bottom:16px">Kweli\u2019s current strategy \u2014 insurance claims fraud/leakage, invoice &amp; certificate fraud, verification infrastructure, and the founder journey \u2014 is NOT created automatically. Click Install below whenever you\u2019re ready; it only adds items that are missing and never duplicates what\u2019s already installed. Rebuild instead only if you need to reset it (this deletes and recreates every item tagged to this plan; manual edits to those items are lost).</div>'+
       '<div class="faint" style="font-size:11px;margin-bottom:12px">Status: '+campaignRowCountLocally()+' / '+expectedSeedKeys().length+' scheduled pieces present</div>'+
+      '<button class="btn gold" style="margin-right:10px" onclick="confirmInstallCuratedMarketingPlan()">Install Curated Marketing Plan</button>'+
       '<button class="btn" onclick="rebuildInsurancePlan()">Rebuild plan</button></div>'+
       '<div class="card" style="margin-top:16px"><div style="font-size:14.5px;font-weight:640;margin-bottom:8px">Alternative: general 36-month content backlog</div>'+
       '<div class="muted" style="font-size:12.5px;margin-bottom:16px">Imports the broader '+CONTENT_LIBRARY.length+'-item content library (not insurance-focused) AND generates a 6-month publishing calendar from it in one action.</div>'+
