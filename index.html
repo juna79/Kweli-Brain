@@ -1668,11 +1668,30 @@ function vToday(){
   const celebrationData=totalCount>0&&completedCount===totalCount?dailyCompletionMessage(dateISO):null;
   const celebration=celebrationData?'<div class="focus-v3 completion-focus"><div class="completion-celebration"><div class="celebration-emoji">'+celebrationData[0]+'</div><div><div class="celebration-title">'+esc(celebrationData[1])+'</div><div class="celebration-copy">'+esc(celebrationData[2])+'</div></div></div></div>':'';
   const progress='<div class="day-progress"><div class="day-progress-top"><strong>Daily progress</strong><span>'+completedCount+' of '+totalCount+' completed</span></div><div class="day-progress-bar"><div class="day-progress-fill" style="width:'+progressPct+'%"></div></div></div>';
-  const agenda=data.timeline.length?data.timeline.map(it=>
-    '<div class="agenda-row'+(it.done?' is-completed':'')+'" style="--slot:'+(it.done?'#6F757B':CAL_TYPE_COLOR[it.type])+'"><div class="agenda-time">'+(it.allDay?'Any time':it.time.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}))+'</div>'+
-    '<div class="agenda-line"></div><div class="agenda-card" onclick="'+it.click+'"><div class="agenda-type">'+esc(it.type==='tasks'?'Task':it.type==='meetings'?'Meeting':it.type==='marketing'?'Marketing':'Team')+'</div><div class="agenda-title">'+esc(it.title)+'</div><div class="agenda-meta">'+esc(it.sub)+'</div>'+
-    '<div class="agenda-actions">'+(it.done?'<span class="completed-badge">✓ Completed</span>':'<button class="complete-chip" onclick="event.stopPropagation();markDayItemComplete(\''+it.type+'\',\''+it.record.id+'\')">Mark completed</button>')+'</div></div></div>'
-  ).join(''):'<div class="empty" style="margin:14px">Nothing scheduled for '+(mode==='tomorrow'?'tomorrow':'today')+'.</div>';
+  // Marketing timeline entries render like every other Today item (same
+  // agenda-row/agenda-card/agenda-actions structure, same CSS, no separate
+  // widget) but with a platform badge, ready-to-post status and three
+  // one-click actions instead of the generic "Mark completed". The
+  // underlying data is untouched — this only changes how a 'marketing'
+  // timeline entry (already built by dailyWorkspaceData) is rendered.
+  const agendaRow=(it)=>{
+    if(it.type==='marketing'){
+      const mi=it.record;
+      const platform=contentPlatform(mi.item_type);
+      const stage=getContentStage(mi);
+      return '<div class="agenda-row'+(it.done?' is-completed':'')+'" style="--slot:'+(it.done?'#6F757B':CAL_TYPE_COLOR.marketing)+'"><div class="agenda-time">'+(it.allDay?'Any time':it.time.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}))+'</div>'+
+      '<div class="agenda-line"></div><div class="agenda-card" onclick="'+it.click+'"><div class="agenda-type">'+esc(platform)+'</div><div class="agenda-title">'+esc(mi.title)+'</div><div class="agenda-meta">'+esc(stage)+'</div>'+
+      '<div class="agenda-actions">'+(it.done?'<span class="completed-badge">✓ Posted</span>':
+        '<button class="complete-chip" onclick="event.stopPropagation();openMarketingDetail(\''+mi.id+'\')">Open</button>'+
+        '<button class="complete-chip" onclick="event.stopPropagation();copyMarketingText(\''+mi.id+'\')">Copy Post</button>'+
+        '<button class="complete-chip" onclick="event.stopPropagation();completeContentItem(\''+mi.id+'\')">Mark Posted</button>')+
+      '</div></div></div>';
+    }
+    return '<div class="agenda-row'+(it.done?' is-completed':'')+'" style="--slot:'+(it.done?'#6F757B':CAL_TYPE_COLOR[it.type])+'"><div class="agenda-time">'+(it.allDay?'Any time':it.time.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}))+'</div>'+
+    '<div class="agenda-line"></div><div class="agenda-card" onclick="'+it.click+'"><div class="agenda-type">'+esc(it.type==='tasks'?'Task':it.type==='meetings'?'Meeting':'Team')+'</div><div class="agenda-title">'+esc(it.title)+'</div><div class="agenda-meta">'+esc(it.sub)+'</div>'+
+    '<div class="agenda-actions">'+(it.done?'<span class="completed-badge">✓ Completed</span>':'<button class="complete-chip" onclick="event.stopPropagation();markDayItemComplete(\''+it.type+'\',\''+it.record.id+'\')">Mark completed</button>')+'</div></div></div>';
+  };
+  const agenda=data.timeline.length?data.timeline.map(agendaRow).join(''):'<div class="empty" style="margin:14px">Nothing scheduled for '+(mode==='tomorrow'?'tomorrow':'today')+'.</div>';
 
   // Keep the right side free of a duplicated large task card. Once the day is
   // fully complete, use that space for the daily celebration instead.
@@ -1717,6 +1736,7 @@ function vToday(){
     '<div class="today-panel panel-pad"><div class="sec-h"><h2>Team HQ</h2><span class="count" onclick="openTeamBoard()" style="cursor:pointer">Corkboard</span></div><div class="hq-board"><div class="hq-grid">'+hq+'</div></div></div></div>'+
     '<div class="stat-rail"><div class="stat-card"><div class="stat-num">'+activeOpps+'</div><div class="stat-label">Open Opportunities</div><div class="stat-note">Pipeline focus</div></div>'+
     '<div class="stat-card"><div class="stat-num">'+data.meetings.length+'</div><div class="stat-label">Meetings '+(mode==='tomorrow'?'Tomorrow':'Today')+'</div></div>'+
+    '<div class="stat-card"><div class="stat-num">'+data.marketing.length+'</div><div class="stat-label">Marketing '+(mode==='tomorrow'?'Tomorrow':'Today')+'</div></div>'+
     '<div class="stat-card"><div class="stat-num">'+(data.due.length+data.overdue.length)+'</div><div class="stat-label">Follow-ups Due</div><div class="stat-note">'+data.overdue.length+' overdue</div></div>'+
     '<div class="stat-card"><div class="stat-num">'+myUnreadCount()+'</div><div class="stat-label">New Team Notes</div></div></div></div>'+
     '<div class="today-bottom-wide"><div class="today-panel panel-pad"><div class="sec-h"><h2>'+heading+'’s Priorities</h2></div>'+priorities+'</div>'+
