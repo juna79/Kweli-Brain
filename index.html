@@ -831,7 +831,10 @@ async function onSignedIn(session){
   document.getElementById('appRoot').style.display='flex';
   document.getElementById('whoami').textContent=myProfile.display_name;
   await loadAll();
-  await autoSeedMarketingPlanIfNeeded();
+  // The curated marketing plan is never installed automatically. It only
+  // happens when the user explicitly clicks "Install Curated Marketing
+  // Plan" (Marketing page or Settings → Data recovery) and confirms —
+  // see installCuratedMarketingPlan().
   subscribeRealtime();
   subscribePresence();
   renderNav();
@@ -1486,31 +1489,30 @@ function todaysMarketingDashboard(){
     '<div class="drow-meta">'+esc(mi.item_type)+' · '+esc(getContentStage(mi))+'</div></div>'+
     '<div class="drow-right">'+(mi.scheduled_at?fmtDate(mi.scheduled_at):'')+'</div></div>';
 
-  // Lead with THIS WEEK's campaign — one theme, its deliverables, today's focus.
+  // Lead with THIS WEEK's ready-to-post items — no distribution nudges, no
+  // "go write X" prompts. If the week is deliberately empty, say so plainly.
   const camp=currentCampaign();
   let campaignBlock='';
-  if(camp){
+  if(camp && camp.total>0){
     const deliverables=camp.items.map(mi=>{
       const done=itemIsDone(mi), isToday=mi.scheduled_at===today(), isOver=mi.scheduled_at&&mi.scheduled_at<today()&&!done;
       return '<div class="drow'+(isOver?' alert':'')+'" style="'+(isToday?'background:rgba(212,175,55,.06);':'')+'" onclick="openMarketingDetail(\''+mi.id+'\')">'+
         '<span class="drow-icon">'+(done?'✅':marketingIcon(mi.item_type))+'</span>'+
         '<div class="drow-main"><div class="drow-title">'+esc(mi.title)+(isToday?' <span class="faint" style="font-size:10px">· today</span>':'')+'</div>'+
-        '<div class="drow-meta">'+esc(mi.item_type)+' · '+esc(getContentStage(mi))+'</div></div>'+
+        '<div class="drow-meta">'+esc(contentPlatform(mi.item_type))+' · '+esc(getContentStage(mi))+'</div></div>'+
         '<div class="drow-right">'+(mi.scheduled_at?fmtDate(mi.scheduled_at):'')+'</div></div>';
     }).join('');
-    const distDueNow=camp.items.some(mi=>/distribut/i.test(mi.item_type||'') && !itemIsDone(mi) && mi.scheduled_at && mi.scheduled_at<=today());
     campaignBlock='<div class="card" style="border-color:var(--gold);margin-bottom:14px">'+
-      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:4px">'+
-        '<div><div class="faint" style="font-size:10px;letter-spacing:.08em;text-transform:uppercase">This week’s campaign</div>'+
-        '<div style="font-size:15px;font-weight:680">'+esc(camp.theme)+'</div></div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px">'+
+        '<div class="faint" style="font-size:10px;letter-spacing:.08em;text-transform:uppercase">This week’s marketing</div>'+
         '<div class="mono" style="font-size:12px;color:var(--gold)">'+camp.pct+'%</div></div>'+
-      (camp.objective?'<div class="muted" style="font-size:12px;margin-bottom:10px">🎯 '+esc(camp.objective)+'</div>':'')+
       '<div class="dlist">'+deliverables+'</div>'+
-      (distDueNow?'<div style="margin-top:10px"><div class="faint" style="font-size:11px;margin-bottom:6px">Distribution — send this week’s article to:</div>'+distributionSuggestionHtml()+'</div>':'')+
     '</div>';
+  } else if(camp){
+    campaignBlock='<div class="card" style="margin-bottom:14px"><div class="muted" style="font-size:13px">Nothing worth posting this week. Focus on customers.</div></div>';
   }
 
-  // Anything scheduled today/overdue that ISN'T in the current campaign block.
+  // Anything scheduled today/overdue that ISN'T in the current week's block.
   const inCamp=new Set(camp?camp.items.map(i=>i.id):[]);
   const otherDue=[...overdue,...dueToday].filter(mi=>!inCamp.has(mi.id));
   const otherBlock=otherDue.length?'<div class="dsec"><div class="dsec-h"><h2>Other marketing due</h2><span class="count">'+otherDue.length+'</span></div><div class="dlist">'+otherDue.map(row).join('')+'</div></div>':'';
@@ -1524,7 +1526,6 @@ function todaysMarketingDashboard(){
     '<span class="count faint" style="font-family:inherit;text-transform:none;letter-spacing:0">'+dueToday.length+' due · '+overdue.length+' overdue</span>'+
     '<button class="btn sm" style="margin-left:auto" onclick="route.mkTab=\'campaigns\';go(\'marketing\')">Campaigns →</button></div>'+
     campaignBlock+
-    (!camp&&!otherDue.length?'<div class="dempty">No campaign scheduled for this week — open Marketing → Campaigns.</div>':'')+
     otherBlock+
     followBlock+
   '</div>';
@@ -2693,7 +2694,11 @@ async function propagateInteraction({organisationId,personId,meetingId,notes,nex
     const org=byId(state.organisations,organisationId);
     const patch={last_interaction_at:now};
     if(summary) patch.current_summary=summary;
-    if(nextSteps){patch.next_action_summary=nextSteps;patch.next_action_date=addDays(today(),7);}
+    // A meeting being marked complete must never, on its own, create a
+    // follow-up reminder — only an explicit follow-up the user creates
+    // themselves counts. Other interaction types (calls, emails, notes)
+    // keep the existing behaviour; this is scoped to meetings only.
+    if(nextSteps && interactionType!=='Meeting'){patch.next_action_summary=nextSteps;patch.next_action_date=addDays(today(),7);}
     if(/pilot/i.test(notes)) patch.pipeline_stage='Pilot Planning';
     if(/positive|support|agreed|introduc|keen|interested/i.test(notes)) patch.relationship_status='Warm';
     await dbUpdate('organisations',organisationId,patch);
@@ -2722,9 +2727,13 @@ async function propagateInteraction({organisationId,personId,meetingId,notes,nex
     const person=byId(state.people,pid); if(!person) continue;
     const existing=String(person.notes||'').trim();
     const updateLine=(summary?summary:'Interaction recorded')+(nextSteps?' Next: '+nextSteps:'');
-    await dbUpdate('people',pid,{last_interaction_at:now,notes:(updateLine+(existing?'\n\n'+existing:'')).slice(0,4000),next_action_summary:nextSteps||person.next_action_summary||null,warmth:/positive|support|agreed|introduc|keen|interested/i.test(notes)?'Warm':person.warmth});
+    await dbUpdate('people',pid,{last_interaction_at:now,notes:(updateLine+(existing?'\n\n'+existing:'')).slice(0,4000),next_action_summary:(interactionType==='Meeting'?person.next_action_summary:(nextSteps||person.next_action_summary))||null,warmth:/positive|support|agreed|introduc|keen|interested/i.test(notes)?'Warm':person.warmth});
   }
-  if(nextSteps){
+  // Meetings never auto-create a follow-up task from "next steps" text — that's
+  // exactly the automatic-follow-up behaviour the Brain should not have. A
+  // follow-up should only exist if the user explicitly creates one. Other
+  // interaction types (calls, emails, notes) are unchanged.
+  if(nextSteps && interactionType!=='Meeting'){
     const duplicate=state.tasks.some(t=>t.organisation_id===organisationId&&normText(t.title)===normText(nextSteps.slice(0,120))&&!['Completed','Cancelled'].includes(t.status));
     if(!duplicate) await safeInsert('tasks',{title:nextSteps.slice(0,120),description:nextSteps,organisation_id:organisationId||null,person_id:personId||null,opportunity_id:opportunityId||null,status:'To Do',priority:'Normal',due_at:addDays(today(),7),created_by_user_id:myProfile.id,assigned_to_user_id:myProfile.id});
   }
@@ -4475,92 +4484,42 @@ const CONTENT_LIBRARY=[
 ];
 
 /* ---------------------------------------------------------------------------
-   INSURANCE-FOCUSED 6-MONTH PLAN — transcribed directly from the strategy you
-   pasted. Kweli's marketing today, not the old carbon-era plan: Insurance as
-   the beachhead (35%), Verification Infrastructure as the category thesis
-   (25%), Founder Stories for trust (15%), plus Customer Discovery, Product
-   Education and Company Updates. Every named article/story/topic here is
-   exactly as given — nothing invented. Where a recurring slot needs more
-   instances than named topics exist (e.g. 24 Insurance slots from 10 named
-   topics), the scheduler cycles the topic list and labels repeats clearly
-   ('— Part 2') rather than fabricating new topic ideas.
+   CURATED EDITORIAL CALENDAR — a finished, ready-to-post 6-month content
+   calendar, not a task generator. Every entry below IS the post: a title,
+   a platform, a scheduled date, a short description and full ready-to-post
+   copy (plus an optional image suggestion). Nothing here creates a "write
+   X" task — the writing is already done. Replaces the old weekly-rhythm
+   generator (CAMPAIGN_THEMES / WEEK_SLOTS / 8-tasks-per-week), deleted
+   below in favour of this static, hand-curated plan.
+
+   Rules this plan follows (per the marketing refactor brief):
+     - Starts Monday 27 July 2026, runs ~6 months (26 weeks), FIXED anchor —
+       never "next Monday from today."
+     - Max 2 LinkedIn posts/week, max 1 Instagram post/week. Not every week
+       gets Instagram. Some weeks are intentionally empty ("Nothing worth
+       posting this week. Focus on customers.") rather than padded.
+     - Rotates the 14 approved content types (Thought Leadership, Did You
+       Know?, Myth vs Fact, Insurance/Banking/Trade Insight, AI & Document
+       Fraud, Document Integrity, Trust Infrastructure, Claims Workflow,
+       Credentials, Provenance, Digital Trust, Founder Insight-occasionally).
+     - Event posts use only well-established, low-risk recurring dates:
+       Cybersecurity Awareness Month (October), International Fraud
+       Awareness Week (mid-November), International Anti-Corruption Day
+       (9 December). No fabricated conference dates, no live/API data.
+     - Substance is drawn from Kweli's own previously-approved strategy
+       themes (motor/medical/invoice/certificate fraud, verification
+       infrastructure, trade & banking document trust, founder story) —
+       rewritten as finished posts instead of "go write an article" tasks.
 --------------------------------------------------------------------------- */
-/* ---------------------------------------------------------------------------
-   6-MONTH INSURANCE/VERIFICATION CONTENT PLAN — automatic, idempotent.
-   Topics are exactly as given across this conversation (insurance claims
-   fraud/leakage/invoice+certificate fraud, verification infrastructure,
-   trust infrastructure, Kweli's founder journey) — nothing invented.
-   Weekly cadence is a repurposing pipeline, not five unrelated pillars:
-     Mon — write the core article
-     Tue — repurpose Monday's article into a LinkedIn post
-     Wed — a shorter insight or founder story
-     Thu — engage & distribute what was published
-     Fri — review performance, prep next week's topic
-   MARKETING_CAMPAIGN_KEY is the stable idempotency marker — embedded in
-   every seeded row's description as a plain, visible tag (not hidden JSON)
-   and checked ONCE, in memory, before any network call. Bump the version
-   suffix if the plan structure ever changes again, so an old partial run
-   never blocks a fresh correct one.
---------------------------------------------------------------------------- */
-const MARKETING_CAMPAIGN_KEY = 'weekly-rhythm-6mo-v4';
-const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2','weekly-rhythm-6mo-v3'];
-const WEEKLY_MIGRATION_VERSION = 'weekly_rhythm_v2';
+const CURATED_CALENDAR_KEY = 'curated-editorial-6mo-v1';
+const MARKETING_CAMPAIGN_KEY = CURATED_CALENDAR_KEY;
+const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2','weekly-rhythm-6mo-v3','weekly-rhythm-6mo-v4'];
+const WEEKLY_MIGRATION_VERSION = 'weekly_rhythm_v3';
 const FORWARD_MARKETING_RESET_VERSION = 'forward_marketing_reset_2026_07_20_v2';
 const FORWARD_MARKETING_START = '2026-07-20';
 
 const MONTHLY_THEMES_6MO_V2 = ['The Trust Problem','Insurance','Verification Infrastructure','Customer Stories','Future of Trust','Building the Category'];
-/* FIXED operating rhythm — identical every week, only the theme changes.
-   Mon: article + Instagram carousel. Tue: LinkedIn + X. Wed: exactly ONE
-   rotating support task (per-campaign). Thu: distribution only. Fri: Founder
-   Friday + review. Sat/Sun: nothing. This is a rhythm a founder can sustain,
-   not a content-maximising calendar. */
-const WEEK_SLOTS = ['article','instagram','linkedin','x','support','distribution','friday','review'];
 
-/* 26 weekly campaigns = a 6-month thematic arc. Each is ONE message driven
-   into the market for a week. Audience/objective seed the deliverables; the
-   founder reflection and distribution task derive from the SAME theme, never
-   a random topic. Edit these freely — they are just the starting sequence. */
-const CAMPAIGN_THEMES = [
-  {theme:'Motor Claims Fraud', problem:'Staged accidents and doctored motor documents drain motor portfolios.', audience:'Motor & general insurers', objective:'Get motor claims teams talking to us.', support:'FAQ', article:'The Staged Accident Problem Nobody Wants to Talk About'},
-  {theme:'Hospital & Medical Billing Fraud', problem:'Inflated and fabricated medical bills slip through because documents are trusted on sight.', audience:'Health insurers & medical schemes', objective:'Open conversations with medical claims leads.', support:'Email Version', article:'Why Medical Bills Are the Easiest Thing to Fake'},
-  {theme:'Fake Invoices in Claims', problem:'A convincing fake invoice is minutes of work and costs insurers real money.', audience:'Claims & finance leaders', objective:'Show why invoice authenticity matters.', support:'Short Video', article:'A Convincing Fake Invoice Takes Five Minutes'},
-  {theme:'Medical Report Verification', problem:'Medical reports get altered between the clinic and the claim.', audience:'Health insurers & assessors', objective:'Surface demand for report verification.', support:'FAQ', article:'The Medical Report That Changed Between the Clinic and the Claim'},
-  {theme:'Police Abstract & Report Verification', problem:'Police abstracts are routinely forged and rarely checked at source.', audience:'Motor & liability insurers', objective:'Start conversations on abstract verification.', support:'Case Study', article:'Nobody Actually Checks the Police Abstract'},
-  {theme:'Repair Quotation Fraud', problem:'Inflated garage and repair quotes ride on documents no one verifies.', audience:'Motor claims & assessors', objective:'Engage assessors on quote integrity.', support:'Short Video', article:'The Inflated Repair Quote Is a Document Problem'},
-  {theme:'Why Insurers Still Phone to Verify', problem:'Verification today means someone calling the issuer to ask "is this real?"', audience:'Insurance operations leaders', objective:'Frame Kweli as the end of manual verification.', support:'Founder Insight', article:'Your Verification Process Is a Phone Call'},
-  {theme:'Certificate Fraud', problem:'Certificates of all kinds are forged because there is no cheap way to prove issuance.', audience:'Certifiers, insurers & employers', objective:'Broaden the conversation beyond insurance.', support:'FAQ', article:'What a Certificate Actually Proves (And What It Doesn\'t)'},
-  {theme:'Import Documentation Trust', problem:'Import paperwork is easy to fake and expensive to check.', audience:'Trade, logistics & compliance leaders', objective:'Open conversations in trade.', support:'Email Version', article:'The Import Paperwork Nobody Can Verify'},
-  {theme:'Export Documentation Trust', problem:'Export documents underpin real money and cross many untrusting hands.', audience:'Exporters & trade finance', objective:'Reach trade & compliance teams.', support:'Case Study', article:'Export Documents Move Real Money Through Untrusting Hands'},
-  {theme:'Laboratory Report Integrity', problem:'Lab results are trusted downstream with no proof they were not altered.', audience:'Labs, certifiers & buyers', objective:'Engage the issuer side (labs).', support:'Short Video', article:'Can You Trust a Lab Result You Didn\'t Watch Get Made?'},
-  {theme:'Educational Certificate Verification', problem:'Fake degrees and transcripts are normalised and slow to check.', audience:'Employers & institutions', objective:'Show a second clear use case.', support:'FAQ', article:'The Fake Degree Is a Solved Problem We Haven\'t Deployed'},
-  {theme:'Procurement & Tender Document Fraud', problem:'Tender and procurement documents are forged where the money is largest.', audience:'Procurement & governance leaders', objective:'Reach corporate governance buyers.', support:'Case Study', article:'Where the Money Is Largest, the Documents Are Faked'},
-  {theme:'Supply Chain Document Trust', problem:'Every handoff in a supply chain assumes documents are genuine.', audience:'Operations & supply-chain leaders', objective:'Position verification across the chain.', support:'Email Version', article:'Every Handoff Assumes the Document Is Real'},
-  {theme:'The Hidden Cost of Manual Verification', problem:'Manual verification is slow, expensive and still misses fakes.', audience:'CIOs, COOs & risk leaders', objective:'Quantify the cost we remove.', support:'Founder Insight', article:'The Hidden Cost of “We\'ll Just Call to Confirm”'},
-  {theme:'Verification as Infrastructure', problem:'Trust is becoming an infrastructure layer, not a feature.', audience:'CIOs, innovation & risk leaders', objective:'Position Kweli as the verification layer.', support:'Founder Insight', article:'Trust Is Becoming Infrastructure'},
-  {theme:'Digital Document Authenticity', problem:'Documents are digital, but proving they are authentic is still analogue.', audience:'Digital transformation leaders', objective:'Own the authenticity conversation.', support:'Short Video', article:'Your Documents Are Digital. Proving They\'re Real Is Still Analogue.'},
-  {theme:'Blockchain Beyond Crypto', problem:'The useful part of blockchain is verifiable issuance, not tokens.', audience:'Technical & innovation leaders', objective:'Reframe blockchain around verification.', support:'FAQ', article:'The Useful Part of Blockchain Was Never the Coin'},
-  {theme:'Why AI Needs Verifiable Documents', problem:'AI amplifies whatever documents it is fed, real or fake.', audience:'CIOs & AI adopters', objective:'Tie verification to AI adoption.', support:'Email Version', article:'AI Will Happily Believe a Fake Document'},
-  {theme:'Lessons from Customer Conversations', problem:'What 30+ enterprise conversations actually taught us about document trust.', audience:'Founders, operators & our network', objective:'Pull replies from our network.', support:'Customer Story', article:'What Thirty Enterprise Conversations Taught Us About Trust'},
-  {theme:'Building Kweli in Africa', problem:'Why verification infrastructure has to be built here, for here.', audience:'Founders, ecosystem & investors', objective:'Build narrative and investor interest.', support:'Founder Insight', article:'Why We\'re Building Verification Infrastructure in Nairobi'},
-  {theme:'Growing Up in Kenya: Why Trust Matters', problem:'Where document trust breaks down every day, and why it shaped Kweli.', audience:'Founders & our network', objective:'Personal reach and connection.', support:'Founder Insight', article:'Growing Up Where Documents Can\'t Be Trusted'},
-  {theme:'Founder Mistakes We\u2019ve Made', problem:'The wrong turns \u2014 including building an exchange first.', audience:'Founders & operators', objective:'Earn trust through candour.', support:'Founder Insight', article:'We Built an Exchange Before We Understood the Problem'},
-  {theme:'Pilot Learnings', problem:'What early pilots taught us about where verification really bites.', audience:'Customers, partners & investors', objective:'Show real, honest progress.', support:'Customer Story', article:'What Our First Pilots Taught Us About Where Verification Bites'},
-  {theme:'The Future of Document Verification', problem:'Where verification infrastructure goes over the next decade.', audience:'CIOs, innovation leaders & investors', objective:'Set the category vision.', support:'Short Video', article:'Where Document Verification Goes Next'},
-  {theme:'Claims Leakage', problem:'Insurers lose millions because nobody has time to verify every supporting document.', audience:'Insurance & claims executives', objective:'Start conversations with claims managers.', support:'Case Study', article:'Claims Leakage: The Silent Margin Killer'}
-];
-
-/* ---------------------------------------------------------------------------
-   Every row gets a deterministic seed_key of the form
-   'weekly-campaigns-6mo-v1-week-01-article'. This is the uniqueness
-   mechanism (real unique index). Building this list is pure, deterministic,
-   offline computation; no network call happens here.
---------------------------------------------------------------------------- */
-/* The very next Monday strictly AFTER today — never today itself, even if
-   today happens to be a Monday. Weekend rollover (Sat/Sun -> Monday) falls
-   out of the same formula. Previously this walked BACKWARD to the current
-   week's Monday when today was Sunday (dow=0 gave -6, landing in the
-   past) — that bug is why a plan seeded on a Sunday could start days
-   before the seed even ran. */
 /* Timezone-safe calendar-date helpers. NEVER use toISOString() for schedule
    generation — in timezones ahead of UTC (e.g. Nairobi, UTC+3) local midnight
    converts to the previous day, shifting every scheduled date back one day.
@@ -4585,142 +4544,601 @@ function weekdayOf(dateValue){
   if(!m) return NaN;
   return new Date(Number(m[1]), Number(m[2])-1, Number(m[3])).getDay();
 } // 0=Sun..6=Sat, local, no UTC shift
-function firstPlanMonday(from){
-  const d=new Date(from); d.setHours(0,0,0,0);
-  const dow=d.getDay(); // 0=Sun..6=Sat
-  let daysAhead=((1-dow+7)%7);
-  if(daysAhead===0) daysAhead=7; // today IS Monday — never seed onto today, use next week's Monday instead
-  d.setDate(d.getDate()+daysAhead);
-  return d;
-}
-function campaignKeyForWeek(week){ return 'wk'+String(week+1).padStart(2,'0'); }
-/* Up to three real CRM organisation names, most-recently-touched first, baked
-   into the distribution task title so it is self-contained. Falls back
-   cleanly when the CRM is empty. Recomputed each rebuild. */
-function seedDistributionNames(){
-  const orgs=(state.organisations||[]).filter(o=>!o.archived_at)
-    .sort((a,b)=>String(b.last_interaction_at||b.next_action_date||'').localeCompare(String(a.last_interaction_at||a.next_action_date||'')))
-    .map(o=>o.name).filter(Boolean).slice(0,3);
-  if(!orgs.length) return 'relevant CRM contacts';
-  if(orgs.length===1) return orgs[0];
-  if(orgs.length===2) return orgs[0]+' and '+orgs[1];
-  return orgs[0]+', '+orgs[1]+' and '+orgs[2];
-}
-function supportTaskTitle(support, theme){
-  const t=theme.toLowerCase();
-  switch(support){
-    case 'Founder Insight': return 'Founder insight: what researching '+t+' taught me';
-    case 'Case Study': return 'Case study: '+theme+' in practice';
-    case 'FAQ': return 'FAQ: '+theme+' — the questions buyers actually ask';
-    case 'Customer Story': return 'Customer story: '+theme;
-    case 'Short Video': return 'Short video: '+theme+' in 60 seconds';
-    default: return support+': '+theme;
-  }
-}
-/* ---------------------------------------------------------------------------
-   CAMPAIGN MODEL. Each week is ONE campaign object. Every one of its eight
-   tasks is derived from that single object and stamps the campaign's identity
-   (theme + article title) into its own fields. Tasks are NEVER assembled from
-   parallel articles[]/linkedin[]/x[] arrays and zipped together afterwards —
-   that is what let references drift across weeks. Build campaigns[], then for
-   each campaign create its Mon/Tue/Wed/Thu/Fri tasks in place.
---------------------------------------------------------------------------- */
-function buildCampaignForWeek(week, firstMonday){
-  const c = CAMPAIGN_THEMES[week % CAMPAIGN_THEMES.length];
-  const weekNum = String(week+1).padStart(2,'0');
-  const weekMonday = addCalendarDays(firstMonday, week*7);
-  return {
-    id: MARKETING_CAMPAIGN_KEY+'-week-'+weekNum,   // stable campaign id → seed_key prefix
-    weekNum,
-    theme: c.theme,
-    title: c.article || c.theme,                   // article headline = campaign title
-    audience: c.audience || null,
-    objective: c.objective || null,
-    problem: c.problem || '',
-    support: c.support || 'Founder Insight',
-    dates: {
-      mon: addCalendarDays(weekMonday, 0),
-      tue: addCalendarDays(weekMonday, 1),
-      wed: addCalendarDays(weekMonday, 2),
-      thu: addCalendarDays(weekMonday, 3),
-      fri: addCalendarDays(weekMonday, 4)
-    }
-  };
-}
-/* Every task inherits title/audience/objective + campaign identity from the
-   parent campaign object it is passed. It cannot reference any other week. */
-function mkCampaignTask(cp, slot, title, type, date, note){
-  return {
-    seed_key: cp.id+'-'+slot,
-    title, item_type:type,
-    audience: cp.audience, objective: cp.objective,
-    status:STAGE_TO_DB_STATUS['Planned'], priority:'Normal', owner_user_id:myProfile.id,
-    scheduled_at: dateKeyLocal(date),
-    // campaign = theme (identity), sourceTitle = article headline. Both are
-    // read back by the per-week single-campaign verification.
-    description:serializeContentFields('Planned',{campaign:cp.theme, topic:cp.theme, sourceTitle:cp.title, notes:note})
-  };
-}
-function createMondayTasks(cp){
-  return [
-    mkCampaignTask(cp,'article','Write article: \u201c'+cp.title+'\u201d', 'Article', cp.dates.mon,
-      'THE source asset for the week.\nProblem: '+cp.problem+'\nAudience: '+cp.audience+'\nObjective: '+cp.objective+'\n\nResearch and write this one article. Everything else this week is derived from it.'),
-    mkCampaignTask(cp,'instagram','Create Instagram carousel from \u201c'+cp.title+'\u201d', 'Instagram Carousel', cp.dates.mon,
-      'Turn \u201c'+cp.title+'\u201d into a carousel \u2014 one idea per slide, cover \u2192 problem \u2192 how it happens \u2192 the shift \u2192 CTA. Clean navy/gold, few words per slide.')
-  ];
-}
-function createTuesdayTasks(cp){
-  return [
-    mkCampaignTask(cp,'linkedin','Publish LinkedIn version of \u201c'+cp.title+'\u201d', 'LinkedIn Post', cp.dates.tue,
-      'Repurpose \u201c'+cp.title+'\u201d into ONE LinkedIn post. Same idea, not a new one. Sharp hook; end with a question that invites a reply.'),
-    mkCampaignTask(cp,'x','Publish X version of \u201c'+cp.title+'\u201d', 'X Post', cp.dates.tue,
-      'Repurpose \u201c'+cp.title+'\u201d into ONE X post (or a short thread). Blunter and more conversational than LinkedIn.')
-  ];
-}
-function createWednesdayTask(cp){
-  return [
-    mkCampaignTask(cp,'support', supportTaskTitle(cp.support, cp.theme), cp.support, cp.dates.wed,
-      'This week\u2019s single supporting asset, built from \u201c'+cp.title+'\u201d. Just this one \u2014 nothing else scheduled today.')
-  ];
-}
-function createThursdayTask(cp, crmNames){
-  return [
-    mkCampaignTask(cp,'distribution','Send this week\u2019s '+cp.theme+' article to '+crmNames, 'Distribution', cp.dates.thu,
-      'Distribution only \u2014 no new content.\n\n\u2022 Send \u201c'+cp.title+'\u201d to the most relevant people in your CRM (live suggestions are in this task and on Today).\n\u2022 Comment on 1\u20132 industry posts about '+cp.theme.toLowerCase()+'.\n\u2022 Follow up with anyone who engaged.')
-  ];
-}
-function createFridayTasks(cp){
-  return [
-    mkCampaignTask(cp,'friday','Founder Friday: a personal note from the '+cp.theme+' week', 'Founder Friday', cp.dates.fri,
-      'One personal post \u2014 what I learnt this week, the biggest customer lesson, building Kweli, a startup mistake, why trust matters, or a conversation from this week. Keep it personal and honest. No fabricated pilot claims.'),
-    mkCampaignTask(cp,'review','Weekly review: '+cp.theme+' campaign', 'Weekly Review', cp.dates.fri,
-      'Close out the week:\n\u2022 Article \u201c'+cp.title+'\u201d published?  LinkedIn published?  X published?\n\u2022 Distribution completed?\n\u2022 What conversations happened this week? Who engaged?\n\u2022 Pick next week\u2019s campaign theme.')
-  ];
-}
+
+/* Fixed plan anchor — Monday 27 July 2026, always, regardless of when this
+   code happens to run. This is a curated calendar with real dates the user
+   chose, not a rolling "starts next Monday" generator. */
+const PLAN_START = new Date(2026, 6, 27);
+const PLAN_DAY_OFFSET = {mon:0, tue:1, wed:2, thu:3, fri:4};
+
+/* Default target-audience line per content type, so individual calendar
+   entries below don't have to repeat it. An entry can still override with
+   its own `audience`. */
+const AUDIENCE_BY_TYPE = {
+  'Insurance Insight':'Motor & health insurers, claims leaders',
+  'Claims Workflow':'Claims & assessment teams',
+  'Document Integrity':'Risk, compliance & operations leaders',
+  'Trade Insight':'Trade finance & compliance teams',
+  'Banking Insight':'Banking compliance & KYC teams',
+  'Trust Infrastructure':'CIOs, innovation & risk leaders',
+  'Thought Leadership':'Founders, operators & investors',
+  'Myth vs Fact':'General audience — trust & fraud',
+  'Did You Know?':'General audience — trust & fraud',
+  'Credentials':'Employers, certifiers & institutions',
+  'Provenance':'Claims, compliance & assessment teams',
+  'Digital Trust':'Operations & supply-chain leaders',
+  'AI & Document Fraud':'CIOs & AI/automation leaders',
+  'Founder Insight':'Founders, our network & investors'
+};
+const DEFAULT_IMAGE_SUGGESTION='Optional — simple navy/gold graphic with the opening line as the headline; plain text also performs well on LinkedIn.';
+
+/* ===========================================================================
+   THE CALENDAR ITSELF — 26 weeks, Monday 27 July 2026 through mid/late
+   January 2027 (~6 months). Weeks 6, 14, 22 and 23 are deliberately left
+   empty (end-of-summer lull, a breather after the October push, and the
+   Christmas/New Year weeks) rather than padded with filler.
+=========================================================================== */
+const CURATED_CALENDAR_WEEKS = [
+{w:1, items:[
+  {day:'tue', platform:'LinkedIn', type:'Insurance Insight', title:'The staged accident problem nobody wants to talk about',
+    desc:'Opens the calendar with the sharpest, most concrete fraud pattern in motor claims.',
+    copy:`A staged accident is not hard to fake. Two cars, a quiet road, a story that holds together for the first three questions an adjuster asks.
+
+What's hard is proving, cheaply and quickly, that the police report, the garage invoice and the medical note that follow are what they claim to be — issued by who they say, when they say, unaltered since.
+
+Most motor insurers still verify the way they did ten years ago: someone picks up the phone and asks the issuer "is this real?" That doesn't scale, and it doesn't catch the well-prepared cases.
+
+We built Kweli because verification shouldn't depend on whether the right person happens to answer the phone that day.
+
+If you sit in claims or fraud risk for a motor book — what's the one document type you'd most want an independent, instant answer on?`},
+  {day:'thu', platform:'LinkedIn', type:'Thought Leadership', title:'Trust is becoming infrastructure',
+    desc:"Positions Kweli's category thesis for a broader, non-insurance audience.",
+    copy:`Twenty years ago, moving money between banks meant trusting a slow web of correspondent relationships and phone calls. Then payment rails became infrastructure — invisible, boring, and load-bearing.
+
+Verifying whether a document is genuine is where payments were before that shift. Every institution still does it manually: a call to the issuer, a squint at a signature, a hope that nobody bothered to fake it well.
+
+We think document trust is becoming the same kind of infrastructure — not a feature bolted onto one product, but a layer underneath insurance, banking, trade and hiring alike.
+
+Infrastructure is unglamorous by design. That's rather the point.`},
+  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'A fake invoice takes five minutes to make',
+    desc:'Bite-size fact opening the Did You Know? series.',
+    copy:`Did you know? A convincing fake invoice takes about five minutes to produce — and most finance and claims teams still have no fast way to check if one is real.
+
+That's the gap Kweli exists to close: instant, independent verification of the documents your business already runs on.
+
+#DocumentIntegrity #TrustInfrastructure`,
+    image:"Simple navy/gold slide — bold stat '5 minutes' with a small subhead 'is all it takes to fake an invoice.'"}
+]},
+{w:2, items:[
+  {day:'tue', platform:'LinkedIn', type:'Claims Workflow', title:'Why medical bills are the easiest thing to fake',
+    desc:'Opens the hospital/medical billing fraud theme for health insurers.',
+    copy:`A medical bill is a spreadsheet with a letterhead. Change three line items, print it on the right paper, and most claims processes will never know the difference — because nobody calls the hospital to confirm every invoice, and the ones that do get checked are picked almost at random.
+
+Health insurers lose real money to inflated and fabricated medical bills not because their assessors are careless, but because manual verification simply cannot cover the volume.
+
+Verification infrastructure changes the economics: instead of spot-checking a sample and hoping, every document can carry a fast, independent answer to "is this genuine, and has it been altered since issue?"
+
+That's a workflow question as much as a fraud question — and it's the one we spend most of our time on.`},
+  {day:'thu', platform:'LinkedIn', type:'Myth vs Fact', title:'Myth: verification slows deals down',
+    desc:'Reframes verification as faster than the manual process it replaces.',
+    copy:`Myth: adding verification into a claims or onboarding process makes it slower.
+
+Fact: what's actually slow today is a person picking up the phone, waiting on hold, and calling the issuer to confirm a document by voice — then writing up notes nobody else can search.
+
+An instant, independent check is faster than the phone call it replaces, not slower than doing nothing. The friction people remember is the old manual process, not the idea of verification itself.
+
+The real question isn't "verification or speed" — it's which manual step you're finally ready to stop doing by hand.`}
+]},
+{w:3, items:[
+  {day:'tue', platform:'LinkedIn', type:'Document Integrity', title:'A convincing fake invoice takes five minutes',
+    desc:'Names the asymmetry between minutes-to-forge and days-to-verify.',
+    copy:`Ask any claims handler how they'd fake an invoice and most can describe it in under a minute: take a genuine template, change the amounts, adjust the date, done. It takes longer to file the claim than to forge the document behind it.
+
+That asymmetry — minutes to fake, hours or days to verify — is the entire reason claims leakage from invoice fraud persists at insurers who are otherwise very good at their jobs.
+
+Closing that gap doesn't require catching every fraudster. It requires making genuine verification as fast as forgery, so the economics stop favouring the person with the printer.
+
+That's a narrower, more solvable problem than "stop all fraud" — and it's the one worth funding.`},
+  {day:'wed', platform:'Instagram', type:'Credentials', title:'A certificate is only as trustworthy as the process behind it',
+    desc:'Visual intro to the Credentials theme.',
+    copy:`A certificate is only as trustworthy as the process behind it.
+
+Anyone can print a professional-looking certificate. What they can't do is fake an independent, instant answer to: was this actually issued, by whom, and is it unchanged since?
+
+That's the layer Kweli adds underneath certificates, licences and credentials of every kind.
+
+#Credentials #Verification #DocumentTrust`,
+    image:"Split visual: left a certificate with a question mark, right the same certificate with a green checkmark and 'Verified' badge."},
+  {day:'thu', platform:'LinkedIn', type:'Founder Insight', title:"Why we're building verification infrastructure in Nairobi",
+    desc:'Founder story — why build here first.',
+    copy:`People sometimes ask why we're building document verification infrastructure from Nairobi rather than somewhere the funding is easier to find.
+
+The honest answer: this is where the problem shows up first, most often, and with the least patience for a bad manual process. Insurers here process claims on paperwork that moves through more informal hands than in markets with tighter institutional plumbing — which makes the case for verification obvious, not theoretical.
+
+Building where the problem is sharpest tends to produce better infrastructure than building where it's merely discussed. If it works here, it will travel — the reverse is a much harder bet.
+
+We'd rather solve a real, present problem for real institutions than a hypothetical one for a future market.`}
+]},
+{w:4, items:[
+  {day:'tue', platform:'LinkedIn', type:'Insurance Insight', title:'The medical report that changed between the clinic and the claim',
+    desc:'Medical report verification for health insurers and assessors.',
+    copy:`A medical report leaves the clinic as one document. By the time it reaches a claims desk, it may have passed through two or three hands — a patient, an intermediary, sometimes an agent with an incentive to help the numbers along.
+
+Nobody along that chain is necessarily dishonest. But nobody along that chain can prove the report hasn't changed either, and that's the actual problem: not "who lied," but "how would you know."
+
+Health insurers and assessors don't need to interrogate every claimant. They need a fast, independent way to confirm a report is exactly what the clinic issued — unaltered, on the record, checkable in seconds rather than days.
+
+That's a quieter kind of fraud prevention than most people picture, and a more useful one.`},
+  {day:'thu', platform:'LinkedIn', type:'Trade Insight', title:'The import paperwork nobody can verify',
+    desc:'Opens the trade/import documentation trust theme.',
+    copy:`Import documentation moves fast, involves several parties who've often never met, and underpins real money changing hands at every step. It is also, by wide agreement among the trade and compliance people we talk to, some of the easiest paperwork in commerce to fake convincingly.
+
+The usual response is more signatures, more stamps, more layers of manual sign-off — which mostly slows down genuine trade without meaningfully stopping a well-prepared forgery.
+
+What actually helps is being able to independently confirm, quickly, that an import document is genuine and unaltered since issue — without adding another person to the approval chain.
+
+If you work in trade finance or compliance: how many documents in a typical file do you currently take on trust because checking them isn't practical?`}
+]},
+{w:5, items:[
+  {day:'tue', platform:'LinkedIn', type:'Provenance', title:'Nobody actually checks the police abstract',
+    desc:'Police abstract / provenance theme for motor & liability insurers.',
+    copy:`A police abstract is one of the most consequential documents in a motor claim — and one of the least checked. Ask most claims teams how they verify one, and the honest answer is: they don't, beyond looking at whether it looks right.
+
+Police abstracts are forged more often than institutions like to admit, precisely because everyone assumes someone else already checked. That's not a comment on any one insurer's diligence — it's what happens when verification isn't built into the workflow anywhere.
+
+Provenance — being able to trace a document back to who actually issued it, and confirm nothing has changed since — closes that gap without requiring anyone to become a forensic document examiner.
+
+It's a small, unglamorous fix for a problem that's been sitting in plain sight.`},
+  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'Inflated repair quotes are a top source of claims leakage',
+    desc:'Bite-size fact on repair quotation fraud.',
+    copy:`Did you know? Inflated repair quotes are one of the most common — and hardest to catch — sources of motor claims leakage, because nobody has time to independently check every garage invoice.
+
+Kweli gives assessors a fast, independent answer instead of a guess.
+
+#ClaimsLeakage #MotorInsurance #Verification`,
+    image:"A garage repair invoice with a magnifying glass icon and a subtle upward-trending 'leakage' arrow."}
+]},
+{w:6, items:[]},
+{w:7, items:[
+  {day:'tue', platform:'LinkedIn', type:'Document Integrity', title:'The inflated repair quote is a document problem',
+    desc:'Reframes repair quote inflation as a document integrity issue, not just negotiation.',
+    copy:`Everyone in motor claims knows repair quotes get inflated. Fewer people frame it correctly: it's not a negotiation problem, it's a document integrity problem. A quote is a document like any other — it can be altered, backdated, or issued by a garage that doesn't quite match the one on record.
+
+Assessors are good at spotting quotes that feel off. They're not equipped to independently verify hundreds of quotes a month against source, and nobody expects them to be.
+
+The fix isn't more scrutiny per assessor — it's making the underlying verification fast enough that scrutiny scales with claim volume instead of assessor headcount.
+
+That reframing — document integrity, not just negotiation — is where we start most conversations with claims leadership.`},
+  {day:'thu', platform:'LinkedIn', type:'Banking Insight', title:'The hidden cost of "we\'ll just call to confirm"',
+    desc:'Names the real cost of manual phone-call verification.',
+    copy:`Ask almost any bank or insurer how they verify a document today and you'll hear some version of: "we call to confirm." It sounds thorough. It's actually one of the most expensive, slowest, least auditable steps left in most operations — a person, a phone, a hope that the right contact picks up and tells the truth.
+
+Nobody has costed this properly, because it's spread across hundreds of small interruptions rather than one visible line item. But add up the minutes, the follow-up calls, the claims and applications sitting in limbo waiting on a callback, and it's a meaningful drag on throughput.
+
+Verification infrastructure doesn't remove judgment from the process. It removes the phone call from the part of the process that shouldn't need one.`},
+  {day:'wed', platform:'Instagram', type:'Myth vs Fact', title:'Myth: blockchain verification publishes your documents',
+    desc:'Corrects the common blockchain-exposure misconception.',
+    copy:`Myth: blockchain-based verification means your documents get published on a public ledger for anyone to see.
+
+Fact: Kweli verifies issuance and integrity without ever exposing what's inside the document. Proof, not publication.
+
+#DigitalTrust #BlockchainBeyondCrypto`,
+    image:"A closed document icon with a small lock, beside an open padlock labelled 'content stays private' and a checkmark labelled 'authenticity proven.'"}
+]},
+{w:8, items:[
+  {day:'tue', platform:'LinkedIn', type:'Trust Infrastructure', title:'Your verification process is a phone call',
+    desc:'Names the manual phone-call reality most institutions still run on.',
+    copy:`Strip away the workflow diagrams and most institutional "verification processes" reduce to the same step: someone calls or emails the issuer and asks whether a document is real. It works, until volume rises, the issuer is unreachable, or the forgery is good enough that a busy person on the phone doesn't catch it.
+
+That's not a criticism of the people doing it — it's a description of a process built before there was a faster alternative. There is one now.
+
+Verification infrastructure means that step becomes instant and independent, available to whoever in the organisation needs it, not gated behind one relationship or one person's availability.
+
+The phone call isn't wrong. It's just the version of this problem we haven't upgraded yet.`},
+  {day:'thu', platform:'LinkedIn', type:'Trade Insight', title:'Export documents move real money through untrusting hands',
+    desc:'Export documentation trust for trade & trade-finance teams.',
+    copy:`An export shipment can pass through a dozen parties before it's paid for — freight forwarders, banks, customs, insurers, buyers who've never met the seller. Every one of those parties is relying on paperwork issued by someone they don't fully trust, verified by nobody in particular.
+
+That's the quiet risk sitting inside trade finance: not fraud as a dramatic event, but fraud as background noise nobody has the bandwidth to filter out.
+
+Independent document verification doesn't replace trade finance controls — it gives every party in that chain a fast, shared way to confirm a document is genuine before real money moves on the strength of it.
+
+It's a small addition to a very old process, and it changes the risk calculation more than its size suggests.`}
+]},
+{w:9, items:[
+  {day:'tue', platform:'LinkedIn', type:'Claims Workflow', title:"Can you trust a lab result you didn't watch get made?",
+    desc:'Laboratory report integrity — an overlooked verification use case.',
+    copy:`Laboratories sit upstream of an enormous number of decisions — insurance claims, supply chain sign-offs, compliance filings — and almost nobody downstream of a lab report has any independent way to confirm it's genuine and unaltered. You either trust the letterhead, or you don't get the deal done.
+
+That's not a comment on labs' honesty. It's a comment on how little verification infrastructure exists once a report leaves the building it was produced in.
+
+Giving buyers, insurers and certifiers an independent way to confirm a lab report's provenance doesn't slow down commerce — it removes one more thing everyone was quietly hoping wouldn't matter.
+
+We think this is one of the more overlooked use cases for verification infrastructure, precisely because nobody frames lab reports as a "trust problem" until something goes wrong.`},
+  {day:'wed', platform:'Instagram', type:'Credentials', title:'The fake degree is a solved problem we haven’t deployed',
+    desc:'Educational certificate verification, visual.',
+    copy:`The fake degree is a solved problem we haven't deployed.
+
+Verifying an educational certificate shouldn't take weeks of emails to a registrar's office. It should take seconds — without the institution changing anything about how it issues credentials today.
+
+#Credentials #EducationVerification`,
+    image:"A graduation certificate icon with a stopwatch showing 'seconds, not weeks.'"},
+  {day:'thu', platform:'LinkedIn', type:'Founder Insight', title:"Growing up where documents can't be trusted",
+    desc:'Personal founder story tying lived experience to the mission.',
+    copy:`I grew up somewhere a genuine certificate and a very good forgery could sit side by side, and most institutions had no fast way to tell them apart. You learn early that "official-looking" and "genuine" are not the same claim, and that the gap between them is where a lot of quiet harm happens — false hires, false claims, false credibility.
+
+That's not a uniquely Kenyan problem. It's just more visible here, sooner, because fewer institutional shortcuts paper over it.
+
+Kweli exists because I'd rather build the infrastructure that closes that gap than keep working around it. It's a slower, less glamorous bet than most startup ideas — and I think it's the more useful one.`}
+]},
+{w:10, items:[
+  {day:'tue', platform:'LinkedIn', type:'Insurance Insight', title:'Where the money is largest, the documents are faked',
+    desc:'Procurement & tender document fraud.',
+    copy:`Procurement and tender fraud rarely gets discussed alongside insurance claims fraud, but the underlying problem is identical: a document (a bid, a certificate, a compliance letter) is trusted because it looks right, not because anyone independently confirmed it.
+
+The stakes are simply larger. Tender fraud sits on top of the biggest contracts an organisation signs, which means the documents involved are worth forging carefully — and worth verifying carefully in return.
+
+Governance and procurement leaders already know this. What's usually missing isn't awareness, it's a fast, practical way to check a document's authenticity without adding another approval layer to an already slow process.
+
+That's the gap we spend a lot of our time closing.`},
+  {day:'thu', platform:'LinkedIn', type:'Digital Trust', title:'Every handoff assumes the document is real',
+    desc:'Supply chain document trust.',
+    copy:`Trace any supply chain far enough and you'll find the same quiet assumption repeated at every handoff: this certificate, this invoice, this compliance letter is genuine, because the last person in the chain seemed to think so too.
+
+Nobody re-verifies at each step. It would be far too slow. So trust gets inherited rather than earned, all the way down the chain — right up until one forged document causes a problem, at which point everyone asks how nobody caught it.
+
+Verification infrastructure doesn't ask every party to re-check everything. It gives each handoff a fast, independent confirmation instead of an inherited assumption.
+
+That's a small shift in mechanics with a large effect on where risk actually sits.`}
+]},
+{w:11, items:[
+  {day:'tue', platform:'LinkedIn', type:'AI & Document Fraud', title:'AI will happily believe a fake document',
+    desc:'Cybersecurity Awareness Month — ties document integrity to AI adoption.',
+    copy:`Cybersecurity Awareness Month is usually about passwords and phishing. Worth adding to the list: the documents feeding your AI systems.
+
+An AI model reading a claim, an application or a contract has no idea whether the invoice or certificate behind it is genuine — it will process a well-forged document exactly as confidently as a real one. As more institutions plug AI into claims, underwriting and compliance workflows, the quality of the documents feeding those systems matters more, not less.
+
+Verifying inputs isn't a side conversation to AI adoption. It's a prerequisite for trusting what the AI produces.
+
+If your team is automating decisions this year, it's worth asking: what's verifying the documents before the model ever sees them?`},
+  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'Cybersecurity Awareness Month includes your documents too',
+    desc:'Instagram tie-in to Cybersecurity Awareness Month.',
+    copy:`Did you know? During Cybersecurity Awareness Month, most institutions review passwords and phishing training — but rarely audit whether the documents behind their claims and applications have ever been independently verified.
+
+Document integrity is part of your security posture too.
+
+#CybersecurityAwarenessMonth #DocumentIntegrity`,
+    image:"A shield split in half — one side a padlock (classic cybersecurity), the other a document with a checkmark — captioned 'Two sides of the same problem.'"}
+]},
+{w:12, items:[
+  {day:'tue', platform:'LinkedIn', type:'Thought Leadership', title:"Your documents are digital. Proving they're real is still analogue.",
+    desc:'Digital document authenticity.',
+    copy:`Almost every document an institution handles today arrives as a PDF, a scan, or a digital form. Almost every way institutions verify those documents is still analogue: a phone call, an email to the issuer, a person eyeballing a signature.
+
+Digitising a document didn't digitise the trust behind it. That's the actual gap — not a lack of digital documents, but a lack of digital ways to prove they're genuine and unaltered.
+
+Closing that gap doesn't require replacing how institutions issue documents today. It requires adding a verification layer underneath the documents that already exist.
+
+That's a much smaller ask than most "digital transformation" projects, and a more immediately useful one.`},
+  {day:'wed', platform:'Instagram', type:'Credentials', title:'Can anyone confirm it in seconds?',
+    desc:'Visual — the real standard for credential trust.',
+    copy:`A certificate, a licence, a diploma — all just documents claiming something is true.
+
+The question worth asking isn't "does it look official?" It's "can anyone independently confirm it, in seconds, without calling the issuer?"
+
+That's the standard we build to.
+
+#Credentials #DigitalTrust`,
+    image:"Three overlapping document icons (certificate, licence, diploma), each with a small verified-checkmark badge in the corner."},
+  {day:'thu', platform:'LinkedIn', type:'Myth vs Fact', title:'Myth: blockchain for verification means crypto',
+    desc:'Blockchain beyond crypto — reframes the useful part.',
+    copy:`Myth: blockchain for document verification means crypto, tokens, and speculation.
+
+Fact: the genuinely useful part was always the boring bit — a tamper-evident, independently checkable record of when something was issued and whether it's changed since. No coin required.
+
+We use that property because it solves a real problem (proving a document is genuine, without a phone call), not because it's fashionable. Most of what made blockchain famous is irrelevant to what makes it useful here.
+
+If "blockchain" makes you skeptical, that's fair. Judge the verification, not the word.`}
+]},
+{w:13, items:[
+  {day:'tue', platform:'LinkedIn', type:'AI & Document Fraud', title:'The hidden cost of manual verification, revisited for AI',
+    desc:'Manual verification as the bottleneck automation trips over.',
+    copy:`We wrote a few weeks ago about the hidden cost of "we'll just call to confirm." Worth revisiting now that AI is entering claims and underwriting workflows: manual verification doesn't just cost time, it becomes the bottleneck an automated process trips over.
+
+An AI system can triage a claim in seconds. If the document behind that claim still needs a human to phone the issuer, the automation gains nothing — the slow step just moved, it didn't disappear.
+
+Verification has to modernise at the same pace as the systems around it, or it quietly becomes the reason automation projects underdeliver.
+
+That's a less-discussed risk of AI rollouts than most people expect, and one worth raising before the project, not after.`},
+  {day:'thu', platform:'LinkedIn', type:'Trust Infrastructure', title:'Where document verification goes next',
+    desc:'Closes out the Cybersecurity Awareness Month arc with the category vision.',
+    copy:`Closing out Cybersecurity Awareness Month with where we think this goes: verification stops being a manual step someone remembers to do, and becomes infrastructure sitting quietly underneath insurance, banking, trade and hiring — the way payment rails sit underneath commerce.
+
+Institutions won't "add verification" as a project. They'll simply stop being able to imagine operating without an instant, independent way to confirm a document is genuine.
+
+That's a ten-year view, not a next-quarter one. But every infrastructure shift looks like a niche tool right up until it doesn't.
+
+We'd rather be early and unglamorous than late and obvious.`}
+]},
+{w:14, items:[]},
+{w:15, items:[
+  {day:'tue', platform:'LinkedIn', type:'Insurance Insight', title:'Claims leakage: the silent margin killer',
+    desc:'Claims leakage as a background, distributed cost.',
+    copy:`Claims leakage rarely shows up as a single dramatic loss. It shows up as a slow, steady margin erosion — a slightly inflated invoice here, an unverified certificate there, none of it big enough on its own to trigger an investigation.
+
+That's exactly why it survives: no single case looks worth the cost of manual verification, so insurers accept a background rate of leakage as the price of doing business at volume.
+
+The economics change once verification is fast and cheap enough to apply broadly instead of selectively. Leakage stops being a rounding error you tolerate and becomes a number you can actually see and reduce.
+
+For claims leaders: do you currently know your real leakage rate, or an estimate built on the cases you happened to catch?`},
+  {day:'thu', platform:'LinkedIn', type:'Founder Insight', title:'We built an exchange before we understood the problem',
+    desc:'Founder story — the pivot away from the original exchange idea.',
+    copy:`Kweli didn't start as a verification company. It started as an exchange — a marketplace idea that sounded good in a pitch deck and solved a problem almost nobody we later spoke to actually had.
+
+It took real conversations with insurers, brokers and traders to hear the same specific frustration over and over: not "we need a marketplace," but "we have no fast way to know if this document is real." That's a narrower, less exciting-sounding problem. It's also the one people were actually willing to change their workflow for.
+
+The lesson wasn't "pivot faster." It was: talk to the market before you're attached to the idea, not after.
+
+We're glad we didn't ship the exchange.`},
+  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'Leakage is usually many small things, not one big thing',
+    desc:'Bite-size visual on claims leakage.',
+    copy:`Did you know? Claims leakage often isn't one big fraud — it's dozens of small, unverified documents that were never worth investigating individually.
+
+Fast, cheap verification changes that math entirely.
+
+#ClaimsLeakage #InsuranceInsight`,
+    image:"A leaking bucket graphic with small document icons as the drips, labelled 'small, unverified, adds up.'"}
+]},
+{w:16, items:[
+  {day:'tue', platform:'LinkedIn', type:'Document Integrity', title:'What thirty enterprise conversations taught us about trust',
+    desc:'Customer-conversation lessons — the market rarely names its own problem correctly.',
+    copy:`Over the past stretch of customer conversations, one pattern showed up almost everywhere, regardless of industry: nobody thinks they have a "verification problem." They think they have a claims problem, a compliance problem, an onboarding-speed problem — and it's only a few questions in that the actual bottleneck turns out to be the same thing: nobody can quickly confirm a document is genuine.
+
+That's a useful thing to notice as a founder. The market rarely describes its own problem in the words you'd use to solve it.
+
+It also means the sales conversation isn't "buy verification infrastructure" — it's "let's look at the specific document your team spends the most time doubting."
+
+That's a much easier conversation to have.`},
+  {day:'thu', platform:'LinkedIn', type:'Banking Insight', title:'What a certificate actually proves (and what it doesn’t)',
+    desc:'Splits credential trust into three separate, checkable claims.',
+    copy:`A certificate proves that, at some point, someone issued a document making a claim. It does not prove the claim is still true, that the copy in front of you is unaltered, or that it was actually the named issuer who created it — three separate things people routinely collapse into one glance at a logo and a signature.
+
+Banks relying on certificates for KYC, compliance or collateral documentation are usually trusting all three at once, on the strength of the first.
+
+Separating those questions — issued by whom, unaltered since when, still valid now — is a more precise (and more checkable) way to think about document trust than "does it look right."
+
+It's a small reframing that changes what you actually need to verify.`}
+]},
+{w:17, items:[
+  {day:'tue', platform:'LinkedIn', type:'Claims Workflow', title:"International Fraud Awareness Week: the fraud that isn't dramatic",
+    desc:'International Fraud Awareness Week — the undramatic, everyday version of fraud.',
+    copy:`This week is International Fraud Awareness Week, and most of the content around it will focus on the dramatic cases — the elaborate schemes, the headline numbers. Worth a word for the undramatic version, because it's the one institutions actually live with daily.
+
+Most document fraud isn't sophisticated. It's a changed number on an invoice, a certificate that was never quite issued the way it claims, a report altered slightly between two hands. It survives not because it's clever, but because nobody has time to check everything, so a background rate gets accepted as normal.
+
+Fraud awareness is useful. Fraud-checking infrastructure that doesn't depend on someone remembering to be suspicious is more useful.
+
+That's the gap we spend this week — and every week — closing.`},
+  {day:'thu', platform:'LinkedIn', type:'Myth vs Fact', title:'Myth: document fraud is rare',
+    desc:'International Fraud Awareness Week — reframes fraud as a background cost, not a rare event.',
+    copy:`Myth: document fraud is a rare, exceptional event that mostly happens to careless organisations.
+
+Fact: it's closer to a background tax that most institutions quietly pay, distributed across thousands of small, unverified documents rather than concentrated in a few dramatic cases.
+
+The reason it feels rare is that most of it is never caught, not that it doesn't happen. Verification infrastructure doesn't just catch more fraud — it changes an invisible cost into a visible, manageable one.
+
+Happy International Fraud Awareness Week. The real milestone isn't awareness — it's making verification routine enough that awareness stops being the main defence.`},
+  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'Most document fraud is quiet, not dramatic',
+    desc:'International Fraud Awareness Week visual.',
+    copy:`Did you know? It's International Fraud Awareness Week. Most document fraud isn't dramatic — it's small, quiet, and routinely accepted as an unavoidable cost of doing business.
+
+It doesn't have to be.
+
+#FraudAwarenessWeek #DocumentIntegrity`,
+    image:"A magnifying glass over a stack of ordinary-looking documents, one subtly highlighted, captioned 'Can you tell which one?'"}
+]},
+{w:18, items:[
+  {day:'tue', platform:'LinkedIn', type:'Trade Insight', title:'Every handoff assumes the document is real, part two',
+    desc:'Extends the supply-chain trust theme into trade finance specifically.',
+    copy:`A few weeks ago we wrote about how supply chains inherit trust rather than earn it at each handoff. Worth a follow-up: the same pattern shows up just as clearly in trade finance, where a single shipment can touch a bank, an insurer, a customs authority and a buyer, each relying on paperwork none of them independently checked.
+
+The instinct is to add more sign-offs. The actual fix is smaller: give each party in the chain a fast, independent way to confirm a document's authenticity at the moment they need it, rather than adding another layer of people trusting the layer before them.
+
+Fewer approvals, more verification. It's a better trade than it sounds.`},
+  {day:'thu', platform:'LinkedIn', type:'Credentials', title:'What a certificate proves, applied to hiring and licensing',
+    desc:'Extends the certificate-trust framework into employment and licensing.',
+    copy:`Employers and regulators verifying credentials face the same three-part problem we described for banks: was this issued by the named body, is this copy unaltered, and is it still valid — three questions routinely answered with one glance at a logo.
+
+The cost of getting it wrong isn't abstract. A forged professional licence or degree in the wrong hands is a hiring decision made on false information, sometimes in fields where that matters a great deal.
+
+Instant, independent credential verification isn't about distrusting applicants. It's about removing the one step in hiring that everyone currently does on faith rather than fact.
+
+That's a small process change with an outsized reduction in risk.`}
+]},
+{w:19, items:[
+  {day:'tue', platform:'LinkedIn', type:'Provenance', title:'What our first pilots taught us about where verification bites',
+    desc:'Pilot learnings — process pain vs theoretical fraud risk.',
+    copy:`Early pilots rarely confirm what you expected — they tell you something more specific. Ours taught us that the document type people most wanted verified wasn't always the one with the biggest fraud exposure; it was often the one causing the most operational friction, the document a team was manually chasing and re-checking every single week.
+
+That's a useful distinction. "Where's the fraud risk" and "where's the process pain" are related questions, but they don't always point at the same document.
+
+Designing verification infrastructure around actual daily friction, not just theoretical risk, is part of why the pilots stuck rather than stalling after the first month.
+
+It's a smaller insight than it sounds, and it changed how we prioritise.`},
+  {day:'thu', platform:'LinkedIn', type:'Thought Leadership', title:'What verification infrastructure actually means (and what it doesn’t)',
+    desc:'The canonical definitional piece — precise about what Kweli is and isn’t.',
+    copy:`"Verification infrastructure" gets used loosely, so worth being precise. It doesn't mean an AI that reads documents and guesses if they look suspicious. It doesn't mean a database of every document ever issued. And it doesn't mean publishing sensitive records anywhere public.
+
+It means a fast, independent way to answer three specific questions about any document: who issued it, has it changed since, and is that still true today — without exposing the document's contents to anyone who doesn't already have them.
+
+Everything we build sits underneath that definition. Not flashier, not broader — just reliably answering those three questions, at the speed institutions actually need them answered.
+
+Precision here matters more than ambition.`},
+  {day:'wed', platform:'Instagram', type:'Founder Insight', title:'The theme underneath everything we post',
+    desc:'Closes November with a short reflective quote card.',
+    copy:`Closing out November: the theme underneath everything we post is the same — trust shouldn't depend on a phone call, a hunch, or hoping nobody bothered to fake it well.
+
+Small, precise infrastructure. Big, quiet difference.
+
+#FounderInsight #TrustInfrastructure`,
+    image:"A simple quote-card, navy background, gold serif text reading 'Trust shouldn't depend on a phone call.'"}
+]},
+{w:20, items:[
+  {day:'tue', platform:'LinkedIn', type:'Document Integrity', title:'International Anti-Corruption Day: the paperwork behind it',
+    desc:'International Anti-Corruption Day (9 December) — the mechanical layer under corruption.',
+    copy:`December 9th is International Anti-Corruption Day, and most of the conversation focuses — rightly — on accountability and governance. Worth adding the quieter mechanical layer underneath a lot of corruption: documents that were never independently checked, because checking them wasn't practical at the volume institutions operate at.
+
+Procurement fraud, falsified compliance letters, backdated approvals — these aren't exotic techniques. They work because verification is manual, slow, and easy to skip when nobody's specifically looking.
+
+Anti-corruption efforts tend to focus on rules and oversight. Making the underlying documents fast and cheap to verify is a less-discussed lever, and one of the more practical ones institutions can actually pull this year.
+
+Good governance needs good infrastructure underneath it.`},
+  {day:'thu', platform:'LinkedIn', type:'Insurance Insight', title:'Getting ready for renewal season',
+    desc:'Year-end renewal season claims readiness.',
+    copy:`Renewal season concentrates a year's worth of claims, documentation and risk review into a few compressed weeks — exactly the conditions under which manual verification gets skipped, because there simply isn't time to phone every issuer on every file.
+
+That's worth naming plainly: the busiest period for claims and underwriting teams is also the period when document scrutiny is most likely to quietly drop, not because anyone decided it should, but because volume forces triage.
+
+Fast, independent verification doesn't ask teams to do more during renewal season. It removes the slowest step from the files that would otherwise get waved through on time pressure alone.
+
+If your renewal season is heavy, that's usually when this matters most, not least.`},
+  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'A lot of corruption runs on unchecked documents',
+    desc:'Anti-Corruption Day visual.',
+    copy:`Did you know? December 9th is International Anti-Corruption Day. A lot of corruption doesn't run on conspiracy — it runs on documents nobody had time to check.
+
+Faster verification is a real, practical part of the fix.
+
+#AntiCorruptionDay #DocumentIntegrity`,
+    image:"A stack of official-looking documents with a small padlock-and-checkmark icon, captioned 'Checked, not just signed.'"}
+]},
+{w:21, items:[
+  {day:'tue', platform:'LinkedIn', type:'Trust Infrastructure', title:'Closing out the year on trust',
+    desc:'Year-end reflection, ties the whole arc together.',
+    copy:`A year of these posts has circled one idea from a dozen angles: institutions have quietly accepted document fraud as background noise, because checking properly was too slow to do at scale. That's not a permanent condition — it's just the version of the problem that existed before fast, independent verification did.
+
+We don't think next year is the year every institution suddenly rebuilds its verification process. Infrastructure shifts are slower and less dramatic than that, and we'd be suspicious of anyone claiming otherwise.
+
+But we do think the direction is set: verification stops being a phone call and becomes a layer underneath everything else. Glad to be building the unglamorous part early.
+
+Thank you to everyone who's had one of these conversations with us this year.`},
+  {day:'thu', platform:'LinkedIn', type:'Myth vs Fact', title:'Myth: this is only an insurance problem',
+    desc:'Broadens the category beyond insurance ahead of year-end.',
+    copy:`Myth: document verification is mainly an insurance-industry concern.
+
+Fact: everywhere we've looked this year — banking, trade, education, procurement, hiring — the same gap shows up: documents are trusted because they look right, not because anyone independently confirmed it. Insurance just tends to notice the cost of that gap earliest, because claims leakage is easier to measure than most other industries' equivalent losses.
+
+The underlying problem is the same wherever paperwork underpins a decision worth money or trust. That's exactly why we built this as infrastructure rather than an insurance product with a different label.
+
+Wherever you sit, the question is the same one we keep asking: what document does your team currently trust without checking?`}
+]},
+{w:22, items:[]},
+{w:23, items:[]},
+{w:24, items:[
+  {day:'tue', platform:'LinkedIn', type:'Founder Insight', title:"What we're carrying into the new year",
+    desc:'New Year founder reflection — deliberately modest, not a big-ambitions post.',
+    copy:`New Year posts usually promise a bigger, bolder version of the company. Ours is quieter: the same problem, described more precisely, delivered a bit faster than we did last year.
+
+We spent the back half of last year hearing the same specific frustration across insurance, banking and trade — not "we need better technology," but "we have no fast way to know if this document is real." That clarity is worth more to us than a new list of ambitions.
+
+This year, we'd rather get better at the narrow thing than wider at a vague one. If that sounds unambitious, it's a deliberate bet: infrastructure earns trust by being boring and correct for a long time, not by being exciting for a quarter.
+
+Here's to more of the same, done better.`},
+  {day:'thu', platform:'LinkedIn', type:'Insurance Insight', title:'What claims teams should watch for this year',
+    desc:'New-year claims fraud vigilance note.',
+    copy:`A new year of policies means a new year of claims built on documents nobody has reason to distrust yet — which is exactly when a slightly-too-convenient invoice or a certificate issued a little too quickly is easiest to wave through.
+
+Fraud patterns don't reset in January, but scrutiny sometimes quietly does, especially on files that look routine. Worth a reminder heading into the year: the documents that feel least suspicious are often the ones least likely to have been checked at all.
+
+That's not a call for more suspicion across the board — it's a call for verification that doesn't depend on a file feeling suspicious to trigger it.
+
+Wishing every claims team a lighter leakage year than the last.`},
+  {day:'wed', platform:'Instagram', type:'Did You Know?', title:'Fraud doesn’t take a New Year’s break',
+    desc:'New Year visual tie-in.',
+    copy:`Did you know? Fraud doesn't take a New Year's break — but scrutiny sometimes quietly does, on files that look routine.
+
+Verification that doesn't depend on suspicion catches what routine-looking cases hide.
+
+#NewYear #ClaimsLeakage`,
+    image:"A calendar flipping to January with a small document icon and a subtle caution flag."}
+]},
+{w:25, items:[
+  {day:'tue', platform:'LinkedIn', type:'Banking Insight', title:'KYC documents deserve the same scrutiny as claims',
+    desc:'Extends claims-leakage thinking into banking onboarding.',
+    copy:`Insurers talk about claims leakage. Banks should talk about onboarding leakage — the slow accumulation of accounts opened on the strength of an ID document, a proof of address or a company registration certificate that nobody independently confirmed, because KYC checklists focus on collecting documents, not verifying them.
+
+Collecting the right documents and confirming they're genuine are two different steps, and most onboarding processes are thorough about the first and thin on the second.
+
+That gap doesn't need a bigger checklist. It needs the existing checklist backed by a fast, independent way to confirm each document is what it claims to be.
+
+For banking compliance teams: how much of your KYC process is collection versus actual verification?`},
+  {day:'thu', platform:'LinkedIn', type:'AI & Document Fraud', title:'Automating decisions means automating trust in bad documents too',
+    desc:'AI adoption risk if inputs are never verified.',
+    copy:`Every institution automating claims, underwriting or onboarding this year is making an implicit bet: that the documents feeding the model are genuine. Most haven't actually tested that bet, because verifying inputs isn't usually part of the automation project scope — the focus goes to the model, not what it's reading.
+
+A well-forged document doesn't confuse an AI system. It gets processed with exactly the same confidence as a real one, which means automation can scale a fraud problem just as efficiently as it scales a good decision.
+
+Verifying documents before they reach the model isn't a nice-to-have alongside AI adoption. It's the part of the project that determines whether automation is actually safer, or just faster at being wrong.`}
+]},
+{w:26, items:[
+  {day:'tue', platform:'LinkedIn', type:'Thought Leadership', title:'The coming divide between verified and unverifiable institutions',
+    desc:'Closing thought-leadership piece — the category vision.',
+    copy:`As verification infrastructure becomes normal in some sectors, a quieter divide starts to form: institutions whose documents can be independently confirmed in seconds, and institutions whose documents still require a phone call and a hope. That divide will show up first as a speed advantage, then as a trust advantage — partners and regulators will simply prefer dealing with the side that can prove things quickly.
+
+Nobody will announce this divide. It'll just become slightly harder, quarter over quarter, to do business with institutions still running on manual verification, the way it slowly became harder to do business with anyone still sending paper cheques.
+
+Being on the right side of that divide isn't about technology adoption for its own sake — it's about not being the slow, unverifiable option in five years' time.`},
+  {day:'thu', platform:'LinkedIn', type:'Credentials', title:'The fake degree is a solved problem we haven’t deployed',
+    desc:'Closing piece — echoes the opening theme, deployment not invention.',
+    copy:`Fake degrees and inflated transcripts are one of the most talked-about, least technically difficult fraud problems to solve — the verification pattern is straightforward, the institutions involved are usually cooperative, and the fraud is common enough that everyone in hiring has a story about it.
+
+What's missing isn't a solution. It's deployment: most employers still verify credentials the old way, if they verify them at all, because nobody made the fast version the default.
+
+That's true of a lot of what we build. The hard part is rarely the verification method — it's making the fast, correct way easier to reach for than the slow, manual habit everyone already has.
+
+Closing this run of posts on the same note we opened with six months ago: the gap isn't technology. It's habit.`},
+  {day:'wed', platform:'Instagram', type:'Founder Insight', title:'Six months, one thread',
+    desc:'Closing quote card for the 6-month arc.',
+    copy:`Six months of posts, one thread underneath all of them: institutions trust documents because they look right, not because anyone checked. We think that's about to change, quietly and slowly, the way infrastructure always does.
+
+Thank you for reading along.
+
+#TrustInfrastructure #Kweli`,
+    image:"A simple closing quote-card, navy/gold, reading 'The gap isn't technology. It's habit.' with the Kweli mark."}
+]}
+];
+
+/* Builds the flat marketing_items rows from the curated calendar above.
+   Pure, deterministic, offline — no network call, no CRM dependency (this
+   plan never references organisations/contacts, unlike the old distribution
+   tasks it replaces). */
 function buildInsurancePlanRows(){
-  const firstMonday = new Date(2026, 6, 20); // fixed Monday anchor: 20 July 2026
-  const crmNames = seedDistributionNames();
-  // 1) Build exactly one campaign per week.
-  const campaigns=[];
-  for(let week=0; week<26; week++) campaigns.push(buildCampaignForWeek(week, firstMonday));
-  // 2) Derive all eight tasks per campaign, in place, from that one object.
   const rows=[];
-  campaigns.forEach(cp=>{
-    createMondayTasks(cp).forEach(t=>rows.push(t));
-    createTuesdayTasks(cp).forEach(t=>rows.push(t));
-    createWednesdayTask(cp).forEach(t=>rows.push(t));
-    createThursdayTask(cp, crmNames).forEach(t=>rows.push(t));
-    createFridayTasks(cp).forEach(t=>rows.push(t));
+  CURATED_CALENDAR_WEEKS.forEach(week=>{
+    (week.items||[]).forEach((item,i)=>{
+      const weekMonday=addCalendarDays(PLAN_START, (week.w-1)*7);
+      const date=addCalendarDays(weekMonday, PLAN_DAY_OFFSET[item.day]);
+      const itemType=item.platform==='Instagram' ? 'Instagram Caption' : 'LinkedIn Post';
+      rows.push({
+        seed_key: MARKETING_CAMPAIGN_KEY+'-week-'+String(week.w).padStart(2,'0')+'-'+item.day+'-'+(i+1),
+        title: item.title,
+        item_type: itemType,
+        audience: item.audience || AUDIENCE_BY_TYPE[item.type] || null,
+        objective: item.desc || null,
+        status: STAGE_TO_DB_STATUS['Scheduled'],
+        priority: 'Normal',
+        owner_user_id: myProfile.id,
+        scheduled_at: dateKeyLocal(date),
+        description: serializeContentFields('Scheduled', {topic:item.type, readyCopy:escapeFieldNewlines(item.copy), imageSuggestion:escapeFieldNewlines(item.image||DEFAULT_IMAGE_SUGGESTION), notes:''})
+      });
+    });
   });
   return rows;
 }
 function expectedSeedKeys(){
-  const keys=[];
-  for(let week=0; week<26; week++){
-    const weekNum=String(week+1).padStart(2,'0');
-    WEEK_SLOTS.forEach(slot=>keys.push(MARKETING_CAMPAIGN_KEY+'-week-'+weekNum+'-'+slot));
-  }
-  return keys;
+  // Single source of truth: whatever buildInsurancePlanRows() would write,
+  // computed here purely offline (myProfile.id/STAGE_TO_DB_STATUS don't
+  // affect seed_key), so this stays a fast, pure completeness check.
+  return buildInsurancePlanRows().map(r=>r.seed_key);
 }
 
 /* Authoritative, database-verified completeness check — queries the real
@@ -4915,30 +5333,67 @@ async function resetForwardGeneratedMarketingOnce(){
   return {removed, alreadyDone:false};
 }
 
-async function autoSeedMarketingPlanIfNeeded(){
+/* ---------------------------------------------------------------------------
+   INSTALL CURATED MARKETING PLAN — explicit, user-initiated only. NEVER
+   called automatically at sign-in (see onSignedIn). The user must click
+   "Install Curated Marketing Plan" (Marketing page or Settings → Data
+   recovery) and confirm first via confirmInstallCuratedMarketingPlan().
+   installCuratedMarketingPlan() itself is idempotent and safe to run any
+   number of times: it checks real seed_key values in the database before
+   inserting anything (fetchExistingCampaignSeedKeys / seedInsurancePlanBatched)
+   and only ever inserts items that are actually missing — it never touches
+   meetings, tasks, existing calendar entries, or duplicates an item that's
+   already installed.
+--------------------------------------------------------------------------- */
+function confirmInstallCuratedMarketingPlan(){
+  const expected=expectedSeedKeys().length;
+  const proceed=confirm(
+    'Install the curated 6-month marketing plan?\n\n'+
+    '• Adds up to '+expected+' ready-to-post marketing items (LinkedIn + Instagram posts, each with finished copy).\n'+
+    '• Will NOT delete or change any meetings, tasks, or existing calendar entries.\n'+
+    '• Safe to run more than once — items already installed are found by their seed_key and skipped, so it will never duplicate work or redo a plan that’s already installed.'
+  );
+  if(!proceed) return;
+  installCuratedMarketingPlan();
+}
+async function installCuratedMarketingPlan(){
+  showSeedingOverlay('Installing the curated marketing plan…');
+  const result={added:0, skipped:0, errors:null};
   try{
     const reset=await resetForwardGeneratedMarketingOnce();
-    if(reset.removed) toast('Marketing calendar cleaned — removed '+reset.removed+' duplicate/legacy generated item(s)');
     await migrateToWeeklyCampaignsOnce();
     const dedupResult=await dedupeMarketingItemsOnce();
-    if(dedupResult.removed || dedupResult.backfilled){
-      const parts=[];
-      if(dedupResult.removed) parts.push(dedupResult.removed+' duplicate(s) removed');
-      if(dedupResult.backfilled) parts.push(dedupResult.backfilled+' seed key(s) backfilled');
-      toast('Marketing plan cleanup: '+parts.join(', '));
+    const existingKeys=await fetchExistingCampaignSeedKeys();
+    const expected=expectedSeedKeys();
+    const missingCount=expected.filter(k=>!existingKeys.has(k)).length;
+    if(missingCount===0){
+      result.added=0;
+      result.skipped=expected.length;
+    } else {
+      const r=await seedInsurancePlanBatched();
+      result.added=r.created;
+      result.skipped=r.existing+(r.backfilled||0);
     }
-    const existingKeys = await fetchExistingCampaignSeedKeys();
-    const expected = expectedSeedKeys();
-    const missingCount = expected.filter(k=>!existingKeys.has(k)).length;
-    if(missingCount===0) return;
-    showSeedingOverlay(existingKeys.size>0 ? 'Completing your marketing plan…' : 'Setting up your 6-month marketing plan…');
-    const r=await seedInsurancePlanBatched();
-    if(r.created) toast('Marketing plan ready — '+r.created+' piece(s) added ('+(r.expected-missingCount+r.created)+'/'+r.expected+' total)');
+    if(reset.removed || dedupResult.removed || dedupResult.backfilled){
+      result.cleanup=[
+        reset.removed?reset.removed+' legacy duplicate(s) removed':null,
+        dedupResult.removed?dedupResult.removed+' duplicate(s) removed':null,
+        dedupResult.backfilled?dedupResult.backfilled+' seed key(s) backfilled':null
+      ].filter(Boolean).join(', ');
+    }
   } catch(e){
-    // already toasted inside seedInsurancePlanBatched/fetchExistingCampaignSeedKeys
+    result.errors=(e&&e.message)||String(e);
   } finally {
     hideSeedingOverlay();
   }
+  renderCurrent();
+  openModal('<h3>Curated marketing plan</h3>'+
+    kv('Items added', result.added)+
+    kv('Items skipped (already installed)', result.skipped)+
+    (result.cleanup?kv('Legacy cleanup', esc(result.cleanup)):'')+
+    kv('Errors', result.errors?('<span style="color:var(--red)">'+esc(result.errors)+'</span>'):'None')+
+    '<div class="faint" style="font-size:11px;margin-top:10px">Nothing else was changed — meetings, tasks and existing calendar entries are untouched.</div>');
+  return result;
 }
 function showSeedingOverlay(msg){
   let el=document.getElementById('seedingOverlay');
@@ -5005,50 +5460,36 @@ function marketingStatusInfo(){
   return { campaign:MARKETING_CAMPAIGN_KEY, count:mi.length, current, legacy, deletable, preserved,
     expected:expectedSeedKeys().length, lastRebuild:last?last.created_at:null };
 }
+/* Validates the CURATED calendar's own rules, not the old fixed 8-slots/week
+   rhythm: max 2 LinkedIn + 1 Instagram per calendar week, no weekend dates,
+   unique seed_keys, and the total row count matches what the curated data
+   actually specifies (some weeks are intentionally empty by design, so
+   "weeks present" is reported but never required to equal 26). */
 function verifyRhythmItems(items){
   const plan=items.filter(mi=>mi.seed_key && mi.seed_key.startsWith(MARKETING_CAMPAIGN_KEY+'-week-'));
-  const expect={1:2,2:2,3:1,4:1,5:2,6:0,0:0};
   const dayName={0:'Sunday',1:'Monday',2:'Tuesday',3:'Wednesday',4:'Thursday',5:'Friday',6:'Saturday'};
   const errors=[];
-  // uniqueness
   const seen=new Set();
   plan.forEach(mi=>{ if(seen.has(mi.seed_key)) errors.push('Duplicate seed_key: '+mi.seed_key); seen.add(mi.seed_key); });
-  // per-week structure + weekday (weekday derived from the DATE, not array order)
   const byWeek={};
   plan.forEach(mi=>{
     const m=mi.seed_key.match(/-week-(\d\d)-/); if(!m) return;
     const wk=m[1];
-    const b=byWeek[wk]=byWeek[wk]||{count:0,days:{}};
-    b.count++;
+    const b=byWeek[wk]=byWeek[wk]||{linkedin:0,instagram:0};
     if(!mi.scheduled_at){ errors.push('Week '+wk+' ('+mi.seed_key.split('-').pop()+'): no scheduled date'); return; }
     const dow=weekdayOf(mi.scheduled_at);
-    b.days[dow]=(b.days[dow]||0)+1;
     if(dow===0||dow===6) errors.push('Week '+wk+': '+mi.seed_key.split('-').pop()+' lands on '+dayName[dow]+' ('+mi.scheduled_at+')');
+    if(mi.item_type==='LinkedIn Post') b.linkedin++;
+    else if(mi.item_type==='Instagram Caption') b.instagram++;
   });
   Object.keys(byWeek).sort().forEach(wk=>{
     const b=byWeek[wk];
-    if(b.count!==8) errors.push('Week '+wk+': has '+b.count+' rows (expected 8)');
-    [1,2,3,4,5,6,0].forEach(dow=>{ const got=b.days[dow]||0; if(got!==expect[dow]) errors.push('Week '+wk+': '+dayName[dow]+' has '+got+' (expected '+expect[dow]+')'); });
+    if(b.linkedin>2) errors.push('Week '+wk+': '+b.linkedin+' LinkedIn posts (max 2)');
+    if(b.instagram>1) errors.push('Week '+wk+': '+b.instagram+' Instagram posts (max 1)');
   });
   const weeks=Object.keys(byWeek).length;
-  // PERMANENT GUARD: every task in a week must reference the SAME campaign.
-  // Extract each task's campaign identity (theme) + article title and assert
-  // exactly one distinct value per week. This blocks the "repurpose references
-  // the previous week's campaign" class of bug before anything is written.
-  const weekCampaign={};
-  plan.forEach(mi=>{
-    const m=mi.seed_key.match(/-week-(\d\d)-/); if(!m) return;
-    const wk=m[1];
-    const f=parseContentFields(mi.description||'');
-    const identity=(f.campaign||'(none)')+' :: '+(f.sourceTitle||'(no article)');
-    (weekCampaign[wk]=weekCampaign[wk]||new Set()).add(identity);
-  });
-  Object.keys(weekCampaign).sort().forEach(wk=>{
-    const set=weekCampaign[wk];
-    if(set.size!==1) errors.push('Week '+wk+': tasks reference '+set.size+' different campaigns — must be exactly 1:\n    '+[...set].join('\n    '));
-  });
-  if(plan.length!==208) errors.push('Total plan rows = '+plan.length+' (expected 208)');
-  if(weeks!==26) errors.push('Weeks present = '+weeks+' (expected 26)');
+  const expectedCount=expectedSeedKeys().length;
+  if(plan.length!==expectedCount) errors.push('Total plan rows = '+plan.length+' (expected '+expectedCount+')');
   return { weeks, count:plan.length, ok:errors.length===0, errors };
 }
 function verifyRhythm(){ return verifyRhythmItems(state.marketing_items); }
@@ -5090,7 +5531,7 @@ async function rebuildMarketingPlan(){
     const deletable=state.marketing_items.filter(mi=>itemIsSeeded(mi) && !itemIsProtected(mi));
     const preserved=state.marketing_items.filter(mi=>itemIsSeeded(mi) && itemIsProtected(mi)).length;
     hideSeedingOverlay();
-    if(!confirm('Generator verified ✓ — '+rows.length+' rows, 26 weeks.\n\nDelete '+deletable.length+' untouched auto-item(s), preserve '+preserved+', then write the plan. Continue?')) return;
+    if(!confirm('Generator verified ✓ — '+rows.length+' ready-to-post items across the 6-month curated calendar.\n\nDelete '+deletable.length+' untouched auto-item(s), preserve '+preserved+', then write the plan. Continue?')) return;
 
     // ---- STAGE 3: delete untouched seeded rows --------------------------
     showSeedingOverlay('Deleting old campaign…');
@@ -5180,7 +5621,7 @@ function vMarketingRebuildPanel(){
   const clean = info.legacy===0 && info.current===info.expected;
   return '<div class="card" style="border:1px solid var(--gold);box-shadow:0 0 0 1px rgba(212,175,55,.15)">'+
     '<div style="font-weight:680;font-size:15px;margin-bottom:4px">Marketing plan</div>'+
-    '<div class="muted" style="font-size:12px;margin-bottom:12px">Fixed weekly rhythm — Mon 2 · Tue 2 · Wed 1 · Thu 1 · Fri 2 · weekend 0 = '+info.expected+' items across 26 weekly campaigns.</div>'+
+    '<div class="muted" style="font-size:12px;margin-bottom:12px">Curated editorial calendar — max 2 LinkedIn + 1 Instagram per week, some weeks deliberately left empty. '+info.expected+' finished, ready-to-post items across the 6-month plan.</div>'+
     kv('Current campaign key', esc(info.campaign), true)+
     kv('Items in current plan', info.current+' / '+info.expected, true, info.current===info.expected?'var(--gold)':'var(--amber,#F59E0B)')+
     kv('Legacy / old seeded items', info.legacy, true, info.legacy?'var(--amber,#F59E0B)':'')+
@@ -5440,8 +5881,17 @@ const CONTENT_FIELD_MAP=[
   ['Leads','leads'],
   ['Investor interest','investorInterest'],
   ['Pilot interest','pilotInterest'],
-  ['Lessons learned','lessonsLearned']
+  ['Lessons learned','lessonsLearned'],
+  ['Ready to post copy','readyCopy'],
+  ['Image suggestion','imageSuggestion']
 ];
+/* readyCopy/imageSuggestion can be multi-paragraph, but every CONTENT_FIELD_MAP
+   value must live on exactly one physical line (the parser reads one labeled
+   line per field, in order, before falling through to free-text notes) — so
+   real newlines are escaped to the literal two characters "\n" whenever these
+   two fields are written, and reversed whenever they're shown/edited. */
+function escapeFieldNewlines(s){ return String(s||'').replace(/\n/g,'\\n'); }
+function unescapeFieldNewlines(s){ return String(s||'').replace(/\\n/g,'\n'); }
 const CONTENT_FIELD_LABELS=CONTENT_FIELD_MAP.map(p=>p[0]);
 const CONTENT_FIELD_LABELMAP=Object.fromEntries(CONTENT_FIELD_MAP);
 function parseContentFields(description){
@@ -5583,17 +6033,12 @@ async function runGenerateCalendar(months){
    endless pipeline per category.
 --------------------------------------------------------------------------- */
 async function completeContentItem(id){
-  const mi=byId(state.marketing_items,id);
+  // Marking an item posted must never silently auto-schedule a replacement —
+  // that's exactly the auto-generated-work pattern the curated calendar
+  // replaces. It used to pull the next unscheduled item from the same
+  // category out of the old bulk content library; it no longer does.
   await setContentStage(id,'Published');
-  const nextItem=unscheduledInCats([mi.item_type])[0];
-  if(nextItem){
-    const base=mi.scheduled_at?new Date(mi.scheduled_at):new Date();
-    base.setDate(base.getDate()+7);
-    await scheduleContentItem(nextItem, base.toISOString().slice(0,10));
-    toast('Marked complete — scheduled the next '+mi.item_type+' for '+fmtDate(base.toISOString().slice(0,10)));
-  } else {
-    toast('Marked complete');
-  }
+  toast('Marked complete');
   renderCurrent();
 }
 
@@ -5730,43 +6175,30 @@ function openContentForWriting(id){
 --------------------------------------------------------------------------- */
 function dismissMarketingOnboarding(){ route.marketingOnboardingDismissed=true; renderCurrent(); }
 
-function campaignWeekIndex(mi){
-  const pfx=MARKETING_CAMPAIGN_KEY+'-week-';
-  const sk=mi.seed_key||'';
-  if(!sk.startsWith(pfx)) return null;
-  const n=parseInt(sk.slice(pfx.length, pfx.length+2),10);
-  return isNaN(n)?null:n-1;
-}
-function getItemCampaign(mi){
-  const f=parseContentFields(mi.description);
-  if(f.campaign) return f.campaign;
-  const wi=campaignWeekIndex(mi);
-  if(wi!=null && CAMPAIGN_THEMES[wi]) return CAMPAIGN_THEMES[wi].theme;
-  return null;
-}
 function itemIsDone(mi){ return ['Published','Repurposing'].includes(getContentStage(mi)) || !!mi.completed_at || mi.status==='Published'; }
+/* Groups the curated calendar by its own Monday-anchored calendar weeks
+   (not by a shared "theme" — weeks now mix content types on purpose, so
+   there's no single theme to group by any more). Every one of the 26
+   weeks appears, including the ones deliberately left empty, so the UI
+   can show "Nothing worth posting this week" instead of just omitting it. */
 function buildCampaignGroups(){
-  const map=new Map();
-  state.marketing_items.forEach(mi=>{ const theme=getItemCampaign(mi); if(!theme) return; if(!map.has(theme)) map.set(theme,[]); map.get(theme).push(mi); });
-  const meta=t=>CAMPAIGN_THEMES.find(c=>c.theme===t)||{};
-  const groups=[...map.entries()].map(([theme,items])=>{
-    items.sort((a,b)=>(a.scheduled_at||'zzzz').localeCompare(b.scheduled_at||'zzzz'));
-    const dates=items.map(i=>i.scheduled_at).filter(Boolean).sort();
+  return CURATED_CALENDAR_WEEKS.map(week=>{
+    const weekMonday=addCalendarDays(PLAN_START,(week.w-1)*7);
+    const start=dateKeyLocal(weekMonday);
+    const end=dateKeyLocal(addCalendarDays(weekMonday,4)); // Fri — nothing is ever scheduled on a weekend
+    const prefix=MARKETING_CAMPAIGN_KEY+'-week-'+String(week.w).padStart(2,'0')+'-';
+    const items=state.marketing_items.filter(mi=>(mi.seed_key||'').startsWith(prefix))
+      .sort((a,b)=>(a.scheduled_at||'zzzz').localeCompare(b.scheduled_at||'zzzz'));
     const done=items.filter(itemIsDone).length;
-    const m=meta(theme);
-    const firstAud=(items.find(i=>i.audience)||{}).audience;
-    const firstObj=(items.find(i=>i.objective)||{}).objective;
-    return {theme, items, audience:m.audience||firstAud||'', objective:m.objective||firstObj||'', problem:m.problem||'',
-      start:dates[0]||null, end:dates[dates.length-1]||null, done, total:items.length,
-      pct:items.length?Math.round(done/items.length*100):0, next:items.find(mi=>!itemIsDone(mi))};
+    return {w:week.w, start, end, items, done, total:items.length,
+      pct: items.length?Math.round(done/items.length*100):0,
+      next: items.find(mi=>!itemIsDone(mi)), empty: items.length===0};
   });
-  groups.sort((a,b)=>(a.start||'zzzz').localeCompare(b.start||'zzzz'));
-  return groups;
 }
 function currentCampaign(){
   const t=today();
   const groups=buildCampaignGroups();
-  return groups.find(g=>g.start&&g.end&&t>=g.start&&t<=g.end) || groups.find(g=>g.start&&g.start>=t) || null;
+  return groups.find(g=>t>=g.start&&t<=g.end) || groups.find(g=>g.start>=t) || null;
 }
 /* Distribution suggestions come straight from the CRM — real organisations
    and their primary contacts, most-recently-touched first. No invented names. */
@@ -5789,31 +6221,33 @@ function distributionSuggestionHtml(){
 }
 function vCampaignsTab(){
   const groups=buildCampaignGroups();
-  if(!groups.length) return '<div class="empty">No campaigns yet. Use “Rebuild plan”, or “+ New item” with a Campaign set.</div>';
   const t=today();
-  return '<div class="page-sub" style="margin-bottom:14px">'+groups.length+' weekly campaign(s) · one theme a week, repurposed into '+WEEK_SLOTS.length+' deliverables and driven into real conversations.</div>'+
+  return '<div class="page-sub" style="margin-bottom:14px">A curated, ready-to-post editorial calendar — max 2 LinkedIn + 1 Instagram post a week. Some weeks are deliberately left light.</div>'+
   groups.map(g=>{
-    const current = g.start && g.end ? (t>=g.start && t<=g.end) : false;
-    const upcoming = g.start && g.start>t;
-    const dfmt = g.start? fmtDate(g.start)+(g.end&&g.end!==g.start?' – '+fmtDate(g.end):'') : 'Unscheduled';
+    const current = t>=g.start && t<=g.end;
+    const upcoming = g.start>t;
+    const dfmt = fmtDate(g.start)+(g.end!==g.start?' – '+fmtDate(g.end):'');
+    if(g.empty){
+      return '<div class="card" style="margin-bottom:16px'+(current?';border-color:var(--gold)':'')+'">'+
+        '<div class="faint" style="font-size:11px;margin-bottom:6px">'+dfmt+(current?' · THIS WEEK':(upcoming?' · upcoming':''))+'</div>'+
+        '<div class="muted" style="font-size:13px">Nothing worth posting this week. Focus on customers.</div>'+
+      '</div>';
+    }
     const deliverables=g.items.map(mi=>{
       const done=itemIsDone(mi);
+      const flds=parseContentFields(mi.description);
       return '<div class="drow" style="align-items:flex-start" onclick="openMarketingDetail(\''+mi.id+'\')">'+
         '<span class="drow-icon">'+(done?'✅':marketingIcon(mi.item_type))+'</span>'+
         '<div class="drow-main"><div class="drow-title">'+esc(mi.title)+'</div>'+
-        '<div class="drow-meta">'+esc(mi.item_type)+' · '+esc(getContentStage(mi))+'</div></div>'+
+        '<div class="drow-meta">'+esc(contentPlatform(mi.item_type))+(flds.topic?' · '+esc(flds.topic):'')+' · '+esc(getContentStage(mi))+'</div></div>'+
         '<div class="drow-right">'+(mi.scheduled_at?fmtDate(mi.scheduled_at):'')+'</div></div>';
     }).join('');
     return '<div class="card" style="margin-bottom:16px'+(current?';border-color:var(--gold)':'')+'">'+
-      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px">'+
-        '<div><div style="font-size:15px;font-weight:680">'+esc(g.theme)+'</div>'+
-        '<div class="faint" style="font-size:11px;margin-top:2px">'+dfmt+(current?' · THIS WEEK':(upcoming?' · upcoming':''))+'</div></div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px">'+
+        '<div class="faint" style="font-size:11px">'+dfmt+(current?' · THIS WEEK':(upcoming?' · upcoming':''))+'</div>'+
         '<div class="mono" style="font-size:12px;color:var(--gold)">'+g.pct+'%</div></div>'+
-      (g.problem?'<div class="muted" style="font-size:12px;margin-bottom:6px">'+esc(g.problem)+'</div>':'')+
-      '<div class="faint" style="font-size:11px;margin-bottom:10px">'+(g.audience?'🎯 '+esc(g.audience):'')+(g.objective?'  ·  '+esc(g.objective):'')+'</div>'+
-      '<div style="height:4px;background:var(--panel2);border-radius:2px;overflow:hidden;margin-bottom:12px"><div style="width:'+g.pct+'%;height:100%;background:var(--gold)"></div></div>'+
       '<div class="dlist">'+deliverables+'</div>'+
-      (g.next?'<div class="faint" style="font-size:11px;margin-top:10px">Next action: '+esc(g.next.title)+'</div>':'<div style="font-size:11px;margin-top:10px;color:var(--green,#4ADE80)">Campaign complete ✓</div>')+
+      (g.next?'<div class="faint" style="font-size:11px;margin-top:10px">Next up: '+esc(g.next.title)+'</div>':'<div style="font-size:11px;margin-top:10px;color:var(--green,#4ADE80)">All posted ✓</div>')+
     '</div>';
   }).join('');
 }
@@ -5821,9 +6255,9 @@ function vMarketing(){
   if(!state.marketing_items.length && !route.marketingOnboardingDismissed){
     return '<div class="page-head"><div><div class="eyebrow">Growth</div><div class="page-title">Marketing Assistant</div>'+
       '<div class="page-sub">Your personal Head of Marketing — a content library plus a real editorial calendar.</div></div></div>'+
-      '<div class="restore-panel"><div style="font-size:15px;font-weight:640;margin-bottom:8px">The plan should have been created automatically at sign-in</div>'+
-      '<div class="muted" style="font-size:12.5px;margin-bottom:18px">If you\u2019re seeing this, automatic setup didn\u2019t complete — most likely a save was rejected (check Settings → Connection for a database error) rather than nothing having run. You can trigger it directly below.</div>'+
-      '<button class="btn gold" style="margin-right:10px" onclick="autoSeedMarketingPlanIfNeeded()">Build 6-Month Plan Now</button>'+
+      '<div class="restore-panel"><div style="font-size:15px;font-weight:640;margin-bottom:8px">No marketing plan installed yet</div>'+
+      '<div class="muted" style="font-size:12.5px;margin-bottom:18px">Nothing is created automatically \u2014 install the curated 6-month plan below whenever you\u2019re ready, or start with an empty library.</div>'+
+      '<button class="btn gold" style="margin-right:10px" onclick="confirmInstallCuratedMarketingPlan()">Install Curated Marketing Plan</button>'+
       '<button class="btn" onclick="dismissMarketingOnboarding()">Start Empty</button></div>';
   }
 
@@ -5832,7 +6266,8 @@ function vMarketing(){
   const header='<div class="page-head"><div><div class="eyebrow">Growth</div><div class="page-title">Marketing Assistant</div>'+
     '<div class="page-sub">'+state.marketing_items.length+' items in the system — '+state.marketing_items.filter(mi=>mi.scheduled_at && mi.status!=='Published').length+' scheduled, '+
     state.marketing_items.filter(mi=>!mi.scheduled_at && getContentStage(mi)==='Planned').length+' unscheduled in the library</div></div>'+
-    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="rebuildInsurancePlan()">Rebuild plan</button>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="confirmInstallCuratedMarketingPlan()">Install Curated Marketing Plan</button>'+
+    '<button class="btn" onclick="rebuildInsurancePlan()">Rebuild plan</button>'+
     '<button class="btn" onclick="openGenerateCalendarPrompt()">Generate from library</button>'+
     '<button class="btn gold" onclick="openMarketingForm()">+ New item</button></div></div>'+
     '<div class="seg" style="margin-bottom:20px">'+tabs.map(([id,label])=>'<button class="'+(tab===id?'active':'')+'" onclick="route.mkTab=\''+id+'\';renderCurrent()">'+label+'</button>').join('')+'</div>';
@@ -5847,11 +6282,11 @@ function vMarketing(){
 function contentRow(mi,opts){
   opts=opts||{};
   const stage=getContentStage(mi);
-  const src=parseContentFields(mi.description).sourceTitle;
+  const flds=parseContentFields(mi.description);
   return '<div class="drow'+(opts.alert?' alert':'')+'" style="align-items:flex-start" onclick="openMarketingDetail(\''+mi.id+'\')">'+
     '<span class="drow-icon">'+marketingIcon(mi.item_type)+'</span>'+
     '<div class="drow-main"><div class="drow-title">'+esc(mi.title)+'</div>'+
-    '<div class="drow-meta">'+esc(mi.item_type)+(mi.audience?' · '+esc(mi.audience):'')+' · '+esc(stage)+(src?' · ↳ '+esc(src):'')+'</div></div>'+
+    '<div class="drow-meta">'+esc(mi.item_type)+(flds.topic?' · '+esc(flds.topic):'')+' · '+esc(stage)+(flds.sourceTitle?' · ↳ '+esc(flds.sourceTitle):'')+'</div></div>'+
     '<div class="drow-right">'+(mi.scheduled_at?fmtDate(mi.scheduled_at):'')+'</div></div>';
 }
 
@@ -5869,17 +6304,17 @@ function vMarketingTodayTab(){
     const stage=getContentStage(nextUp);
     body+='<div class="card" style="border-color:var(--gold);margin-bottom:20px">'+
       '<div class="eyebrow">Today\u2019s Marketing</div>'+
-      '<div style="font-size:16px;font-weight:660;margin:8px 0">Write: '+esc(nextUp.title)+'</div>'+
+      '<div style="font-size:16px;font-weight:660;margin:8px 0">Ready to post: '+esc(nextUp.title)+'</div>'+
       '<div class="grid g2" style="margin-bottom:14px">'+
-        kv('Audience',nextUp.audience||'—')+kv('Category',nextUp.item_type)+
-        kv('Estimated effort',estimateLabel(nextUp))+kv('Stage',stage)+
+        kv('Audience',nextUp.audience||'—')+kv('Platform',contentPlatform(nextUp.item_type))+
+        kv('Content type',parseContentFields(nextUp.description).topic||nextUp.item_type)+kv('Stage',stage)+
       '</div>'+
       (nextUp.objective?'<div class="muted" style="font-size:12.5px;margin-bottom:14px">'+esc(nextUp.objective)+'</div>':'')+
-      '<div style="display:flex;gap:8px"><button class="btn gold" onclick="openContentForWriting(\''+nextUp.id+'\')">Open Draft</button>'+
-      '<button class="btn" onclick="completeContentItem(\''+nextUp.id+'\')">Mark Complete</button></div>'+
+      '<div style="display:flex;gap:8px"><button class="btn gold" onclick="openMarketingDetail(\''+nextUp.id+'\')">View &amp; copy text</button>'+
+      '<button class="btn" onclick="completeContentItem(\''+nextUp.id+'\')">Mark Posted</button></div>'+
     '</div>';
   } else {
-    body+='<div class="empty" style="margin-bottom:20px"><div class="empty-ico">📌</div>Nothing scheduled right now — generate an editorial calendar from the library.</div>';
+    body+='<div class="empty" style="margin-bottom:20px"><div class="empty-ico">📌</div>Nothing worth posting this week. Focus on customers.</div>';
   }
 
   const dsec=(title,arr,emptyNote)=>{
@@ -5960,6 +6395,12 @@ function openMarketingDetail(id){
     '<div class="muted" style="font-size:12px;margin-bottom:14px">'+esc(mi.item_type)+(mi.scheduled_at?' · '+fmtDate(mi.scheduled_at):'')+'</div>'+
     (fields.sourceTitle?'<div class="pill" style="margin-bottom:12px">↳ From article: '+esc(fields.sourceTitle)+'</div>':'')+
     (/distribut/i.test(mi.item_type||'')?'<div class="card" style="margin-bottom:12px"><div style="font-weight:640;font-size:13px;margin-bottom:8px">Suggested recipients (from your CRM)</div>'+distributionSuggestionHtml()+'<div class="faint" style="font-size:10px;margin-top:8px">Most-recently-touched organisations first. Tap to open the record.</div></div>':'')+
+    '<div class="card" style="margin-bottom:14px;border-color:var(--gold)">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><label class="fl" style="margin:0">Ready-to-post copy</label>'+
+      '<button class="btn sm" onclick="copyMarketingText(\''+id+'\')">📋 Copy text</button></div>'+
+      '<textarea class="input" id="f_mdcopy" rows="10" placeholder="Paste or write the finished, ready-to-post copy here.">'+esc(unescapeFieldNewlines(fields.readyCopy))+'</textarea>'+
+      '<div class="field" style="margin-top:10px;margin-bottom:0"><label class="fl">Image suggestion (optional)</label><input class="input" id="f_mdimage" value="'+esc(unescapeFieldNewlines(fields.imageSuggestion))+'"></div>'+
+    '</div>'+
     '<div class="grid g2">'+
       '<div class="field"><label class="fl">Audience</label><input class="input" id="f_mdaudience" value="'+esc(mi.audience||'')+'"></div>'+
       '<div class="field"><label class="fl">Priority</label><select class="select" id="f_mdpriority">'+['Low','Normal','High'].map(p=>'<option'+(mi.priority===p?' selected':'')+'>'+p+'</option>').join('')+'</select></div>'+
@@ -6006,11 +6447,21 @@ function openMarketingDetail(id){
       '<button class="btn" onclick="completeContentItem(\''+id+'\');closeModal()">Mark Complete</button>'+
     '</div>', true);
 }
+async function copyMarketingText(id){
+  const mi=byId(state.marketing_items,id); if(!mi) return;
+  const fields=parseContentFields(mi.description);
+  const text=unescapeFieldNewlines(fields.readyCopy);
+  if(!text){ toast('No ready-to-post copy on this item yet'); return; }
+  try{ await navigator.clipboard.writeText(text); toast('Copied — paste it straight into LinkedIn or Instagram'); }
+  catch(e){ toast('Could not copy automatically — select the text and copy manually'); }
+}
 async function saveMarketingDetail(id){
   const stage=document.getElementById('f_mdstage').value;
   const existingSource=parseContentFields((byId(state.marketing_items,id)||{}).description).sourceTitle;
   const fields={
     sourceTitle:existingSource,
+    readyCopy:escapeFieldNewlines(document.getElementById('f_mdcopy').value),
+    imageSuggestion:escapeFieldNewlines(document.getElementById('f_mdimage').value.trim()),
     topic:document.getElementById('f_mdtopic').value.trim(),
     campaign:document.getElementById('f_mdcampaign').value.trim(),
     draftLink:document.getElementById('f_mddraft').value.trim(),
@@ -6591,9 +7042,10 @@ function vSettings(){
     body='<div class="card"><div style="font-size:14.5px;font-weight:640;margin-bottom:8px">Restore from the 10 July 2026 Snapshot</div>'+
       '<div class="muted" style="font-size:12.5px;margin-bottom:16px">Re-applies the organisations, opportunities, investor profiles ('+SNAPSHOT_INVESTORS.length+' investors, including full relationship notes), decisions ('+SNAPSHOT_DECISIONS.length+') and meetings ('+SNAPSHOT_MEETINGS.length+') recorded in the Snapshot. Safe to run any number of times — every record is matched first; only missing records and empty fields are filled in, nothing existing is ever overwritten.</div>'+
       '<button class="btn gold" onclick="runSnapshotRestore()">Restore from Snapshot</button></div>'+
-      '<div class="card" style="margin-top:16px;border-color:var(--gold)"><div style="font-size:14.5px;font-weight:640;margin-bottom:8px">6-Month Marketing Plan (automatic)</div>'+
-      '<div class="muted" style="font-size:12.5px;margin-bottom:16px">Kweli\u2019s current strategy — insurance claims fraud/leakage, invoice &amp; certificate fraud, verification infrastructure, and the founder journey — is created automatically at sign-in if it doesn\u2019t already exist. Rebuild it here only if you need to reset it (this deletes and recreates every item tagged to this plan; manual edits to those items are lost).</div>'+
+      '<div class="card" style="margin-top:16px;border-color:var(--gold)"><div style="font-size:14.5px;font-weight:640;margin-bottom:8px">6-Month Marketing Plan (manual install)</div>'+
+      '<div class="muted" style="font-size:12.5px;margin-bottom:16px">Kweli\u2019s current strategy \u2014 insurance claims fraud/leakage, invoice &amp; certificate fraud, verification infrastructure, and the founder journey \u2014 is NOT created automatically. Click Install below whenever you\u2019re ready; it only adds items that are missing and never duplicates what\u2019s already installed. Rebuild instead only if you need to reset it (this deletes and recreates every item tagged to this plan; manual edits to those items are lost).</div>'+
       '<div class="faint" style="font-size:11px;margin-bottom:12px">Status: '+campaignRowCountLocally()+' / '+expectedSeedKeys().length+' scheduled pieces present</div>'+
+      '<button class="btn gold" style="margin-right:10px" onclick="confirmInstallCuratedMarketingPlan()">Install Curated Marketing Plan</button>'+
       '<button class="btn" onclick="rebuildInsurancePlan()">Rebuild plan</button></div>'+
       '<div class="card" style="margin-top:16px"><div style="font-size:14.5px;font-weight:640;margin-bottom:8px">Alternative: general 36-month content backlog</div>'+
       '<div class="muted" style="font-size:12.5px;margin-bottom:16px">Imports the broader '+CONTENT_LIBRARY.length+'-item content library (not insurance-focused) AND generates a 6-month publishing calendar from it in one action.</div>'+
