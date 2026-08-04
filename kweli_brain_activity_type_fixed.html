@@ -770,6 +770,7 @@ let state = {
   meeting_attendees: [], tasks: [], assets_v2: [], lessons_v2: [], decisions: [],
   team_messages_v2: [], team_message_replies: [], team_message_reads: [], activities: [],
   objections: [], marketing_items: [], knowledge_sections_v2: [], investor_profiles: [],
+  investor_crm: [],
   entity_links: [], migration_log: []
 };
 const TABLES = Object.keys(state);
@@ -1016,7 +1017,7 @@ async function loadAll(){
 function subscribeRealtime(){
   const collab=['organisations','people','opportunities','activities','tasks','meetings','assets_v2',
     'lessons_v2','objections','decisions','team_messages_v2','team_message_replies','team_message_reads',
-    'entity_links','marketing_items','investor_profiles','knowledge_sections_v2'];
+    'entity_links','marketing_items','investor_profiles','knowledge_sections_v2','investor_crm'];
   let subscribed=0;
   collab.forEach(t=>{
     sb.channel('rt:'+t).on('postgres_changes',{event:'*',schema:'public',table:t},payload=>{
@@ -1347,6 +1348,7 @@ const NAV = [
   {id:'assets', label:'Assets', ico:'▢'},
   {sect:'Investing'},
   {id:'investors', label:'Investors', ico:'$'},
+  {id:'investorcrm', label:'Investor CRM', ico:'❖'},
   {id:'marketing', label:'Marketing', ico:'▲'},
   {sect:'AI'},
   {id:'ask', label:'AI Workspace', ico:'✳'},
@@ -1387,6 +1389,7 @@ function renderCurrent(){
     meetingDetail: vMeetingDetail, calendar: vCalendar, lessons: vLessons,
     objections: vObjections, decisions: vDecisions, knowledge: vKnowledge,
     assets: vAssets, assetDetail: vAssetDetail, investors: vInvestors, marketing: vMarketing,
+    investorcrm: vInvestorCrm,
     ask: vAsk, snapshot: vSnapshot, settings: vSettings
   };
   const fn = renderers[route.page] || vToday;
@@ -4007,6 +4010,639 @@ async function saveInvestorForm(id){
   else await dbInsert('investor_profiles',payload);
   closeModal(); renderCurrent(); toast('Saved');
 }
+
+/* ===========================================================================
+   INVESTOR CRM  (additive, self-contained)
+   Ready-to-send angel-round outreach, one row per investor. Backed by the
+   `investor_crm` Supabase table (migration + column mapping shipped alongside
+   this file). Import is an idempotent upsert on dedupe_key — safe to re-run.
+   Nothing outside this block and four one-line hooks (state key, realtime
+   list, one nav item, one renderer entry) is modified.
+=========================================================================== */
+const ICRM_STATUSES=['Not contacted','Contacted','Call scheduled','In conversation','Committed','Passed','On hold'];
+const ICRM_PRIORITIES=['A','B','C','D'];
+const INVESTOR_CRM_SEED = [
+{
+"dedupe_key": "omobola-johnson__tlcom-capital",
+"investor": "Omobola Johnson",
+"company": "TLcom Capital",
+"email": "info-ke@tlcomcapital.com",
+"linkedin": "https://www.linkedin.com/company/tlcom-capital/",
+"fit_score": 7,
+"why_fit": "Deepest insurance/fintech pattern-matching on this list — backed Pula (insurtech), FairMoney and enterprise SaaS, and is Nairobi-based. The catch is cheque size: TLcom writes seed/Series A tickets far larger than a $250K angel round, so this is relationship-and-read now, not a lead. Worth an early conversation so they know us before the round that fits them.",
+"priority": "B",
+"recommended_approach": "Warm intro (email as fallback)",
+"subject": "The trust layer under insurers like Pula",
+"email_body": "Hi Omobola,\n\nYour work with Pula told me you already see how much of African insurance runs on documents nobody can independently check — the exact gap we're building for.\n\nInsurers pay out on invoices, assessor reports and repair estimates they didn't create and can't confirm weren't altered after issuance. AI is making that faster and cheaper to exploit.\n\nKweli lets an insurer confirm a document is the exact one its issuer released, without the file ever leaving their device — a SHA-256 fingerprint checked against an immutable record. We prove a document is genuine and unaltered; we don't claim the contents are true, and the deck is blunt about that line.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round to convert them.\n\nI know we're likely early for TLcom's cheque size — I'd value your read as much as anything. Deck attached. Open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Omobola — Nairobi founder here. Kweli lets insurers verify a document is the exact one issued, without it leaving their device. Given your Pula work, I'd love your read. In pilot talks with Kenyan insurers. Raising a small angel round. Open to connecting?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Cheque likely too large for a $250K round — relationship + read now; real fit at seed. Warm intro beats the shared info- inbox."
+},
+{
+"dedupe_key": "aicha-toure__ventures-platform",
+"investor": "Aicha Toure",
+"company": "Ventures Platform",
+"email": "https://www.venturesplatform.com/apply",
+"linkedin": "https://www.linkedin.com/company/ventures-platform/",
+"fit_score": 9,
+"why_fit": "About as clean a thesis match as exists: they've publicly said they want financial services, insurance, enterprise SaaS and digital infrastructure — Kweli sits across all four — and they write pre-seed/seed cheques, so the stage fits too. Only friction is the formal application route, so a warm intro to Aicha or the team lifts reply odds.",
+"priority": "A",
+"recommended_approach": "Warm intro, then apply",
+"subject": "Insurance + infrastructure + SaaS — one layer across all three",
+"email_body": "Hi Aicha,\n\nVentures Platform has been clear that financial services, insurance, enterprise SaaS and digital infrastructure are where you want to be. Kweli sits across all four, which is why I'm reaching out directly rather than only through the form.\n\nInsurers make real payout decisions on documents they can't independently authenticate — invoices, assessor reports, repair estimates. AI is making fabrication trivial.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without uploading it — a SHA-256 fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round to turn those into paying deployments.\n\nI've attached our deck. Would you be open to a short introductory call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Aicha — you're vocal on insurance + infra + SaaS, and Kweli sits across all three. We let organisations verify a document is the genuine, unaltered one issued — no upload. In pilot talks with Kenyan insurers. Raising a small angel round. Would love to connect.",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Form-only route; warm intro to Aicha or the investment team lifts odds. Near-perfect thesis match — highest priority."
+},
+{
+"dedupe_key": "zachariah-george__launch-africa-ventures",
+"investor": "Zachariah George",
+"company": "Launch Africa Ventures",
+"email": "info@launchafrica.vc",
+"linkedin": "https://www.linkedin.com/company/launch-africa-ventures/",
+"fit_score": 9,
+"why_fit": "Runs one of the most active early-stage cheque-writing engines in Africa (180+ portfolio, fintech and enterprise mandate) and is comfortable with Kenyan pre-seed. Small, fast cheques are their model, so the round size fits rather than stretches. A portfolio-founder or LP intro helps cut through their volume.",
+"priority": "A",
+"recommended_approach": "Email (warm intro boosts)",
+"subject": "A Kenyan pre-seed you can evaluate quickly",
+"email_body": "Hi Zachariah,\n\nWith 180-plus companies, Launch Africa sees more early African software than almost anyone — so I'd value your pattern-matching on what we're building.\n\nThe problem: organisations, starting with insurers, make decisions on documents they can't independently confirm weren't altered after issuance. AI has made that gap wider.\n\nKweli lets anyone confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint checked against an immutable record. We prove a document is genuine and unaltered, not that its contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round to convert them and build issuer onboarding.\n\nDeck attached — given how many Kenyan early-stage deals you've done, it should be a quick read. Open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Zachariah — Kenyan founder building Kweli, verification infrastructure for documents. Confirm a file is the exact one issued, without uploading it. Insurance is our wedge; in pilot talks with Kenyan insurers. Would value your pattern-matching. Open to connecting?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "High-volume investor — a portfolio-founder or LP intro helps cut through. Comfortable with Kenyan pre-seed cheque sizes."
+},
+{
+"dedupe_key": "iwinnosa-igiehon__future-africa",
+"investor": "Iwinnosa Igiehon",
+"company": "Future Africa",
+"email": "hello@future.africa",
+"linkedin": "https://www.linkedin.com/company/future-africa/",
+"fit_score": 8,
+"why_fit": "Backs mission-driven African founders at pre-seed/seed and brings a large operator community, which is as valuable as the cheque for early distribution and intros. Kweli's 'trust layer for documents across Africa' framing matches their taste for continental infrastructure. Application plus a separate warm intro is the right combined play.",
+"priority": "A",
+"recommended_approach": "Warm intro + apply",
+"subject": "A continent-wide trust problem, built locally",
+"email_body": "Hi Iwinnosa,\n\nFuture Africa backs founders solving problems they've lived, and this is one I kept hitting: across African institutions, people make real decisions on documents they can't independently verify.\n\nInsurers feel it first — they pay out on invoices and assessor reports they never created. AI is only accelerating it.\n\nKweli fixes the narrow, valuable version. Any organisation can confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are factually correct.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round to convert them and lay groundwork for the wider vision — a trust layer for documents across Africa.\n\nDeck attached. I'd welcome a short call, and honestly your operator network's read would be as useful as the cheque.\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Iwinnosa — building Kweli: any organisation can verify a document is the exact one issued, without it leaving their device. Started with insurance claims, in pilot talks with Kenyan insurers. Raising a small angel round. Would love to connect and hear your read.",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Apply + separate warm intro. Operator community is worth as much as the cheque here."
+},
+{
+"dedupe_key": "mikael-hajjar__p1-ventures",
+"investor": "Mikael Hajjar",
+"company": "P1 Ventures",
+"email": "https://www.p1.ventures/contact-us",
+"linkedin": "https://www.linkedin.com/company/p1-ventures/",
+"fit_score": 8,
+"why_fit": "Backs African software, fintech and infrastructure at pre-seed/seed — a strong stage and sector fit. The key, per your own note, is positioning Kweli as AI-era trust and verification infrastructure rather than 'a blockchain company', which is how this email is framed. Investment form plus evidence of insurer pull is the route.",
+"priority": "A",
+"recommended_approach": "Email (form) + evidence",
+"subject": "The verification layer for AI-era documents",
+"email_body": "Hi Mikael,\n\nP1 backs African software and infrastructure, and I think Kweli fits squarely — as trust and verification infrastructure for a world where documents are trivially easy to fabricate.\n\nOrganisations make decisions on documents they can't independently confirm are genuine. That was true before AI; AI made it endless.\n\nKweli lets anyone verify a document is the exact one its issuer released, without the file ever leaving their device. Underneath it's a cryptographic fingerprint checked against a tamper-proof record, but what matters is the outcome: instant, private proof a document hasn't been altered since issuance. We prove integrity, not whether the contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round to convert them and expand the issuer network.\n\nI'll submit through your form too, but wanted to reach you directly first. Deck attached. Open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Mikael — building Kweli, verification infrastructure for the AI era. Anyone can confirm a document is genuine and unaltered, without uploading it. Insurance is the wedge; in pilot talks with Kenyan insurers. Raising a small angel round. Open to connecting?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Lead with verification/AI-era trust, NOT blockchain (per CRM). Use the investment form + insurer-pull evidence."
+},
+{
+"dedupe_key": "idris-ayodeji-bello__loftyinc-capital",
+"investor": "Idris Ayodeji Bello",
+"company": "LoftyInc Capital",
+"email": "https://loftyinc.vc/learn-and-apply/",
+"linkedin": "https://www.linkedin.com/company/loftyinc-capital-management/",
+"fit_score": 8,
+"why_fit": "One of the most prolific early backers of African founders, with fintech and software exposure and a genuine pre-seed appetite. Good fit for an African founder with early insurer validation. Apply, then use ecosystem connections for a warm intro to Idris (also listed separately as an angel).",
+"priority": "B",
+"recommended_approach": "Warm intro + apply",
+"subject": "African founder, insurer wedge, verification infrastructure",
+"email_body": "Hi Idris,\n\nLoftyInc has backed more African founders at the earliest stage than almost anyone — which is exactly the moment we're at.\n\nInsurers pay out on documents they can't independently confirm weren't altered after issuance. It's a quiet, expensive gap, and AI is widening it.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the document leaving their device — a SHA-256 fingerprint checked against an immutable record. We prove a document is genuine and unaltered, not that its contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round to convert them and build issuer onboarding across the continent.\n\nI'll apply formally, but wanted to introduce myself first. Deck attached. Would you be open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Idris — LoftyInc backs earliest-stage African founders, which is where we are. Kweli verifies a document is the exact one issued, no upload. Insurance wedge, in pilot talks with Kenyan insurers. Raising a small angel round. Would love to connect.",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Also listed as an angel (Idris, row 26) — DON'T double-send. Apply, then warm intro to Idris."
+},
+{
+"dedupe_key": "nairobi-business-angel-network__naiban",
+"investor": "Nairobi Business Angel Network",
+"company": "NaiBAN",
+"email": "https://naiban.co.ke/",
+"linkedin": "https://www.linkedin.com/company/nairobi-business-angel-network/",
+"fit_score": 9,
+"why_fit": "The single best local route into multiple Kenyan angels — and, critically, into members who may sit close to the insurance industry we're selling to. Angel/pre-seed is precisely their level. Aim for a pitch session plus targeted member intros rather than a generic funding ask.",
+"priority": "A",
+"recommended_approach": "Email (pitch-session request)",
+"subject": "A Nairobi founder for your next pitch session",
+"email_body": "Hi NaiBAN team,\n\nI'm a Nairobi founder raising a small angel round, and yours is the most natural first room for us — partly because several members likely sit close to the insurance industry we're building for.\n\nInsurers here pay out on invoices, assessor reports and repair estimates they can't independently confirm weren't altered after issuance.\n\nKweli fixes that. Any organisation can confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round.\n\nI'd love a slot to present, and any introductions to members with insurance or enterprise backgrounds would be hugely valuable. Deck attached. Could we find time for a short call or a pitch session?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi — Nairobi founder building Kweli, trust infrastructure for documents (verify a file is the exact one issued, no upload). Raising a small angel round and would love to present to NaiBAN members, several of whom likely know insurance. Could we connect?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Best local route to multiple Kenyan angels + insurance intros. Ask for a pitch slot, not just a cheque."
+},
+{
+"dedupe_key": "african-business-angel-network__aban",
+"investor": "African Business Angel Network",
+"company": "ABAN",
+"email": "https://abanangels.org/",
+"linkedin": "https://www.linkedin.com/company/african-business-angel-network-aban/",
+"fit_score": 8,
+"why_fit": "Not a direct investor but a distribution layer to angel networks across Africa — useful for reaching angels with insurance, banking and enterprise backgrounds. Best approached as a request for relevant member-network introductions, not a funding pitch. Lower than NaiBAN only because it's one step removed from the cheque.",
+"priority": "B",
+"recommended_approach": "Email (intro request)",
+"subject": "Reaching angels who know insurance and enterprise",
+"email_body": "Hi ABAN team,\n\nABAN connects angel networks across Africa, which makes you the right people to help us reach investors who understand insurance, banking and enterprise software.\n\nThe problem we work on: organisations, starting with insurers, act on documents they can't independently confirm weren't altered after issuance — a gap AI is widening.\n\nKweli lets anyone confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint checked against an immutable record. We prove a document is genuine and unaltered, not that its contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round.\n\nRather than a generic funding request, I'd value introductions to member networks or angels with relevant sector experience. Deck attached. Open to a short call to point me in the right direction?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi — building Kweli, verification infrastructure for documents across Africa. Insurance is our wedge; in pilot talks with Kenyan insurers. Raising a small angel round and would value intros to member angels with insurance/enterprise backgrounds. Open to connecting?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Distribution layer, not a direct cheque. Ask for targeted member-network intros."
+},
+{
+"dedupe_key": "mbwana-alliy__savannah-fund",
+"investor": "Mbwana Alliy",
+"company": "Savannah Fund",
+"email": "https://savannah.vc/contact",
+"linkedin": "https://www.linkedin.com/company/savannah-fund/",
+"fit_score": 9,
+"why_fit": "One of the longest-standing East African early-stage investors, genuinely willing to underwrite infrastructure before revenue is loud — the exact stage we're at. Deep Kenya knowledge means they can evaluate both the wedge and the sequencing quickly. A trusted warm intro is the highest-leverage move.",
+"priority": "A",
+"recommended_approach": "Warm intro",
+"subject": "East African infrastructure, before the revenue is loud",
+"email_body": "Hi Mbwana,\n\nSavannah has backed East African founders since long before it was fashionable, and you've always been willing to evaluate infrastructure before the revenue gets loud. That's the stage we're at.\n\nInsurers pay out on invoices and assessor reports they can't independently confirm weren't altered after issuance. AI is making that worse.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the document leaving their device — a SHA-256 fingerprint checked against an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round to convert them and build issuer onboarding.\n\nGiven how well you know this market, I'd value your read on both the wedge and the sequencing. Deck attached. Would a short call work?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Mbwana — Nairobi founder building Kweli: organisations verify a document is the exact one issued, without it leaving their device. Insurance wedge, in pilot talks with Kenyan insurers. Raising a small angel round. Would value your East Africa read. Connect?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Also listed as an angel (Mbwana, row 28) — DON'T double-send. Warm intro is highest-leverage."
+},
+{
+"dedupe_key": "antler-kenya-kenya-investment-team__antler-kenya",
+"investor": "Antler Kenya (Kenya Investment Team)",
+"company": "Antler Kenya",
+"email": "https://www.antler.co/location/kenya",
+"linkedin": "https://www.linkedin.com/company/antlerglobal/",
+"fit_score": 8,
+"why_fit": "Already in conversation and a credible day-zero/pre-seed pathway if the partner stage progresses — so this is 'continue and sharpen' rather than a cold open. Score reflects the live relationship and stage fit. The email is a warm progress update, not a first touch.",
+"priority": "A",
+"recommended_approach": "Continue current process",
+"subject": "Kweli — a quick progress update",
+"email_body": "Hi Antler Kenya team,\n\nThanks for the conversation so far — here's a cleaner picture of where Kweli is as things progress on your side.\n\nWe're trust infrastructure: any organisation can confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nSince we last spoke, we've stayed focused on insurance claims in Kenya, where handlers pay out on documents they can't independently verify. We're now in pilot discussions with insurers here.\n\nAlongside the Antler process, we're opening a $250K angel round to convert those pilots — I wanted to keep you close to it, in case it's useful to your team's timing.\n\nUpdated deck attached. Could we grab a short call to sharpen the founder and adoption picture?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Antler Kenya team — following up warmly on our conversation. Kweli (document verification infrastructure) is progressing: in pilot talks with Kenyan insurers, and opening a small angel round alongside your process. Would love to keep you close to it. Can we grab time?",
+"status": "In conversation",
+"next_followup": null,
+"notes": "Already IN CONVERSATION — this is a progress update, not a first touch. Keep the round in front of them."
+},
+{
+"dedupe_key": "matthieu-marchand__partech-africa",
+"investor": "Matthieu Marchand",
+"company": "Partech Africa",
+"email": "https://partechpartners.com/contact",
+"linkedin": "https://www.linkedin.com/company/partech/",
+"fit_score": 6,
+"why_fit": "Sector fit is excellent — an explicit fintech and insurtech mandate — but Partech writes larger seed-to-growth cheques and will want more traction than a pre-revenue angel round shows. Right move is to open the relationship now and return seriously after pilot conversion. The email is honest about the stage gap.",
+"priority": "C",
+"recommended_approach": "Email (relationship)",
+"subject": "Insurtech infrastructure — early, worth knowing us",
+"email_body": "Hi Matthieu,\n\nPartech's insurtech and fintech mandate is one of the clearest in Africa, so I wanted to start a relationship early rather than surprise you later.\n\nInsurers pay out on invoices, assessor reports and repair estimates they can't independently confirm weren't altered after issuance — a gap AI is widening.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint checked against an immutable record. We prove a document is genuine and unaltered, not that its contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round now.\n\nI know we're earlier than Partech's usual entry point — I'd simply rather you knew us before the round that fits your cheque. Deck attached. Open to a short call, even just to get acquainted?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Matthieu — Kweli is insurtech-adjacent infrastructure: verify a document is the exact one issued, no upload. In pilot talks with Kenyan insurers. We're earlier than Partech's usual stage, but I'd like you to know us early. Open to connecting?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Strong sector fit, too early for their cheque. Relationship now; revisit after pilot conversion."
+},
+{
+"dedupe_key": "novastar-ventures-investment-team__novastar-ventures",
+"investor": "Novastar Ventures (Investment Team)",
+"company": "Novastar Ventures",
+"email": "info@novastarventures.com",
+"linkedin": "https://www.linkedin.com/company/novastar-ventures/",
+"fit_score": 5,
+"why_fit": "Nairobi presence and a real-economy/inclusion orientation make the mission fit reasonable, but they invest early-to-growth with larger cheques, so a $250K angel round is likely below their stage today. Best treated as a radar/relationship contact with measurable insurer ROI shown over time. A warm Nairobi intro helps.",
+"priority": "C",
+"recommended_approach": "Warm intro (relationship)",
+"subject": "Trust infrastructure that cuts insurer losses",
+"email_body": "Hi Novastar team,\n\nNovastar's Nairobi presence and focus on businesses that reduce real-economy friction is why I'm reaching out, even though we're likely earlier than your usual stage.\n\nInsurers lose money to documents they can't independently confirm weren't altered after issuance. AI is widening that gap.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round.\n\nI don't expect this to be your stage yet — I'd mostly value getting on your radar and hearing what evidence you'd want to see before it is. Deck attached. Would a short call be possible?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Novastar team — building Kweli, trust infrastructure that helps insurers cut leakage by verifying documents haven't been altered since issuance. In pilot talks with Kenyan insurers. Early for your stage, but would value getting on your radar. Connect?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Likely below their stage. Radar/relationship; show insurer ROI over time. Warm Nairobi intro helps."
+},
+{
+"dedupe_key": "olu-oyinsan__oui-capital",
+"investor": "Olu Oyinsan",
+"company": "Oui Capital",
+"email": "https://www.ouicapital.vc/contact",
+"linkedin": "https://www.linkedin.com/company/oui-capital/",
+"fit_score": 8,
+"why_fit": "Africa-focused, operator-led, and genuinely early-stage with fintech exposure — a clean stage-and-sector fit. They respond to disciplined, tightly-scoped rounds, so the email leads with a tight $250K round, clear use of funds and 18-month milestones. Olu is also listed separately as an angel.",
+"priority": "B",
+"recommended_approach": "Email (form) / warm intro",
+"subject": "A tight $250K round with clear 18-month milestones",
+"email_body": "Hi Olu,\n\nOui backs disciplined early founders, so I'll keep this tight — which is also how we're running the round.\n\nThe problem: insurers pay out on documents they can't independently confirm weren't altered after issuance. AI makes it worse.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint checked against an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nWe're in pilot discussions with insurers in Kenya. The round is $250K, angel/pre-seed, with a simple 18-month plan: convert pilots to paying deployments, harden integrations, build issuer onboarding, reach the first paying insurers.\n\nDeck attached, milestones inside. Would you be open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Olu — building Kweli: verify a document is the exact one issued, without uploading it. Insurance wedge in Kenya, in pilot talks with insurers. Raising a tight $250K angel round with clear 18-month milestones. Would value your read. Open to connecting?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Also listed as an angel (Olu, row 27) — DON'T double-send. Lead with the tight round + milestones."
+},
+{
+"dedupe_key": "ingressive-capital-investment-team__ingressive-capital",
+"investor": "Ingressive Capital (Investment Team)",
+"company": "Ingressive Capital",
+"email": "https://www.ingressivecapital.com/apply",
+"linkedin": "https://www.linkedin.com/company/ingressive-capital/",
+"fit_score": 8,
+"why_fit": "Pan-African technology fund with fintech and B2B software exposure at pre-seed/seed — a solid stage and category fit. Kweli's sector-agnostic verification layer suits their scalable-SaaS taste. Apply, then chase a founder referral from their portfolio network to stand out.",
+"priority": "B",
+"recommended_approach": "Email (apply) + warm intro",
+"subject": "Pan-African verification infrastructure — angel round",
+"email_body": "Hi Ingressive team,\n\nIngressive's focus on pan-African technology and B2B software is a clean fit for what we're building, so I wanted to reach out directly alongside applying.\n\nOrganisations, starting with insurers, act on documents they can't independently confirm weren't altered after issuance — a gap AI keeps widening.\n\nKweli lets anyone confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint matched to an immutable record. We prove a document is genuine and unaltered, not that its contents are true. The verification layer itself is sector-agnostic — insurance is the wedge, not the ceiling.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round.\n\nDeck attached. Would you be open to a short introductory call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Ingressive team — Kweli is pan-African verification infrastructure: confirm a document is genuine and unaltered, no upload. Insurance is the wedge, not the ceiling. In pilot talks with Kenyan insurers. Raising a small angel round. Would love to connect.",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Apply + founder referral from portfolio. Frame as sector-agnostic infra with an insurance wedge."
+},
+{
+"dedupe_key": "yele-bademosi__microtraction",
+"investor": "Yele Bademosi",
+"company": "Microtraction",
+"email": "https://microtraction.com/pitch",
+"linkedin": "https://www.linkedin.com/company/microtraction/",
+"fit_score": 7,
+"why_fit": "Backs the earliest technical founders in Africa, so the stage is a strong fit — but the portfolio is Nigeria-heavy, so the continental-expansion story has to be convincing. Framed as an Africa-wide verification API with a Kenya insurance wedge, per your note. The 'built to travel' angle is the hook.",
+"priority": "B",
+"recommended_approach": "Email (pitch form)",
+"subject": "Africa-wide verification API, Kenya insurance wedge",
+"email_body": "Hi Yele,\n\nMicrotraction backs the earliest technical founders in Africa — pre-revenue, product live, one clear wedge. That's exactly us.\n\nKweli is a verification API for documents. Any organisation can confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint checked against an immutable record. We prove a document is genuine and unaltered, not that its contents are true.\n\nThe wedge is insurance claims in Kenya, but the API is continental and sector-agnostic — the same call verifies a certificate, a bank letter or an invoice anywhere.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round to open issuer onboarding beyond here. I know you're Nigeria-heavy — part of why I'm writing is that this is built to travel.\n\nDeck attached. Open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Yele — building Kweli, a document verification API. Insurance is the Kenya wedge, but it's built to travel across Africa. In pilot talks with Kenyan insurers. Raising a small angel round. Would value your early-stage read. Open to connecting?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Nigeria-heavy — sell the 'built to travel' expansion story. Pitch via their form."
+},
+{
+"dedupe_key": "kepple-africa-ventures-investment-team__kepple-africa-ventures",
+"investor": "Kepple Africa Ventures (Investment Team)",
+"company": "Kepple Africa Ventures",
+"email": "https://kepple.africa/contact",
+"linkedin": "https://www.linkedin.com/company/kepple-africa-ventures/",
+"fit_score": 7,
+"why_fit": "Active across African fintech and software at pre-seed/seed, and a plausible fast-follower or syndicate participant in an early round rather than a lead. Good breadth means they're worth having on the desk early. Best reached through portfolio founders or the East Africa ecosystem.",
+"priority": "C",
+"recommended_approach": "Warm intro",
+"subject": "Early trust infrastructure — lead or fast-follow",
+"email_body": "Hi Kepple team,\n\nKepple's breadth across African fintech and software makes you a natural fit to lead a small round or follow into one — I wanted to put us on your desk early.\n\nInsurers pay out on documents they can't independently confirm weren't altered after issuance, and AI is widening the gap.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round. Happy to share where it stands and who else is looking.\n\nDeck attached. Would you be open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Kepple team — Kweli is early trust infrastructure for documents: verify a file is the exact one issued, no upload. Insurance wedge, in pilot talks with Kenyan insurers. Raising a small angel round — could suit a lead or fast follow. Open to connecting?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Plausible fast-follower/syndicate rather than lead. Reach via portfolio founders."
+},
+{
+"dedupe_key": "lexi-novitske__norrsken22",
+"investor": "Lexi Novitske",
+"company": "Norrsken22",
+"email": "https://www.norrsken22.com/contact",
+"linkedin": "https://www.linkedin.com/company/norrsken22/",
+"fit_score": 3,
+"why_fit": "Strong long-term Africa tech investor, but a growth-stage fund — structurally wrong for a $250K angel round today. Written purely as a relationship note with no cheque ask, plus an offer to be pointed to an early-stage angel in their network. Revisit only after meaningful multi-country revenue.",
+"priority": "D",
+"recommended_approach": "LinkedIn first (relationship)",
+"subject": "Too early for you today — but worth knowing us",
+"email_body": "Hi Lexi,\n\nI'll be upfront: Norrsken22 is growth-stage and we're raising a small angel round, so this isn't a fit for a cheque today. I'm writing because I'd rather you knew Kweli early and watched it grow.\n\nInsurers pay out on documents they can't independently confirm weren't altered after issuance — a gap AI keeps widening.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nWe're in pilot discussions with insurers in Kenya. The angel round is $250K.\n\nNo ask beyond your awareness — though if there's an early-stage angel in your network who'd find this interesting, I'd welcome the pointer. Deck attached if useful. Open to a brief call sometime?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Lexi — I know Norrsken22 is growth-stage and we're raising a small angel round, so no ask. Just want you to know Kweli early: document verification infrastructure, insurance wedge, in pilot talks with Kenyan insurers. Would value connecting for the long run.",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Growth-stage — wrong stage for this round. Relationship-only; ask for an early-stage angel pointer."
+},
+{
+"dedupe_key": "jasiel-martin-odoom__accion-venture-lab",
+"investor": "Jasiel Martin-Odoom",
+"company": "Accion Venture Lab",
+"email": "https://www.accion.org/contact/",
+"linkedin": "https://www.linkedin.com/company/accion/",
+"fit_score": 7,
+"why_fit": "A specialist fintech seed investor active in Africa, focused on financial inclusion — a strong thesis fit if framed beyond insurance into lending, onboarding and KYC. Stage is seed rather than angel, so it may be slightly early, but the financial-institution framing lands. Target Jasiel directly.",
+"priority": "B",
+"recommended_approach": "Email (Jasiel)",
+"subject": "Document integrity for financial institutions, not just insurers",
+"email_body": "Hi Jasiel,\n\nAccion's specialism in fintech for underserved markets is why I'm framing Kweli to you a little more broadly.\n\nFinancial institutions make decisions on documents they can't independently authenticate — under insurance claims, but equally under lending, onboarding and KYC. AI is making fabrication trivial.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint checked against an immutable record. We prove a document is genuine and unaltered, not that its contents are true.\n\nInsurance is our first market — we're in pilot discussions with insurers in Kenya — and we're raising a $250K angel round to convert pilots and extend into adjacent financial-services use cases.\n\nDeck attached. Would you be open to a short call to explore where this fits Accion's thesis?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Jasiel — Kweli verifies a document is the exact one issued, without uploading it. Insurance today, but the same gap sits under lending, onboarding and KYC. In pilot talks with Kenyan insurers. Raising a small angel round. Would love to connect.",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Seed-stage; may be slightly early. Frame beyond insurance into lending/onboarding/KYC. Target Jasiel."
+},
+{
+"dedupe_key": "fsd-africa-investments-investment-team__fsd-africa-investments",
+"investor": "FSD Africa Investments (Investment Team)",
+"company": "FSD Africa Investments",
+"email": "info@fsdafrica.org",
+"linkedin": "https://www.linkedin.com/company/fsd-africa/",
+"fit_score": 6,
+"why_fit": "Very strong strategic fit — they back financial-sector infrastructure and the Catalyst network — but they're catalytic/institutional, so the process is slower and unlikely to fund a quick angel round. Highest value here is the strategic relationship and roadmap input. Approach via insurers, regulators or the Catalyst network.",
+"priority": "C",
+"recommended_approach": "Warm intro (strategic)",
+"subject": "Financial-sector trust infrastructure for Africa",
+"email_body": "Hi FSD Africa team,\n\nFSD Africa backs the infrastructure that makes financial systems work — which is exactly the layer we're trying to become for documents.\n\nAcross insurance, lending and public records, institutions act on documents they can't independently confirm weren't altered after issuance. AI is widening that gap.\n\nKweli lets anyone confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nOur first market is insurance claims in Kenya, where document integrity maps directly to leakage and consumer trust. We're in pilot discussions with insurers here, and raising a $250K angel round.\n\nI'm reaching out as much for the strategic relationship — FSD's view on where verification matters most would shape our roadmap. Deck attached. Open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi FSD Africa team — Kweli is trust infrastructure for documents across the financial sector: verify a file is genuine and unaltered, no upload. Insurance wedge in Kenya, in pilot talks with insurers. Would value your strategic read. Open to connecting?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Catalytic/institutional — slow process, unlikely to fund a quick angel round. Value is strategic. Route via insurers/regulators/Catalyst."
+},
+{
+"dedupe_key": "maelis-carraro__catalyst-fund",
+"investor": "Maelis Carraro",
+"company": "Catalyst Fund",
+"email": "https://www.thecatalystfund.com/contact",
+"linkedin": "https://www.linkedin.com/company/catalyst-fund/",
+"fit_score": 7,
+"why_fit": "Pre-seed, Africa-focused, and oriented to climate-resilient financial solutions — the fit sharpens when Kweli is framed around resilient insurance systems and verifiable claims evidence. Stage matches an angel round well. The climate/resilience extension is a genuine hook, not a stretch.",
+"priority": "B",
+"recommended_approach": "Email / form",
+"subject": "Verifiable claims evidence for resilient insurance",
+"email_body": "Hi Maelis,\n\nCatalyst Fund's focus on climate-resilient financial solutions caught my attention, because verifiable claims evidence is quietly central to insurance that actually pays out when people need it.\n\nIn claims, handlers act on invoices and assessor reports they can't independently confirm weren't altered after issuance — and AI is widening that gap.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true — which speeds legitimate payouts and cuts disputes.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round. There's a natural extension into climate and resilience claims I'd value your view on.\n\nDeck attached. Would you be open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Maelis — verifiable claims evidence is quietly central to insurance that pays out. Kweli lets handlers confirm documents haven't been altered since issuance. In pilot talks with Kenyan insurers. Raising a small angel round. Would love to connect.",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Pre-seed fit; sharpen the climate/resilience-claims angle. Email or form."
+},
+{
+"dedupe_key": "ahl-venture-partners-investment-team__ahl-venture-partners",
+"investor": "AHL Venture Partners (Investment Team)",
+"company": "AHL Venture Partners",
+"email": "https://ahlventurepartners.com/contact/",
+"linkedin": "https://www.linkedin.com/company/ahl-venture-partners/",
+"fit_score": 5,
+"why_fit": "Impact-oriented and active in African financial services, so the mission fit is reasonable — but they lean early-to-growth with larger cheques, so a $250K angel round is likely early for them. Lead with measurable impact (lower leakage, better access) plus commercial returns, and treat as a radar contact for now.",
+"priority": "C",
+"recommended_approach": "Warm intro (relationship)",
+"subject": "Lower leakage, better trust — impact with a commercial engine",
+"email_body": "Hi AHL team,\n\nAHL's blend of impact and commercial discipline in African financial services is why I wanted to reach out, even though we're early.\n\nIn insurance, altered documents mean leakage, disputes and slower payouts. Fixing that lowers costs for insurers and builds trust for the people making claims. AI is only widening the gap.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round.\n\nI know we're likely early for AHL — I'd value getting on your radar and understanding what evidence you'd want to see. Deck attached. Open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi AHL team — Kweli cuts insurance leakage by letting handlers verify documents haven't been altered since issuance — impact with a commercial engine. In pilot talks with Kenyan insurers. Early for you, but would value getting on your radar. Connect?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Likely early for their cheque. Lead with measurable impact + returns; radar for now."
+},
+{
+"dedupe_key": "john-lazar__enza-capital",
+"investor": "John Lazar",
+"company": "Enza Capital",
+"email": "https://enza.capital/contact",
+"linkedin": "https://www.linkedin.com/company/enza-capital/",
+"fit_score": 8,
+"why_fit": "East Africa focus with fintech and B2B exposure at seed–Series A — strong geographic and enterprise fit, and they'll value Kenya insurer traction. Slightly ahead of pure angel stage, so they may want more data, but John Lazar's enterprise-software background suits the pitch. Warm Nairobi intro plus the enterprise pipeline is the play.",
+"priority": "B",
+"recommended_approach": "Warm intro",
+"subject": "East African enterprise infrastructure — pipeline inside",
+"email_body": "Hi John,\n\nEnza's East Africa focus and appetite for B2B infrastructure is a strong match for Kweli, so I wanted to reach you directly.\n\nInsurers pay out on documents they can't independently confirm weren't altered after issuance — a gap AI keeps widening.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint checked against an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nOur wedge is insurance claims in Kenya. We're in pilot discussions with insurers here, and raising a $250K angel round to convert them and build issuer onboarding. Happy to walk you through the enterprise pipeline and the data behind it.\n\nDeck attached. Would you be open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi John — Kweli is East African B2B infrastructure: verify a document is the exact one issued, no upload. Insurance wedge in Kenya, in pilot talks with insurers. Raising a small angel round. Strong geo fit with Enza — would love to connect.",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Strong geo + enterprise fit; may want more data. Warm Nairobi intro + enterprise pipeline."
+},
+{
+"dedupe_key": "brigit-van-dijk-van-de-reijt__dob-equity",
+"investor": "Brigit van Dijk-van de Reijt",
+"company": "DOB Equity",
+"email": "info@dobequity.nl",
+"linkedin": "https://www.linkedin.com/company/dob-equity/",
+"fit_score": 3,
+"why_fit": "Long-term East Africa investor but growth-stage — structurally too late for a $250K angel round today. Written as an honest relationship note with no cheque pressure, positioning Kweli as one to watch from early. Revisit with proven commercial scale and governance.",
+"priority": "D",
+"recommended_approach": "LinkedIn first (relationship)",
+"subject": "Early for you now — a long-term East Africa relationship",
+"email_body": "Hi Brigit,\n\nDOB backs East African companies for the long term, and I'd like Kweli to be one you've watched from early. I'll be honest that we're likely too early for your stage today.\n\nInsurers pay out on documents they can't independently confirm weren't altered after issuance — a gap AI keeps widening.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round now.\n\nNo pressure on a cheque — I'd value the relationship and your sense of what strong looks like at the stage you'd invest. Deck attached if useful. Open to a brief call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Brigit — I'll be honest, we're likely early for DOB. Building Kweli: document verification infrastructure, insurance wedge in Kenya, in pilot talks with insurers. Raising a small angel round. Would value the long-term relationship. Open to connecting?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Growth-stage — too late for this round. Relationship-only; LinkedIn first."
+},
+{
+"dedupe_key": "ifc-startup-catalyst-team__ifc-startup-catalyst",
+"investor": "IFC Startup Catalyst Team",
+"company": "IFC Startup Catalyst",
+"email": "catalyst@ifc.org",
+"linkedin": "https://www.linkedin.com/company/ifc/",
+"fit_score": 3,
+"why_fit": "Not a direct startup investor — they back accelerators and seed funds — so this is not a cheque prospect. The value is ecosystem direction: pointers to aligned early-stage funds and institutional pathways. The email asks for exactly that; the low score reflects fit as a direct investor, not their strategic usefulness.",
+"priority": "D",
+"recommended_approach": "Email (ecosystem ask)",
+"subject": "Pointers to aligned early-stage funds in Africa",
+"email_body": "Hi Startup Catalyst team,\n\nI know IFC Startup Catalyst backs accelerators and seed funds rather than investing directly in startups, so this isn't a pitch for a cheque — it's a request for direction.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint matched to an immutable record. We prove a document is genuine and unaltered, not that its contents are true. Our first market is insurance claims, and we're in pilot discussions with insurers in Kenya.\n\nWe're raising a $250K angel round. Given your view across the ecosystem, I'd value pointers to early-stage funds or accelerators whose thesis fits verification and financial-sector infrastructure.\n\nDeck attached for context. Would you be open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi — I know Startup Catalyst backs funds, not startups directly. Building Kweli (document verification infrastructure, insurance wedge in Kenya). Would value any pointers to aligned early-stage funds/accelerators. Open to connecting?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "NOT a direct startup investor. Use for ecosystem direction / fund pointers only."
+},
+{
+"dedupe_key": "stephen-gugu__viktoria-ventures-angel",
+"investor": "Stephen Gugu",
+"company": "Viktoria Ventures / Angel",
+"email": "Public LinkedIn / warm intro",
+"linkedin": "https://www.linkedin.com/in/stephengugu/",
+"fit_score": 9,
+"why_fit": "A prominent Kenyan angel and ecosystem builder who understands local enterprise buyers and can open Kenyan investor networks — close to an ideal first angel for this round. His read and any syndication could improve the whole raise, so lead with feedback, not just a cheque ask. Prioritise a warm introduction.",
+"priority": "A",
+"recommended_approach": "Warm intro (LinkedIn)",
+"subject": "A Nairobi founder who'd value your read",
+"email_body": "Hi Stephen,\n\nYou're one of the few people who understands both Kenyan enterprise buyers and how local rounds come together — which is why you're near the top of my list.\n\nInsurers here pay out on invoices and assessor reports they can't independently confirm weren't altered after issuance.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a SHA-256 fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round.\n\nHonestly, I'd value your feedback and any syndication as much as an investment — a sharp read from you would improve the whole round. Deck attached. Could I grab a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Stephen — Nairobi founder building Kweli: verify a document is the exact one issued, without uploading it. Insurance wedge, in pilot talks with Kenyan insurers. Raising a small angel round and would value your read and any syndication. Connect?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Near-ideal first angel. Prioritise a warm intro; lead with feedback + syndication, not just a cheque."
+},
+{
+"dedupe_key": "idris-ayodeji-bello__angel-loftyinc",
+"investor": "Idris Ayodeji Bello",
+"company": "Angel (LoftyInc)",
+"email": "Via LoftyInc / warm intro",
+"linkedin": "https://www.linkedin.com/in/idrisbello/",
+"fit_score": 8,
+"why_fit": "As an individual angel, Idris has backed 100+ African startups, so his pattern recognition on whether an early wedge is real is exactly the read worth having. Strong fintech familiarity and pre-seed comfort. Approach personally and concisely, focused on insurer validation (distinct from the LoftyInc fund process).",
+"priority": "B",
+"recommended_approach": "Warm intro / LinkedIn",
+"subject": "One insurer wedge, from someone who's seen 100+",
+"email_body": "Hi Idris,\n\nYou've backed over a hundred African startups, so you'll spot quickly whether this wedge is real — that's exactly the read I want.\n\nInsurers pay out on documents they can't independently confirm weren't altered after issuance, and AI is widening the gap.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a fingerprint checked against an immutable record. We prove a document is genuine and unaltered, not that its contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round.\n\nI'd value your personal read even more than the LoftyInc process — is the insurer pull here convincing enough to you? Deck attached. Open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Idris — you've backed 100+ African startups, so you'll spot fast whether this wedge is real. Kweli verifies documents are genuine and unaltered, no upload. Insurance wedge, in pilot talks with Kenyan insurers. Raising a small angel round. Would value your read.",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Personal angel angle — distinct from the LoftyInc fund row (row 5). DON'T double-send. Warm intro / LinkedIn."
+},
+{
+"dedupe_key": "olu-oyinsan__angel-oui-capital",
+"investor": "Olu Oyinsan",
+"company": "Angel (Oui Capital)",
+"email": "Via Oui Capital / warm intro",
+"linkedin": "https://www.linkedin.com/in/oluoyinsan/",
+"fit_score": 8,
+"why_fit": "As an operator-investor, Olu engages with clear pre-seed narratives and disciplined go-to-market — so a personal, founder-to-operator note ahead of the formal Oui process fits his style. Strong Africa focus. Written distinctly from the Oui fund email, leading with the tight round and simple plan.",
+"priority": "B",
+"recommended_approach": "LinkedIn first",
+"subject": "Founder-to-operator — a disciplined pre-seed wedge",
+"email_body": "Hi Olu,\n\nReaching out founder-to-operator rather than through Oui's form, because I think you'll appreciate how tightly we're running this.\n\nInsurers pay out on documents they can't independently confirm weren't altered after issuance — a gap AI keeps widening.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round on a simple 18-month plan: convert pilots, harden integrations, reach the first paying insurers.\n\nI'd value your read as an operator. Deck attached. Would a short call work?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Olu — reaching out founder-to-operator. Kweli: verify a document is the exact one issued, no upload. Tight $250K angel round, simple 18-month plan, insurance wedge, in pilot talks with Kenyan insurers. Would value your operator read. Connect?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Personal angle — distinct from Oui's form (row 12). DON'T double-send. LinkedIn note first."
+},
+{
+"dedupe_key": "mbwana-alliy__angel-savannah-fund",
+"investor": "Mbwana Alliy",
+"company": "Angel (Savannah Fund)",
+"email": "Via Savannah Fund / warm intro",
+"linkedin": "https://www.linkedin.com/in/mbwana/",
+"fit_score": 8,
+"why_fit": "As an individual, Mbwana brings long East African investing experience and a real feel for how slowly-then-suddenly enterprises adopt infrastructure — a valuable personal read distinct from the Savannah fund process. Strong regional relevance. Seek a trusted warm intro from the Kenya tech network.",
+"priority": "B",
+"recommended_approach": "Warm intro",
+"subject": "East African enterprise adoption — your read would help",
+"email_body": "Hi Mbwana,\n\nReaching out personally, not just via Savannah, because few people understand how slowly — then suddenly — East African enterprises adopt new infrastructure.\n\nInsurers pay out on documents they can't independently confirm weren't altered after issuance.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round.\n\nI'd value your personal read on the adoption path as much as anything — you've watched this pattern play out many times. Deck attached. Could we find a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Mbwana — personally, not just via Savannah. Kweli: document verification infrastructure, insurance wedge in Kenya, in pilot talks with insurers. You know East African enterprise adoption better than most — I'd value your read. Open to connecting?",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Personal angle — distinct from Savannah's process (row 8). DON'T double-send. Warm intro from Kenya network."
+},
+{
+"dedupe_key": "eghosa-omoigui__echovc",
+"investor": "Eghosa Omoigui",
+"company": "EchoVC",
+"email": "https://echovc.com/contact",
+"linkedin": "https://www.linkedin.com/in/eghosa/",
+"fit_score": 7,
+"why_fit": "Deep African tech and fintech experience, drawn to infrastructure and defensible enterprise data networks — a good fit for Kweli's category vision and registry moat. The risk is over-indexing on vision, so the pitch grounds the network story in one live insurer wedge. Pre-seed/seed stage works.",
+"priority": "B",
+"recommended_approach": "Email (EchoVC)",
+"subject": "Category vision, grounded in one live insurer wedge",
+"email_body": "Hi Eghosa,\n\nYou think in categories and defensible data networks, so I'll give you both the vision and the grounding.\n\nVision: a trust layer for documents across Africa — a network where issuers and verifiers compound value over time. Grounding: one live wedge in insurance claims, where handlers pay out on documents they can't independently verify.\n\nKweli lets any organisation confirm a document is the exact one its issuer released, without the file leaving their device — a fingerprint matched to an immutable record. We prove provenance and integrity, not whether the contents are true. Every issuer registration makes the next verification worth more — they can copy the product, not the registry.\n\nWe're in pilot discussions with insurers in Kenya, and raising a $250K angel round.\n\nDeck attached. Would you be open to a short call?\n\nBest,\nArjun\n\nArjun Vidyarthi · Founder, Kweli · kweli.solutions",
+"linkedin_message": "Hi Eghosa — you think in categories and data networks. Kweli is a trust layer for documents: verify a file is genuine and unaltered, no upload. One live insurance wedge, in pilot talks with Kenyan insurers. Raising a small angel round. Would love to connect.",
+"status": "Not contacted",
+"next_followup": null,
+"notes": "Ground the category vision in the live insurer wedge — he can over-index on vision. Email via EchoVC."
+}
+];
+function icrmApproachGroup(a){ a=(a||''); if(/^warm intro/i.test(a)) return 'Warm intro'; if(/^linkedin first/i.test(a)) return 'LinkedIn first'; if(/^continue/i.test(a)) return 'Continue'; return 'Email'; }
+function icrmFitColor(f){ return f>=8?'var(--green)':f>=6?'var(--amber)':'var(--red)'; }
+function icrmPriorityColor(p){ return {A:'var(--green)',B:'var(--blue)',C:'var(--amber)',D:'var(--red)'}[p]||'var(--muted)'; }
+
+function vInvestorCrm(){
+  const f = route.icrmFilter = route.icrmFilter || {q:'',priority:'',status:'',fit:'',approach:''};
+  const all = [...state.investor_crm].sort((a,b)=> (a.priority||'Z').localeCompare(b.priority||'Z') || (b.fit_score||0)-(a.fit_score||0) || (a.investor||'').localeCompare(b.investor||''));
+  const header = '<div class="page-head"><div><div class="eyebrow">Fundraising</div><div class="page-title">Investor CRM</div>'+
+    '<div class="page-sub">'+all.length+' outreach package'+(all.length===1?'':'s')+' for the angel round</div></div>'+
+    '<div style="display:flex;gap:8px">'+(all.length?'<button class="btn sm" onclick="importInvestorCrmSeed()">↻ Re-sync from seed</button>':'')+'</div></div>';
+  if(!all.length){
+    return header+'<div class="empty"><div class="empty-ico">❖</div>No investors imported yet.'+
+      '<div style="margin-top:14px"><button class="btn gold" onclick="importInvestorCrmSeed()">Import '+INVESTOR_CRM_SEED.length+' investors</button></div>'+
+      '<div class="faint" style="margin-top:10px;font-size:11px">Safe to run more than once — existing rows are never overwritten.</div></div>';
+  }
+  const contacted = all.filter(r=>r.status && r.status!=='Not contacted').length;
+  const aCount = all.filter(r=>r.priority==='A').length;
+  const nextSet = all.filter(r=>r.next_followup).length;
+  const metrics = '<div class="metric-strip">'+
+    '<div class="metric-tile"><div class="metric-value">'+all.length+'</div><div class="metric-label">Investors</div></div>'+
+    '<div class="metric-tile"><div class="metric-value">'+aCount+'</div><div class="metric-label">Priority A</div></div>'+
+    '<div class="metric-tile"><div class="metric-value">'+contacted+'</div><div class="metric-label">Contacted</div></div>'+
+    '<div class="metric-tile"><div class="metric-value">'+nextSet+'</div><div class="metric-label">Follow-ups set</div></div></div>';
+  const statuses = Array.from(new Set(all.map(r=>r.status).filter(Boolean)));
+  const approaches = ['Warm intro','Email','LinkedIn first','Continue'];
+  const toolbar = '<div class="toolbar">'+
+    '<input class="input search-in" placeholder="Search investor, company, email, notes…" value="'+esc(f.q)+'" oninput="route.icrmFilter.q=this.value;renderCurrent()">'+
+    '<select class="select" style="max-width:150px" onchange="route.icrmFilter.priority=this.value;renderCurrent()"><option value="">All priorities</option>'+ICRM_PRIORITIES.map(p=>'<option'+(f.priority===p?' selected':'')+'>'+p+'</option>').join('')+'</select>'+
+    '<select class="select" style="max-width:170px" onchange="route.icrmFilter.status=this.value;renderCurrent()"><option value="">All statuses</option>'+statuses.map(s=>'<option'+(f.status===s?' selected':'')+'>'+esc(s)+'</option>').join('')+'</select>'+
+    '<select class="select" style="max-width:150px" onchange="route.icrmFilter.fit=this.value;renderCurrent()"><option value="">All fit scores</option>'+
+      [['8','Fit 8–10'],['6','Fit 6–7'],['0','Fit ≤5']].map(o=>'<option value="'+o[0]+'"'+(f.fit===o[0]?' selected':'')+'>'+o[1]+'</option>').join('')+'</select>'+
+    '<select class="select" style="max-width:170px" onchange="route.icrmFilter.approach=this.value;renderCurrent()"><option value="">All approaches</option>'+approaches.map(a=>'<option'+(f.approach===a?' selected':'')+'>'+esc(a)+'</option>').join('')+'</select>'+
+  '</div>';
+  const q=(f.q||'').toLowerCase().trim();
+  const rows=all.filter(r=>{
+    if(f.priority && r.priority!==f.priority) return false;
+    if(f.status && r.status!==f.status) return false;
+    if(f.approach && icrmApproachGroup(r.recommended_approach)!==f.approach) return false;
+    if(f.fit){ const fit=r.fit_score||0; if(f.fit==='8'&&fit<8) return false; if(f.fit==='6'&&(fit<6||fit>7)) return false; if(f.fit==='0'&&fit>5) return false; }
+    if(q){ const hay=[r.investor,r.company,r.email,r.notes].map(x=>(x||'').toLowerCase()).join(' '); if(!hay.includes(q)) return false; }
+    return true;
+  });
+  const count='<div class="faint" style="font-size:11.5px;margin-bottom:10px">Showing '+rows.length+' of '+all.length+'</div>';
+  if(!rows.length) return header+metrics+toolbar+'<div class="empty">No investors match these filters.</div>';
+  const table='<div class="card" style="padding:0;overflow-x:auto"><table class="data-table"><thead><tr>'+
+    ['Investor','Email','LinkedIn','Fit','Priority','Approach','Status','Next follow-up'].map(h=>'<th>'+h+'</th>').join('')+
+    '</tr></thead><tbody>'+rows.map(r=>{
+      const li=r.linkedin?'<a href="'+esc(r.linkedin)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">in ↗</a>':'<span class="faint">—</span>';
+      return '<tr style="cursor:pointer" onclick="openInvestorCrmDetail(\''+r.id+'\')">'+
+        '<td><strong>'+esc(r.investor)+'</strong><div class="faint" style="font-size:11px">'+esc(r.company||'')+'</div></td>'+
+        '<td class="mono faint" style="font-size:11px;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.email||'—')+'</td>'+
+        '<td>'+li+'</td>'+
+        '<td><span class="status-chip" style="border-color:'+icrmFitColor(r.fit_score)+';color:'+icrmFitColor(r.fit_score)+'">'+(r.fit_score!=null?r.fit_score+'/10':'—')+'</span></td>'+
+        '<td><span class="pill" style="border-color:'+icrmPriorityColor(r.priority)+';color:'+icrmPriorityColor(r.priority)+'">'+esc(r.priority||'—')+'</span></td>'+
+        '<td style="font-size:11.5px">'+esc(r.recommended_approach||'—')+'</td>'+
+        '<td><span class="status-chip">'+esc(r.status||'—')+'</span></td>'+
+        '<td class="mono faint" style="font-size:11px">'+(r.next_followup?fmtDate(r.next_followup):'—')+'</td>'+
+      '</tr>';
+    }).join('')+'</tbody></table></div>';
+  return header+metrics+toolbar+count+table;
+}
+
+function icrmCopyBtn(id, field){ return '<button class="btn sm" style="padding:4px 9px;font-size:11px" onclick="copyIcrmField(\''+id+'\',\''+field+'\')">⧉ Copy</button>'; }
+function openInvestorCrmDetail(id){
+  const r=byId(state.investor_crm,id); if(!r) return;
+  const box=(label,val,copyField)=>'<div style="margin-bottom:14px"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px"><span class="fl" style="margin:0">'+label+'</span>'+(copyField?icrmCopyBtn(id,copyField):'')+'</div>'+
+    '<div style="white-space:pre-wrap;background:var(--panel2);border:1px solid var(--line-s);border-radius:8px;padding:11px 12px;font-size:12.5px;line-height:1.55;max-height:280px;overflow:auto">'+esc(val||'—')+'</div></div>';
+  const emailLink=r.email?(/@/.test(r.email)?'<a href="mailto:'+esc(r.email)+'">'+esc(r.email)+'</a>':esc(r.email)):'—';
+  const liLink=r.linkedin?'<a href="'+esc(r.linkedin)+'" target="_blank" rel="noopener">'+esc(r.linkedin)+'</a>':'—';
+  const extraStatus=(ICRM_STATUSES.includes(r.status)||!r.status)?'':'<option selected>'+esc(r.status)+'</option>';
+  const html=
+    '<h3 style="margin-bottom:2px">'+esc(r.investor)+'</h3>'+
+    '<div class="muted" style="margin-bottom:14px">'+esc(r.company||'')+'</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">'+
+      '<span class="pill" style="border-color:'+icrmPriorityColor(r.priority)+';color:'+icrmPriorityColor(r.priority)+'">Priority '+esc(r.priority||'—')+'</span>'+
+      '<span class="pill" style="border-color:'+icrmFitColor(r.fit_score)+';color:'+icrmFitColor(r.fit_score)+'">Fit '+(r.fit_score!=null?r.fit_score+'/10':'—')+'</span>'+
+      '<span class="pill">'+esc(r.status||'—')+'</span>'+
+      '<span class="pill">'+esc(r.recommended_approach||'—')+'</span>'+
+    '</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:8px">'+
+      '<div><div class="fl">Email / route</div><div style="font-size:12.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+emailLink+icrmCopyBtn(id,'email')+'</div></div>'+
+      '<div><div class="fl">LinkedIn</div><div style="font-size:12px;word-break:break-all">'+liLink+'</div></div>'+
+    '</div>'+
+    box('Why they are a fit', r.why_fit, null)+
+    box('Subject', r.subject, 'subject')+
+    box('Ready-to-send email', r.email_body, 'email_body')+
+    box('Ready-to-send LinkedIn message', r.linkedin_message, 'linkedin_message')+
+    box('Notes', r.notes, null)+
+    '<div style="border-top:1px solid var(--line);margin:8px 0 16px"></div>'+
+    '<div class="fl" style="margin-bottom:10px">Edit tracking</div>'+
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'+
+      '<div class="field"><label class="fl">Status</label><select class="select" id="icrm_status">'+ICRM_STATUSES.map(s=>'<option'+(r.status===s?' selected':'')+'>'+esc(s)+'</option>').join('')+extraStatus+'</select></div>'+
+      '<div class="field"><label class="fl">Priority</label><select class="select" id="icrm_priority">'+ICRM_PRIORITIES.map(p=>'<option'+(r.priority===p?' selected':'')+'>'+p+'</option>').join('')+'</select></div>'+
+    '</div>'+
+    '<div class="field"><label class="fl">Next follow-up date</label><input class="input" type="date" id="icrm_followup" value="'+esc(r.next_followup||'')+'"></div>'+
+    '<div class="field"><label class="fl">Notes</label><textarea class="input" id="icrm_notes" rows="3">'+esc(r.notes||'')+'</textarea></div>'+
+    '<button class="btn gold" onclick="saveInvestorCrmDetail(\''+id+'\')">Save changes</button>';
+  openModal(html, true);
+}
+async function saveInvestorCrmDetail(id){
+  const patch={
+    status:document.getElementById('icrm_status').value,
+    priority:document.getElementById('icrm_priority').value,
+    next_followup:document.getElementById('icrm_followup').value||null,
+    notes:(document.getElementById('icrm_notes').value||'').trim()||null
+  };
+  try{ await dbUpdate('investor_crm',id,patch); closeModal(); renderCurrent(); openInvestorCrmDetail(id); toast('Saved'); }
+  catch(e){ /* dbUpdate already surfaces the error via toast */ }
+}
+async function copyIcrmField(id, field){
+  const r=byId(state.investor_crm,id); if(!r) return;
+  const text=r[field]||'';
+  if(!text){ toast('Nothing to copy'); return; }
+  try{ await navigator.clipboard.writeText(text); toast('Copied'); }
+  catch(e){ toast('Could not copy — select the text and copy manually'); }
+}
+async function importInvestorCrmSeed(){
+  try{
+    const {error}=await sb.from('investor_crm').upsert(INVESTOR_CRM_SEED,{onConflict:'dedupe_key',ignoreDuplicates:true});
+    if(error){ toast('Import failed: '+error.message); console.error(error); return; }
+    const {data,error:selErr}=await sb.from('investor_crm').select('*');
+    if(!selErr) state.investor_crm=data||[];
+    renderCurrent();
+    toast('Investor CRM synced — '+state.investor_crm.length+' rows (duplicates skipped)');
+  }catch(e){ toast('Import error — see console'); console.error(e); }
+}
+
 /* ---------------------------------------------------------------------------
    CONTENT LIBRARY — extracted programmatically (not retyped) from the
    uploaded Kweli_Marketing_Strategy.docx: 50 LinkedIn articles, 50 LinkedIn
