@@ -4753,18 +4753,38 @@ function openInvestorCrmDetail(id){
       '<div class="field"><label class="fl">Priority</label><select class="select" id="icrm_priority">'+ICRM_PRIORITIES.map(p=>'<option'+(r.priority===p?' selected':'')+'>'+p+'</option>').join('')+'</select></div>'+
     '</div>'+
     '<div class="field"><label class="fl">Next follow-up date</label><input class="input" type="date" id="icrm_followup" value="'+esc(r.next_followup||'')+'"></div>'+
-    '<div class="field"><label class="fl">Notes</label><textarea class="input" id="icrm_notes" rows="3">'+esc(r.notes||'')+'</textarea></div>'+
+    '<div class="field"><label class="fl">Notes</label><textarea class="input" id="icrm_notes" rows="3">'+esc(r.notes||'')+'</textarea>'+
+      '<div class="faint" style="font-size:11px;margin-top:5px">Clear outcomes update the status automatically: “revisit after traction” → On hold; “passed / not a fit” → Passed; meeting booked → Call scheduled. You can still override the status above.</div></div>'+
     '<button class="btn gold" onclick="saveInvestorCrmDetail(\''+id+'\')">Save changes</button>';
   openModal(html, true);
 }
+function inferInvestorStatusFromNotes(notes,currentStatus){
+  const n=String(notes||'').toLowerCase();
+  // A conditional no is a future revisit, even if the founder wrote “no go”
+  // in the same note. Test this before the permanent-pass language.
+  if(/get back|come back|revisit|circle back|when (we|you) have traction|once (we|you) have traction|after (a |the )?(pilot|traction|revenue|customers?)/i.test(n)) return 'On hold';
+  if(/call scheduled|meeting scheduled|meeting booked|call booked|meeting on |call on /i.test(n)) return 'Call scheduled';
+  if(/committed|will invest|investment confirmed|cheque confirmed|check confirmed/i.test(n)) return 'Committed';
+  if(/no go|passed|declined|rejected|not investing|not a fit|won't invest|will not invest/i.test(n)) return 'Passed';
+  if(/replied|responded|heard back|in conversation|reviewing the deck|asked for|due diligence/i.test(n) && currentStatus==='Contacted') return 'In conversation';
+  return currentStatus;
+}
 async function saveInvestorCrmDetail(id){
+  const existing=byId(state.investor_crm,id); if(!existing) return;
+  const selectedStatus=document.getElementById('icrm_status').value;
+  const notes=(document.getElementById('icrm_notes').value||'').trim()||null;
+  const inferredStatus=inferInvestorStatusFromNotes(notes,selectedStatus);
   const patch={
-    status:document.getElementById('icrm_status').value,
+    status:inferredStatus,
     priority:document.getElementById('icrm_priority').value,
     next_followup:document.getElementById('icrm_followup').value||null,
-    notes:(document.getElementById('icrm_notes').value||'').trim()||null
+    notes:notes
   };
-  try{ await dbUpdate('investor_crm',id,patch); closeModal(); renderCurrent(); openInvestorCrmDetail(id); toast('Saved'); }
+  try{
+    await dbUpdate('investor_crm',id,patch);
+    closeModal(); renderCurrent(); openInvestorCrmDetail(id);
+    toast(inferredStatus!==selectedStatus?'Saved — status updated to '+inferredStatus:'Saved');
+  }
   catch(e){ /* dbUpdate already surfaces the error via toast */ }
 }
 async function copyIcrmField(id, field){
