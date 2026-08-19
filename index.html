@@ -1360,7 +1360,7 @@ let route = {page:'today', id:null, tab:null};
 
 function renderNav(){
   const el=document.getElementById('navList'); if(!el) return;
-  const overdueCount = state.tasks.filter(t=>t.due_at && t.due_at<today() && !['Completed','Cancelled','Closed / Lost'].includes(t.status)).length;
+  const overdueCount = state.tasks.filter(t=>t.due_at && t.due_at<today() && !taskIsClosed(t) && !taskIsParked(t)).length;
   const reviewCount = state.migration_log.filter(m=>['needs_review','error'].includes(m.status)).length;
   el.innerHTML = NAV.map(n=>{
     if(n.sect!==undefined && !n.id) return n.sect?'<div class="nav-sect">'+n.sect+'</div>':'<div style="height:8px"></div>';
@@ -1442,7 +1442,9 @@ function closeModal(){document.getElementById('modalScrim').classList.remove('sh
 /* ---------------------------------------------------------------------------
    TODAY — command centre
 --------------------------------------------------------------------------- */
-function openTasks(){return state.tasks.filter(t=>!['Completed','Cancelled','Closed / Lost'].includes(t.status));}
+function taskIsClosed(t){return ['Completed','Cancelled','Closed / Lost'].includes(t.status);}
+function taskIsParked(t){return t.status==='Parked';}
+function openTasks(){return state.tasks.filter(t=>!taskIsClosed(t)&&!taskIsParked(t));}
 function priorityColor(p){return {Urgent:'var(--red)',High:'var(--amber)',Normal:'var(--blue)',Low:'var(--faint)'}[p]||'var(--muted)';}
 function greeting(){const h=new Date().getHours();return h<12?'Good morning':h<18?'Good afternoon':'Good evening';}
 function stat(v,l){return '<div style="display:flex;flex-direction:column"><span class="mono" style="font-weight:700;font-size:16px">'+v+'</span><span class="faint" style="font-size:9.5px;text-transform:uppercase;letter-spacing:.05em">'+l+'</span></div>';}
@@ -1809,7 +1811,7 @@ function organisationPriorityScore(o){
   const raw=Number(o.priority||0)*10;
   const activeOpps=state.opportunities.filter(x=>x.organisation_id===o.id && !x.archived_at && !/lost|closed/i.test(String(x.stage||x.status||'')));
   const oppPriority=activeOpps.reduce((m,x)=>Math.max(m,Number(x.priority||0)*8),0);
-  const openTasks=state.tasks.filter(t=>t.organisation_id===o.id && !['Completed','Cancelled','Closed / Lost'].includes(t.status));
+  const openTasks=state.tasks.filter(t=>t.organisation_id===o.id && !taskIsClosed(t) && !taskIsParked(t));
   const overdue=openTasks.some(t=>t.due_at && t.due_at<today())?45:0;
   const dueSoon=openTasks.some(t=>t.due_at && t.due_at>=today() && t.due_at<=addDays(today(),7))?20:0;
   const hasNext=(o.next_action_summary||o.next_action_date)?12:0;
@@ -1833,7 +1835,7 @@ function vOrganisations(){
     (orgs.length?'<div class="grid g-auto">'+orgs.map(o=>{
       const oppCount=state.opportunities.filter(x=>x.organisation_id===o.id).length;
       const flags=orgFlags(o);
-      const overdue=state.tasks.some(t=>t.organisation_id===o.id && t.due_at && t.due_at<today() && !['Completed','Cancelled','Closed / Lost'].includes(t.status));
+      const overdue=state.tasks.some(t=>t.organisation_id===o.id && t.due_at && t.due_at<today() && !taskIsClosed(t) && !taskIsParked(t));
       const priorityPct=Math.round(((organisationStageRank(o)+organisationPriorityScore(o))/maxPriority)*100);
       return '<div class="card org-card" onclick="go(\'organisationDetail\',\''+o.id+'\')">'+
         '<div class="org-card-top"><div class="org-identity">'+orgEmblem(o,false)+'<div class="org-title-wrap">'+
@@ -1958,7 +1960,7 @@ function vOrganisationDetail(){
   } else if(tab==='people'){
     body=peopleHere.length?'<div class="grid g-auto">'+peopleHere.map(p=>{
       const pMeetingCount=state.meetings.filter(m=>m.organisation_id===o.id).length;
-      const pNextTask=state.tasks.filter(t=>t.person_id===p.id && !['Completed','Cancelled','Closed / Lost'].includes(t.status))[0];
+      const pNextTask=state.tasks.filter(t=>t.person_id===p.id && !taskIsClosed(t) && !taskIsParked(t))[0];
       return '<div class="card person-card" onclick="go(\'personDetail\',\''+p.id+'\')">'+
         personAvatar(p,true)+
         '<div style="min-width:0;flex:1">'+
@@ -2235,8 +2237,8 @@ function vPeople(){
   '</div>';
 
   const cards=list.length?'<div class="grid g-auto">'+list.map(p=>{
-    const personTasks=state.tasks.filter(t=>t.person_id===p.id && !['Completed','Cancelled','Closed / Lost'].includes(t.status));
-    const orgTasks=p.primary_organisation_id?state.tasks.filter(t=>t.organisation_id===p.primary_organisation_id && !['Completed','Cancelled','Closed / Lost'].includes(t.status)):[];
+    const personTasks=state.tasks.filter(t=>t.person_id===p.id && !taskIsClosed(t) && !taskIsParked(t));
+    const orgTasks=p.primary_organisation_id?state.tasks.filter(t=>t.organisation_id===p.primary_organisation_id && !taskIsClosed(t) && !taskIsParked(t)):[];
     const nextTask=[...personTasks,...orgTasks].sort((a,b)=>(a.due_at||'9999').localeCompare(b.due_at||'9999'))[0];
     const currentOpp=state.opportunities.find(o=>o.organisation_id===p.primary_organisation_id && o.status==='Active');
     const overdue=nextTask && nextTask.due_at && nextTask.due_at<today();
@@ -2282,7 +2284,7 @@ function vPersonDetail(){
   const pDecisions=state.decisions.filter(d=>!d.archived_at && state.entity_links.some(el=>el.source_type==='decision'&&el.source_id===d.id&&el.target_type==='person'&&el.target_id===p.id));
   const pLessons=state.lessons_v2.filter(l=>!l.archived_at && state.entity_links.some(el=>el.source_type==='lesson'&&el.source_id===l.id&&el.target_type==='person'&&el.target_id===p.id));
   const currentOpp=p.primary_organisation_id?state.opportunities.find(o=>o.organisation_id===p.primary_organisation_id&&o.status==='Active'):null;
-  const openTasks=pTasks.filter(t=>!['Completed','Cancelled','Closed / Lost'].includes(t.status));
+  const openTasks=pTasks.filter(t=>!taskIsClosed(t) && !taskIsParked(t));
 
   const tab=route.tab||'overview';
   const tabs=[['overview','Overview'],['notes','Activity ('+acts.length+')'],['meetings','Meetings ('+pMeetings.length+')'],['knowledge','Knowledge']];
@@ -2563,11 +2565,12 @@ const FU_OUTCOMES=[
   {label:'Email sent',next:'Waiting for Response'},{label:'Waiting for response',next:'Waiting for Response'},
   {label:'Meeting completed',next:'In Progress'},{label:'Proposal sent',next:'Waiting for Response'},
   {label:'Call completed',next:'Waiting for Response'},{label:'Contract signed',next:'Completed'},
-  {label:'Opportunity lost',next:'Closed / Lost'},{label:'Custom',next:null}
+  {label:'Park conversation',next:'Parked'},{label:'Opportunity lost',next:'Closed / Lost'},{label:'Custom',next:null}
 ];
 function vTasks(){
   const filter=route.taskFilter||'open';
   const list = filter==='open' ? openTasks() : filter==='waiting' ? state.tasks.filter(t=>t.status==='Waiting for Response') :
+               filter==='parked' ? state.tasks.filter(t=>taskIsParked(t)) :
                filter==='overdue' ? openTasks().filter(t=>t.due_at&&t.due_at<today()) : state.tasks;
   const taskPriorityRank={Urgent:4,High:3,Normal:2,Low:1};
   const sorted=[...list].sort((a,b)=>{
@@ -2578,15 +2581,17 @@ function vTasks(){
     return (a.due_at||'9999').localeCompare(b.due_at||'9999');
   });
   const view=route.tasksView=route.tasksView||'card';
-  const overdue=sorted.filter(t=>t.due_at&&t.due_at<today()&&!['Completed','Cancelled','Closed / Lost'].includes(t.status)).length;
+  const overdue=sorted.filter(t=>t.due_at&&t.due_at<today()&&!taskIsClosed(t)&&!taskIsParked(t)).length;
   const waiting=sorted.filter(t=>t.status==='Waiting for Response').length;
+  const parked=sorted.filter(t=>taskIsParked(t)).length;
   const header='<div class="page-head"><div><div class="eyebrow">Relationship workflow</div><div class="page-title">Follow-ups</div>'+
     '<div class="page-sub">'+sorted.length+' shown</div></div><button class="btn gold" onclick="openTaskForm()">+ New follow-up</button></div>'+
     '<div class="metric-strip"><div class="metric-tile"><div class="metric-value">'+sorted.length+'</div><div class="metric-label">Shown</div></div>'+
     '<div class="metric-tile"><div class="metric-value">'+overdue+'</div><div class="metric-label">Overdue</div></div>'+
-    '<div class="metric-tile"><div class="metric-value">'+waiting+'</div><div class="metric-label">Waiting</div></div></div>'+
+    '<div class="metric-tile"><div class="metric-value">'+waiting+'</div><div class="metric-label">Waiting</div></div>'+
+    '<div class="metric-tile"><div class="metric-value">'+parked+'</div><div class="metric-label">Parked</div></div></div>'+
     '<div class="view-toolbar"><div style="display:flex;gap:8px;flex-wrap:wrap">'+
-      [['open','Open'],['overdue','Overdue'],['waiting','Waiting'],['all','All history']].map(([id,l])=>
+      [['open','Open'],['overdue','Overdue'],['waiting','Waiting'],['parked','Parked'],['all','All history']].map(([id,l])=>
         '<button class="btn sm'+(filter===id?' active':'')+'" onclick="route.taskFilter=\''+id+'\';renderCurrent()">'+l+'</button>').join('')+
       '</div>'+twoViewSwitcher('tasksView',view)+'</div>';
   if(!sorted.length) return header+'<div class="empty"><div class="empty-ico">✓</div>Nothing here.</div>';
@@ -2600,7 +2605,7 @@ function vTasks(){
       '</tbody></table></div>';
   }
   return header+'<div class="priority-card-grid">'+sorted.map(t=>{
-    const late=t.due_at&&t.due_at<today()&&!['Completed','Cancelled','Closed / Lost'].includes(t.status);
+    const late=t.due_at&&t.due_at<today()&&!taskIsClosed(t)&&!taskIsParked(t);
     return '<div class="card rich-card" style="--accent:'+(late?'var(--red)':priorityColor(t.priority))+'" onclick="openTaskModal(\''+t.id+'\')">'+
       '<div class="rich-card-head"><div style="display:flex;gap:11px"><div class="rich-icon">✓</div><div><div class="rich-title">'+esc(t.title)+'</div>'+
       '<div class="rich-sub">'+esc(orgName(t.organisation_id)||'No organisation')+'</div></div></div><span class="status-chip">'+esc(t.status)+'</span></div>'+
@@ -2642,10 +2647,15 @@ async function saveTaskForm(){
 function openTaskModal(id){
   const t=byId(state.tasks,id); if(!t) return;
   const isFinal=['Completed','Cancelled','Closed / Lost'].includes(t.status);
+  const isParked=taskIsParked(t);
   openModal('<h3>'+esc(t.title)+'</h3>'+
     '<div class="muted" style="font-size:12px;margin-bottom:14px">'+esc(orgName(t.organisation_id))+' · '+t.status+(t.due_at?' · due '+fmtDate(t.due_at):'')+(taskCalendarTime(t)?' at '+taskCalendarTime(t):' · Any time')+
       (isFinal?'':' <span class="link-btn" style="margin-left:8px" onclick="openTaskEditForm(\''+t.id+'\')">edit details</span>')+'</div>'+
     (isFinal ? '<div class="empty">This follow-up is closed. Outcome: '+esc(t.outcome||t.status)+'</div>' :
+    isParked ? '<div class="card" style="margin-bottom:14px"><div class="eyebrow">Parked conversation</div><div style="margin-top:8px">This follow-up is paused and will not appear as open or overdue.</div>'+
+      (t.completion_notes?'<div class="muted" style="margin-top:8px">'+esc(t.completion_notes)+'</div>':'')+
+      (t.due_at?'<div class="faint" style="margin-top:8px">Review on '+fmtDate(t.due_at)+'</div>':'')+'</div>'+
+      '<button class="btn gold" onclick="resumeTask(\''+t.id+'\')">Resume conversation</button>' :
     '<div class="field"><label class="fl">What happened?</label><select class="select" id="f_outcome" onchange="document.getElementById(\'f_nextWrap\').style.display=this.value===\'Contract signed\'||this.value===\'Opportunity lost\'?\'none\':\'block\'">'+
       FU_OUTCOMES.map(o=>'<option value="'+o.label+'">'+o.label+'</option>').join('')+'</select></div>'+
     '<div class="field"><label class="fl">Notes</label><textarea class="input" id="f_outcomeNotes" rows="3" placeholder="What was said, agreed, or learned"></textarea></div>'+
@@ -2737,6 +2747,14 @@ async function completeTask(id){
   closeModal(); renderCurrent(); toast('Follow-up updated');
 }
 
+async function resumeTask(id){
+  const t=byId(state.tasks,id); if(!t) return;
+  await dbUpdate('tasks',id,{status:'To Do',outcome:'Conversation resumed',completed_at:null,waiting_since:null,due_at:today()});
+  await logActivity({activity_type:'Follow-up',title:t.title+' — conversation resumed',organisation_id:t.organisation_id,person_id:t.person_id,opportunity_id:t.opportunity_id,task_id:t.id});
+  if(t.organisation_id) await touchOrgInteraction(t.organisation_id,t.title,today());
+  closeModal(); renderCurrent(); toast('Conversation resumed');
+}
+
 
 function autoSummary(text){
   const clean=String(text||'').replace(/\s+/g,' ').trim();
@@ -2775,7 +2793,7 @@ async function propagateInteraction({organisationId,personId,meetingId,notes,nex
   }
   if(interactionType==='Meeting'){
     const staleMeetingTasks=state.tasks.filter(t=>
-      !['Completed','Cancelled','Closed / Lost'].includes(t.status) &&
+      !taskIsClosed(t) && !taskIsParked(t) &&
       ((personId && t.person_id===personId) || (organisationId && t.organisation_id===organisationId)) &&
       /^(book|schedule|arrange|await).*meeting|^contact$|^book meeting$/i.test(String(t.title||'').trim())
     );
@@ -5194,7 +5212,7 @@ const CONTENT_LIBRARY=[
    copy (plus an optional image suggestion). Nothing here creates a "write
    X" task — the writing is already done.
 
-   FIXED WEEKLY RHYTHM (every week, Monday 27 July 2026 through late January
+   FIXED WEEKLY RHYTHM (every week, Monday 24 August 2026 through February
    2027 — 26 weeks, no exceptions):
      Mon — Flagship Thought Leadership Day: LinkedIn flagship article + a
            standalone X post (its own independently-written take, not "read
@@ -5216,10 +5234,10 @@ const CONTENT_LIBRARY=[
    That's 6 items/week x 26 weeks = 156 fully ready-to-post items, no
    placeholders, no "write this later."
 --------------------------------------------------------------------------- */
-const CURATED_CALENDAR_KEY = 'curated-editorial-6mo-v2';
+const CURATED_CALENDAR_KEY = 'curated-editorial-newsroom-6mo-v3';
 const MARKETING_CAMPAIGN_KEY = CURATED_CALENDAR_KEY;
-const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2','weekly-rhythm-6mo-v3','weekly-rhythm-6mo-v4','curated-editorial-6mo-v1'];
-const WEEKLY_MIGRATION_VERSION = 'weekly_rhythm_v4';
+const PRIOR_CAMPAIGN_KEYS = ['insurance-verification-6mo-v2','weekly-campaigns-6mo-v1','weekly-rhythm-6mo-v1','weekly-rhythm-6mo-v2','weekly-rhythm-6mo-v3','weekly-rhythm-6mo-v4','curated-editorial-6mo-v1','curated-editorial-6mo-v2'];
+const WEEKLY_MIGRATION_VERSION = 'newsroom_calendar_v3_migration';
 const FORWARD_MARKETING_RESET_VERSION = 'forward_marketing_reset_2026_07_20_v2';
 const FORWARD_MARKETING_START = '2026-07-20';
 
@@ -5250,10 +5268,10 @@ function weekdayOf(dateValue){
   return new Date(Number(m[1]), Number(m[2])-1, Number(m[3])).getDay();
 } // 0=Sun..6=Sat, local, no UTC shift
 
-/* Fixed plan anchor — Monday 27 July 2026, always, regardless of when this
+/* Fixed Newsroom V3 anchor — Monday 24 August 2026, always, regardless of when this
    code happens to run. This is a curated calendar with real dates the user
    chose, not a rolling "starts next Monday" generator. */
-const PLAN_START = new Date(2026, 6, 27);
+const PLAN_START = new Date(2026, 7, 24);
 const PLAN_DAY_OFFSET = {mon:0, tue:1, wed:2, thu:3, fri:4};
 
 /* Default target-audience line per content type, so individual calendar
@@ -5305,11 +5323,11 @@ const AUDIENCE_BY_TYPE = {
 const DEFAULT_IMAGE_SUGGESTION='Optional — simple navy/gold graphic with the opening line as the headline; plain text also performs well on LinkedIn.';
 
 /* ===========================================================================
-   THE CALENDAR ITSELF — 26 weeks, Monday 27 July 2026 through late January
+   THE CALENDAR ITSELF — 26 weeks, Monday 24 August 2026 through February
    2027 (~6 months). Every week runs the full Mon-Fri rhythm above; Saturday
    and Sunday are never scheduled.
 =========================================================================== */
-const CURATED_CALENDAR_WEEKS = [
+const LEGACY_CURATED_CALENDAR_WEEKS = [
 {w:1, items:[
   {day:'mon', platform:'LinkedIn', type:'Insurance', title:'The staged accident problem nobody wants to talk about',
     desc:'Flagship Monday article — motor claims fraud, opening the new weekly rhythm.',
@@ -6290,6 +6308,323 @@ Thank you for reading along this year.
 The gap we're closing isn't technology. It's habit — ours as much as anyone's. Thank you for reading along.`}
 ]}];
 
+/* ---------------------------------------------------------------------------
+   NEWSROOM CALENDAR V3 — story first, format second.
+
+   The previous plan started with a publishing slot and tried to find a topic
+   to fill it. This plan starts with a scene, tension, documented fact, useful
+   experiment or honest founder observation. Only then is it adapted for each
+   platform. Twenty of the 26 weeks are directly about insurance; the remaining
+   six strengthen Kweli's AI-input, privacy and trust-layer positioning.
+
+   Editorial truth labels:
+     - "Documented fact" entries name their public source in the copy.
+     - "Illustrative scenario" entries never pretend to be customer results.
+     - "From our conversations" is used only for genuine recurring lessons and
+       never invents a named customer, quotation or commercial outcome.
+--------------------------------------------------------------------------- */
+const NEWSROOM_WEEKS=[
+  {type:'Insurance',format:'Illustrative story',hook:'The bill was genuine. The total was not.',
+   scene:`Imagine a patient leaving hospital with a genuine bill for KES 48,000. The hospital name is right. The visit happened. The doctor is real. By the time the document reaches the claims desk, two line items have changed and the total is KES 84,000.`,
+   turn:`That is harder to catch than a completely fake bill because almost everything on the page deserves to be trusted. The dangerous document is often the one that is 95% real.`,
+   lesson:`Independent verification should answer a narrow question before assessment begins: does this file match the version registered by the issuer, or has it changed?`,
+   question:'Which worries a health insurer more: the obvious fake or the almost-real bill?',
+   x:`The most dangerous medical bill may be 95% genuine. Real hospital. Real patient. Real treatment. Two altered line items. That is why "it looks legitimate" is not verification.`,
+   commercial:`The claims handler should not have to become a document detective. First prove the document matches the issuer's registered version. Then let the insurer or its AI assess whether the treatment and charges make sense. Authenticity first. Assessment second.`,
+   fact:`Document integrity and medical necessity are different questions. A file can be unaltered but contain questionable charges; it can also contain appropriate treatment but be an altered copy. Good claims automation needs both checks, in that order.`,
+   visual:'Five-panel carousel: KES 48,000 bill → two hands passing it → two lines change → KES 84,000 bill → “95% genuine can still be 100% dangerous.”',
+   founder:`The phrase I keep returning to is “almost real.” Obvious fakes are designed badly. The harder cases preserve everything trustworthy about a document and change only what matters. That is a more honest description of the problem Kweli is built to address.`},
+
+  {type:'Insurance',format:'Documented fact',hook:'Thirty-five fraud cases reached Kenya’s insurance fraud unit in three months.',
+   scene:`Kenya's Insurance Regulatory Authority reported 35 fraud cases to the Insurance Fraud Investigation Unit in the first quarter of 2025. That number is not an estimate of all fraud. It is the number that made it far enough to be reported to the specialist unit.`,
+   turn:`Behind every reported case sits a much larger daily workload of documents that must be accepted, checked manually, escalated or quietly trusted.`,
+   lesson:`Fraud investigations matter. But insurers also need cheaper proof earlier in the workflow, before a questionable document becomes an investigation. Source: IRA, Insurance Industry Report, Q1 2025.`,
+   question:'How many questionable documents never become a formal fraud case because checking them is too expensive?',
+   x:`IRA reported 35 cases to Kenya's Insurance Fraud Investigation Unit in Q1 2025. The more interesting question is how many questionable documents never reach that stage because checking every one is impractical.`,
+   commercial:`A specialist fraud unit works at the end of suspicion. Kweli belongs earlier: at document intake, where an insurer can establish whether a file matches the issuer-registered original before spending investigation time on it.`,
+   fact:`A reported fraud case and a failed document-verification check are not the same thing. A failed match is a signal to investigate, not a verdict that somebody committed fraud. Precision matters.`,
+   visual:'Data card using one large number: “35 reported cases · Q1 2025 · Source: IRA” followed by “What never reached the unit?”',
+   founder:`Big fraud estimates make good headlines, but I am more interested in what an insurer can prove at the moment a document arrives. Kweli should never call someone a fraudster. It should provide a clean signal: matched, changed, or not registered.`},
+
+  {type:'Insurance',format:'Fable',hook:'The claims handler and the beautifully stamped lie',
+   scene:`A claims handler received two garage estimates. One was plain, badly formatted and genuine. The other had a polished letterhead, three stamps and a signature in blue ink. Everyone trusted the second one first.`,
+   turn:`The eye rewards confidence. Fraudsters know this. A document can accumulate visual signals of authority without accumulating a single piece of independent proof.`,
+   lesson:`A stamp is a claim made by the document. Verification is evidence supplied independently of the document.`,
+   question:'What visual detail makes your team trust a document too quickly?',
+   x:`A stamp is a claim made by the document. It is not independent proof of the document. The prettier the paperwork, the easier it can be to stop asking questions.`,
+   commercial:`The useful workflow is not “teach every claims handler to spot a better fake.” It is “remove visual guesswork from the first decision.” Match the incoming file against the issuer's registered proof, then assess the claim.`,
+   fact:`Logos, signatures, stamps and QR codes printed on a page can all be copied. A QR code is only useful when its destination and underlying record are controlled and independently verifiable.`,
+   visual:'Illustrated fable: two documents on a desk; the plain one has a quiet gold verification mark, the ornate stamped one casts a long question-mark shadow.',
+   founder:`I spent years in media, where presentation matters. Building Kweli keeps reminding me that presentation and proof are different currencies. A polished document can earn attention. It should not automatically earn trust.`},
+
+  {type:'Insurance',format:'Illustrative story',hook:'The same accident photo appeared in two different claims.',
+   scene:`Picture a motor claims team reviewing two files months apart. Different claimant. Different registration number. Different garage. The damage photo looks ordinary—until somebody remembers seeing the same cracked bumper before.`,
+   turn:`Humans are poor databases. At volume, reused images and recycled documents can move through separate desks without anyone connecting them.`,
+   lesson:`Document proof does not replace image-forensics or fraud analytics. It gives those systems reliable identity and history: when an item was registered, by whom, and whether the exact file has appeared before.`,
+   question:'Could your claims system recognise the same evidence arriving under a new story?',
+   x:`Different claimant. Different garage. Same damage photo. Fraud often succeeds because each claim is assessed alone. Trust intelligence begins when documents and evidence have verifiable history.`,
+   commercial:`The immediate Kweli layer answers whether evidence matches a registered item. Over time, verification events can reveal reuse, revocation and unusual patterns—without asking a claims handler to remember every bumper they have ever seen.`,
+   fact:`Authenticity, uniqueness and truth are separate properties. A photo may be authentic yet reused in the wrong claim. A document may be unaltered yet contain a false statement. Systems should not collapse those questions.`,
+   visual:'Split-screen carousel: Claim A and Claim B with different details; identical damaged-bumper image highlighted in gold; final slide “Same evidence. Different story.”',
+   founder:`One lesson from motor-insurance conversations is that the document is rarely the whole fraud. Collusion and reuse matter too. That is why our long-term opportunity is not merely a green verification badge; it is the trust history behind the evidence.`},
+
+  {type:'Insurance',format:'Documented fact',hook:'Kenya already lets motorists scan a QR code to check cover. That proves the behaviour is possible.',
+   scene:`The Association of Kenya Insurers' Bima Yangu app lets a motorist scan a motor-insurance certificate and see whether it is genuine, expired, invalid or upcoming. It also supports reporting a claim and uploading evidence.`,
+   turn:`The important lesson is larger than one app: verification works when the issuer ecosystem agrees on the record behind the document.`,
+   lesson:`Kweli is not arguing that every existing verification system should be replaced. We are arguing that the same expectation—scan, check, know—should extend to the other documents inside a claim. Source: Association of Kenya Insurers, Bima Yangu launch information.`,
+   question:'Why should the policy certificate be instantly checkable while the garage invoice is still trusted by sight?',
+   x:`Kenyan motorists can already scan a motor certificate and check its status through Bima Yangu. The behaviour exists. The next question: why are the documents inside a claim still so difficult to verify?`,
+   commercial:`Policy verification solves one document. A claim can contain estimates, invoices, assessor reports, police abstracts, medical notes and photographs. Kweli's opportunity is to provide a common proof layer across that mixed file.`,
+   fact:`A valid policy does not validate the evidence submitted under it. Verification has to follow the documents that carry each claim, not stop at the certificate.`,
+   visual:'Carousel: “Already verifiable: motor certificate” → “Still often trusted manually: invoice / estimate / report / photo” → “The gap inside the claim.”',
+   founder:`I like examples where the market has already learned the behaviour. Nobody needs a lecture on why scanning a certificate is useful. The challenge is extending that expectation of instant proof to the rest of the claims file.`},
+
+  {type:'Insurance',format:'Fable',hook:'The garage, the assessor and the price of one headlamp',
+   scene:`A garage quoted a headlamp. The assessor reduced the price. The insurer approved the revised amount. Everyone had done their job—but nobody could see what the same part cost across five credible suppliers that week.`,
+   turn:`A document can be perfectly genuine and still carry a bad price. Proving the invoice was not altered does not prove the amount is reasonable.`,
+   lesson:`Kweli should establish provenance. Pricing intelligence and AI should assess the commercial content. Together they remove two different kinds of uncertainty.`,
+   question:'Does your claims workflow separate “is this the real quote?” from “is this a fair quote?”',
+   x:`A genuine garage quote can still be overpriced. Verification proves provenance. Pricing intelligence tests reasonableness. Insurers need both—and should not pretend one is the other.`,
+   commercial:`For a motor claim, the sequence can be simple: verify the quote came from the registered garage and has not changed; compare parts against traceable market data; route exceptions to an assessor. Human attention goes where it is valuable.`,
+   fact:`Provenance answers who issued a record and whether it changed. Valuation answers whether the price is reasonable. Approval remains the insurer's decision.`,
+   visual:'Three-column graphic: “Verified issuer” / “Market price checked” / “Insurer approves.” Different checkmarks, no step pretending to do another step’s job.',
+   founder:`A useful product conversation changed how I describe Kweli: a trust layer should make the next system better, not claim to replace it. Copilot, a parts database and human assessors all work better when the document entering the process is provable.`},
+
+  {type:'Insurance',format:'Illustrative story',hook:'A discharge summary changed after the patient left.',
+   scene:`Illustrative scenario: a patient is genuinely treated and discharged. The summary is genuine when it leaves the hospital. Later, a diagnosis line is changed so the paperwork fits a benefit or supports a larger claim.`,
+   turn:`The hospital's logo and doctor's name remain real. Calling the whole document “fake” misses how the manipulation works.`,
+   lesson:`The issuer should be able to register the final document once. Anyone downstream should be able to confirm whether the copy they received is the same version.`,
+   question:'At what point in your medical-claims journey does the patient still need to carry the document between systems?',
+   x:`The hospital can be real. The treatment can be real. The signature can be real. One changed diagnosis line is enough to change the claim. “Fake versus genuine” is often too crude a frame.`,
+   commercial:`A stronger flow removes the claimant as document courier: the hospital finalises and registers the record, and the insurer receives or verifies it directly. The customer still owns the claim; they simply cannot alter the evidence in transit.`,
+   fact:`Direct issuer-to-insurer delivery reduces an opportunity for alteration, but integrity proof still matters because files can move through portals, email, storage and downstream automation.`,
+   visual:'Journey map: Hospital → patient-held document → insurer, with the risky handoff highlighted; second frame routes verified evidence directly to insurer.',
+   founder:`The best workflow improvement may not be a smarter fraud model. It may be removing an unnecessary handoff. If a verified hospital document can reach the insurer directly, genuine customers wait less and insurers inherit less uncertainty.`},
+
+  {type:'Insurance',format:'Experiment',hook:'Can you spot which invoice was changed?',
+   scene:`Put two invoices side by side. Same supplier. Same invoice number. Same logo. Same date. One total has been changed and the PDF re-saved. Give people ten seconds to choose.`,
+   turn:`Some will guess correctly. That is not a control. A claims process cannot depend on visual luck multiplied across thousands of files.`,
+   lesson:`The machine does not need better eyesight if the issuer registered proof of the original. It needs to compare the incoming file with that proof.`,
+   question:'Would your team detect the change—or merely feel confident that it would?',
+   x:`Two identical-looking invoices. One changed total. Ten seconds. If your control is “our team would notice,” try the experiment before trusting the answer.`,
+   commercial:`This is an ideal demo because it makes the distinction visible: AI may extract both totals perfectly. Kweli asks a different question—which file matches the issuer-registered original?`,
+   fact:`Changing even one character in a digital file changes its cryptographic fingerprint. That makes exact-file comparison decisive when the issuer's final version has been registered.`,
+   visual:'Interactive-style two-card post labelled Invoice A and Invoice B; ask readers to vote before revealing that visual inspection is the wrong tool.',
+   founder:`I want more of our marketing to be experienced, not explained. Two files and one question can teach the product faster than another paragraph about SHA-256. If the audience feels the uncertainty, the need for proof becomes obvious.`},
+
+  {type:'Insurance',format:'Documented fact',hook:'Motor and medical carry the weight—and much of the pain.',
+   scene:`AKI reported that Kenyan insurers paid KES 37.6 billion in motor claims and KES 32.4 billion in medical claims in 2022. The same industry report described motor and medical as the largest loss-making non-life classes, with fraud and healthcare costs among the pressures.`,
+   turn:`This is why “start with insurance” is not a generic market choice for Kweli. It is a decision to begin where document volume, financial pressure and verification friction meet.`,
+   lesson:`Verification will not solve every driver of loss. It can make one expensive part of the workflow—trusting third-party documents—faster and more defensible. Source: Association of Kenya Insurers, 2022 industry results.`,
+   question:'If you could make one document type provable across motor or medical, where would you begin?',
+   x:`Kenyan insurers paid KES 37.6bn in motor claims and KES 32.4bn in medical claims in 2022, according to AKI. High volume makes manual document checking mathematically difficult. That is the wedge.`,
+   commercial:`A design-partner pilot should not attempt every claim and every document. Choose one high-friction workflow, register issuer originals, measure verification time, exceptions and downstream handling, then expand only if the evidence supports it.`,
+   fact:`A beachhead is not a permanent boundary. It is the place where a product can prove its value under the greatest concentration of pain. For Kweli, that place is insurance.`,
+   visual:'Clean Kenya data graphic: Motor claims KES 37.6bn; Medical claims KES 32.4bn; footer “Source: AKI, 2022.”',
+   founder:`I used to worry that focusing on insurance made the vision sound smaller. I now think the opposite. A serious beachhead forces us to earn the right to expand. We should become useful in claims before describing ourselves as the trust layer for everything.`},
+
+  {type:'Insurance',format:'Fable',hook:'The insurer who checked every document—and paid every genuine claim late',
+   scene:`An insurer decided the answer to fraud was to verify everything manually. Every invoice triggered an email. Every report triggered a phone call. Fraud became harder—but genuine customers waited while teams chased confirmations.`,
+   turn:`A control can reduce one risk while creating another: delay, cost and customer frustration.`,
+   lesson:`The goal is not maximum suspicion. It is cheap, independent proof for routine documents and human investigation for the exceptions.`,
+   question:'How much of your claims delay comes from waiting for somebody outside the insurer to confirm a document?',
+   x:`“Check everything manually” is not a scalable fraud strategy. It turns genuine customers into collateral damage. Automate proof; reserve people for exceptions.`,
+   commercial:`With issuer-registered documents, a matching file can move immediately to assessment. A failed match or unregistered document can be routed for review. The claims team is no longer phoning every provider indiscriminately.`,
+   fact:`Straight-through processing should not mean straight-through trust. A verification gate can be fast for matched documents and deliberately slower only where proof is missing.`,
+   visual:'Before/after queue: 100 documents waiting for phone calls versus 92 verified automatically and 8 routed to review. Label numbers “illustrative,” not performance claims.',
+   founder:`The value story I care about is not “catch more bad people.” It is “stop making good customers wait because your process cannot distinguish routine proof from a real exception.” Trust infrastructure should improve speed as much as control.`},
+
+  {type:'Insurance',format:'Real public case',hook:'Seventeen claims. One investigation. A paper trail that reached court.',
+   scene:`A 2025 Kenya Law decision records evidence that the Insurance Fraud Investigation Unit established that 17 claims had been filed fraudulently in the matter before the court. The judgment is a reminder that claims fraud is not an abstract PowerPoint risk.`,
+   turn:`By the time a pattern becomes a court record, investigators have already done the slow work of connecting people, examinations, records and claims.`,
+   lesson:`Earlier document provenance would not decide guilt. It could make the evidence trail cleaner and anomalies easier to surface. Source: AIPCA Dandora Creative Centre v Ndumbi & 77 others, Kenya Law, 25 April 2025.`,
+   question:'What would investigators learn sooner if every supporting document had verifiable origin and history?',
+   x:`A 2025 Kenya judgment records an IFIU finding involving 17 fraudulent claims. Court cases show the end of the trail. Better provenance belongs near the beginning.`,
+   commercial:`Kweli's role is evidential, not judicial: record that an issuer registered a document at a time, allow exact-match verification and preserve a useful audit trail. Investigators and insurers decide what that evidence means.`,
+   fact:`A verification failure should trigger review, not an automatic accusation. Files can fail to match for innocent reasons—rescanning, format conversion or use of an unregistered copy.`,
+   visual:'Timeline graphic: Document issued → claim submitted → anomaly detected → investigation → court record. Highlight the long gap before certainty.',
+   founder:`Real cases are more useful than dramatic invented statistics because they force us to be precise about our role. Kweli does not determine guilt. It gives the people who must decide a cleaner record of what was issued and what arrived.`},
+
+  {type:'Insurance',format:'Illustrative story',hook:'The towing invoice arrived before the tow truck did',
+   scene:`Illustrative scenario: a motor claim includes a towing invoice with the right vehicle details, date and route. It looks ordinary. A later phone call suggests the towing company never handled the vehicle.`,
+   turn:`An unaltered invoice is not automatically a truthful invoice. Issuer identity and document integrity are necessary, but collusion can still produce a “genuine” record of something that never happened.`,
+   lesson:`Verification is a foundation for fraud controls, not a magical replacement for them.`,
+   question:'Which third-party claim documents are most vulnerable to collusion even when they are genuine?',
+   x:`A document can be genuinely issued and still describe something that never happened. Provenance is essential. It is not omniscience. Honest product positioning matters.`,
+   commercial:`Once issuer identity and integrity are established, insurers can combine that proof with GPS, eTIMS, claim history, pricing and network rules. Each layer answers a distinct question.`,
+   fact:`Kweli verifies correspondence to a registered issuer record. It does not independently prove that the underlying event occurred or that every statement inside the document is true.`,
+   visual:'Layer cake graphic: Provenance → Event evidence → Price reasonableness → Policy assessment → Decision.',
+   founder:`The fastest way to lose trust is to promise that one technology “stops fraud.” I would rather describe the exact layer we provide and build strong partnerships around the layers we do not. Precision is part of the brand.`},
+
+  {type:'Insurance',format:'Did you know',hook:'A QR code can be copied. The record behind it is what matters.',
+   scene:`Print a QR code on a fake document and many people will assume the document is secure. But a code can point anywhere: a copied verification page, a lookalike domain or a record created by the fraudster.`,
+   turn:`The square pattern is not the security. Trust comes from who controls the destination, how the issuer was authenticated and whether the returned record matches the document.`,
+   lesson:`Good verification asks the user to trust an independently controlled record—not the ink printed by the document itself.`,
+   question:'When your team scans a QR code, do they check who owns the page it opens?',
+   x:`A QR code is an address, not proof. The security lives in the issuer identity, controlled destination and matching record behind it.`,
+   commercial:`For physical or scanned documents, the workflow must survive more than a copied code. The verifier should see issuer, document type, registration time and comparison result on a trusted domain.`,
+   fact:`Exact file hashing works best for the original digital file. Printing, scanning, photographing or modifying a PDF changes its bytes, so physical-document workflows need a secure record and carefully designed comparison path.`,
+   visual:'Carousel: “QR code” crossed out as proof → “Trusted destination” → “Authenticated issuer” → “Matching record” → “Now you have verification.”',
+   founder:`Physical documents are one of the hardest parts of this product. I am comfortable saying that openly. A copied QR code is an obvious attack, so our workflow has to earn trust beyond the presence of a square on the page.`},
+
+  {type:'Insurance',format:'Illustrative story',hook:'The claim was approved in seven seconds. The fake input was never questioned.',
+   scene:`Imagine an insurer connecting AI to a claims queue. The model extracts the amount, reads the diagnosis, checks the policy and recommends payment in seven seconds. The invoice is altered—but perfectly legible.`,
+   turn:`The AI has not malfunctioned. It has done exactly what it was asked to do with the evidence it received.`,
+   lesson:`Automation amplifies the quality of its inputs. Verify the document before asking AI to reason over it.`,
+   question:'What proves the files entering your AI workflow are the files their issuers produced?',
+   x:`AI can read a forged invoice perfectly. That is the problem. Faster reasoning over unverified evidence produces faster confidence, not necessarily a safer decision.`,
+   commercial:`The order matters: issuer registers proof → incoming file is verified → AI extracts and assesses → exceptions reach a human → insurer decides. Kweli is the trust gate before automation, not a competing claims model.`,
+   fact:`Content extraction answers “what does this file say?” Integrity verification answers “is this the registered file?” Neither answer substitutes for the other.`,
+   visual:'Seven-second timeline ending in APPROVED, then rewind to reveal a red “input never verified” marker before the AI step.',
+   founder:`Old Mutual's scale of AI use made the positioning clearer for me: we do not need to replace an insurer's models. We need to help those models start with evidence the insurer can trust.`},
+
+  {type:'Insurance',format:'Fable',hook:'The honest claimant paid the price for everybody else’s paperwork',
+   scene:`A claimant submitted every document on time. The hospital bill was genuine. The report was accurate. The insurer still needed days to confirm them because the process had no independent proof.`,
+   turn:`Fraud does not only cost the insurer. It taxes every genuine customer through delay, suspicion and extra administration.`,
+   lesson:`Better verification should allow honest claims to move faster, not merely create more ways to reject suspicious ones.`,
+   question:'What would your claims experience look like if genuine documents could clear the first trust check instantly?',
+   x:`The hidden victim of document fraud is the honest claimant waiting while an insurer checks everybody manually. Verification is a customer-experience tool too.`,
+   commercial:`Pilot success should measure more than fraud flags: time to verify, reduction in issuer phone calls, exception rate and how quickly matched documents move to assessment.`,
+   fact:`A control that cannot distinguish low-risk matched documents from exceptions imposes its cost on every claimant. Risk-based workflows need reliable signals early.`,
+   visual:'Two customer journeys: “manual confirmation” with clocks and phone calls versus “verified → assess” with a straight path.',
+   founder:`I do not want Kweli marketed as a weapon against claimants. The product should protect the insurer while making life easier for people whose documents are exactly what they say they are. Both outcomes matter.`},
+
+  {type:'Insurance',format:'Myth versus fact',hook:'Myth: blockchain proves a document is true.',
+   scene:`A blockchain can preserve a timestamped fingerprint so it is difficult to rewrite later. It cannot look inside a medical bill and decide whether the treatment occurred, whether the price was fair or whether the issuer lied.`,
+   turn:`The technology is valuable precisely when its promise is narrow.`,
+   lesson:`Kweli uses tamper-evident infrastructure to prove correspondence to a registered file. Truth about the underlying event still comes from insurers, providers and evidence.`,
+   question:'Would you trust a verification company more if it clearly told you what it cannot prove?',
+   x:`Blockchain can make a proof difficult to rewrite. It cannot make a lie true. Infrastructure is strongest when the promise is precise.`,
+   commercial:`The buyer does not need a crypto presentation. They need a fast answer in the workflow: registered match, verification failed or document not found—plus enough issuer metadata to act.`,
+   fact:`A SHA-256 fingerprint is deterministic: the same bytes produce the same fingerprint. The chain preserves evidence of registration; it does not assess the meaning of the content.`,
+   visual:'Myth/Fact card: “Blockchain proves truth” versus “Blockchain helps preserve evidence that a specific file was registered at a specific time.”',
+   founder:`The blockchain is the boring part of Kweli, and I mean that as a compliment. Customers should care about the proof and workflow. If we are spending the meeting explaining tokens, we have probably lost the plot.`},
+
+  {type:'Insurance',format:'Illustrative story',hook:'The assessor report had the right signature on the wrong version',
+   scene:`Illustrative scenario: an assessor prepares three drafts. The final report recommends one repair path. An earlier draft—still carrying the assessor's real signature block—enters the claim file instead.`,
+   turn:`Nothing has to be forged for version confusion to change a decision.`,
+   lesson:`Verification should support lifecycle states: final, superseded, revoked and replaced—not simply “a document once existed.”`,
+   question:'Can your team tell whether the document in the claim is the latest valid version?',
+   x:`A genuine document can still be the wrong document. Version, revocation and supersession are part of trust—not administrative footnotes.`,
+   commercial:`An issuer should be able to mark a registered document superseded and direct verifiers to the current version. That gives the insurer a cleaner basis for automated assessment.`,
+   fact:`Integrity answers whether a file changed. Lifecycle status answers whether the unchanged file is still the one that should be relied upon.`,
+   visual:'Three report cards: Draft 1, Draft 2, FINAL. A verifier lands on Draft 2 and sees “Superseded—view current record.”',
+   founder:`A green tick is not enough. Trust changes over time. Documents expire, get revoked and are replaced. Building lifecycle properly is less glamorous than a demo, but it is what turns a feature into infrastructure.`},
+
+  {type:'Insurance',format:'From our conversations',hook:'“Where should we start?” is the wrong first pilot question.',
+   scene:`When an insurer sees several possible workflows—medical, motor, life, general insurance—the temptation is to integrate everywhere. That produces a large project before either side has proved value.`,
+   turn:`The better question is: which single document causes enough delay, uncertainty or loss that a 90-day test can measure the difference?`,
+   lesson:`One workflow. Named issuers. Clear baseline. Clear success metrics. Then expand.`,
+   question:'Which one document would make the strongest pilot inside your organisation?',
+   x:`A pilot should not prove that Kweli can appear in ten workflows. It should prove that one painful workflow becomes measurably better.`,
+   commercial:`Design the pilot around verification time, manual calls avoided, match/failure/not-found rates, claimant turnaround and downstream AI usability. Do not promise fraud savings that the test cannot attribute.`,
+   fact:`A narrow pilot makes integration, issuer onboarding and measurement easier. Breadth belongs after evidence, not before it.`,
+   visual:'Pilot canvas: 1 workflow / 1–3 document types / named issuers / baseline / 90 days / decision gate.',
+   founder:`I naturally want to show the whole vision. Insurer conversations keep teaching me to earn the next workflow. A beachhead exists inside the customer too: start where the pain and measurability are strongest.`},
+
+  {type:'Insurance',format:'Did you know',hook:'“Document not found” may be the most useful answer in the system.',
+   scene:`People expect verification products to return green or red. Real workflows need a third state: the file has no registered proof. That does not mean it is fraudulent. It means the system cannot independently verify it.`,
+   turn:`Unknown is information. Hiding uncertainty behind a confident badge is worse than admitting the evidence is missing.`,
+   lesson:`Matched, failed and not found should lead to different operational paths.`,
+   question:'What does your current process do when proof simply does not exist?',
+   x:`“Not found” is not a product failure. It is an honest answer: no registered proof exists for this file. The workflow can now decide what extra evidence is required.`,
+   commercial:`Matched documents proceed. Failed matches are reviewed for alteration or format issues. Not-found documents trigger issuer confirmation or alternative evidence. That is a usable decision tree.`,
+   fact:`Absence of a record is not proof of fraud. It may mean the issuer has not joined the network, the wrong file was supplied or the document predates registration.`,
+   visual:'Three-door carousel: MATCHED → continue; FAILED → investigate; NOT FOUND → request proof.',
+   founder:`One of my favourite things about Kweli is the discipline of saying “we do not know.” Trust is not manufactured by returning green more often. It is earned by making uncertainty visible and actionable.`},
+
+  {type:'Insurance',format:'Fable',hook:'The insurer built a fortress around the wrong door',
+   scene:`An insurer strengthened logins, encrypted databases and monitored every employee action. Meanwhile, a third-party PDF entered through the claims portal and was accepted because it looked normal.`,
+   turn:`The internal system was secure. The evidence crossing into it was not independently provable.`,
+   lesson:`Cybersecurity protects systems and access. Document provenance protects the boundary between the outside world and an institutional decision.`,
+   question:'How much security sits behind your portal—and how much proof sits in front of the upload button?',
+   x:`A secure claims platform can still make a bad decision from an unverified PDF. Cybersecurity protects the system. Provenance protects the evidence entering it.`,
+   commercial:`Kweli should integrate at the trust boundary: issuer creation or intake verification, before the document becomes accepted data inside the insurer's secure environment.`,
+   fact:`Access control can prove who uploaded a file. It does not necessarily prove who originally issued it or whether it changed before upload.`,
+   visual:'Castle graphic: heavily fortified walls; one open document-shaped gate labelled “unverified input.”',
+   founder:`The trust-layer language matters because Kweli does not compete with the insurer's core system or cybersecurity stack. We address a different boundary: the moment an external document becomes internal evidence.`},
+
+  {type:'Trust Infrastructure',format:'Privacy story',hook:'To verify the document, we do not need to read it.',
+   scene:`A medical report may contain a diagnosis. A claim file may contain an ID number, address and bank details. Uploading all of that to yet another verification company creates a new privacy and security problem.`,
+   turn:`Exact-file fingerprinting allows the proof to be generated on the customer's device. The document itself does not need to be sent to Kweli.`,
+   lesson:`The best trust layer should minimise the data it asks institutions to surrender.`,
+   question:'Why should a verification provider store the sensitive document if a fingerprint can do the job?',
+   x:`Verification should not require creating another warehouse of medical reports, IDs and invoices. The file can stay with the institution; the proof can travel.`,
+   commercial:`Kweli generates a SHA-256 fingerprint client-side and registers minimal metadata. The file remains with the issuer or relying institution. That reduces—not eliminates—the privacy work required for deployment.`,
+   fact:`A cryptographic hash is not a copy of the document and cannot practically be reversed to reconstruct an ordinary high-entropy file. Metadata still needs careful minimisation and governance.`,
+   visual:'“What stays with you” document icon versus “What Kweli receives” fingerprint + minimal metadata.',
+   founder:`Privacy is not a line we added to the deck. It shapes the architecture. If Kweli became a giant central store of everybody's sensitive files, we would be creating the kind of trust problem we claim to solve.`},
+
+  {type:'Insurance',format:'Illustrative story',hook:'The policy was real. The endorsement was not.',
+   scene:`Illustrative scenario: a customer presents a genuine policy schedule alongside an endorsement that appears to extend cover. The fonts and broker details match. Only the endorsement was never issued by the insurer.`,
+   turn:`Verifying the base policy is not enough when a decision depends on a later document in its lifecycle.`,
+   lesson:`Policies, endorsements, certificates and cancellation notices need linked provenance, not isolated storage.`,
+   question:'Can your organisation independently verify every document that changes the meaning of a policy?',
+   x:`A genuine policy can travel with a fabricated endorsement. Verification has to follow the lifecycle, not stop at the first document.`,
+   commercial:`Each policy event can carry an issuer-registered proof and relationship to the prior record. A verifier can see current status without receiving the insurer's entire internal file.`,
+   fact:`A document chain is only as reliable as the event that changes it. Amendments and revocations matter because they alter what downstream parties are entitled to believe.`,
+   visual:'Policy timeline: Issued → Endorsed → Renewed → Cancelled, each event with its own proof state.',
+   founder:`Claims are our entry point, but insurer-issued documents are equally important. The long-term opportunity is a verifiable lifecycle on both sides: what the insurer receives and what the insurer issues.`},
+
+  {type:'AI',format:'Thought experiment',hook:'What happens when anybody can generate a perfect-looking claim file?',
+   scene:`Generative AI can produce polished letters, invoices, signatures and supporting narratives at negligible cost. The visual difference between a legitimate document and a fabricated one keeps shrinking.`,
+   turn:`That does not mean every document needs AI detection. It means appearance becomes a weaker basis for trust.`,
+   lesson:`Move from “does this look real?” to “can the named issuer prove it registered this exact record?”`,
+   question:'When perfect-looking documents become cheap, what will your organisation accept as proof?',
+   x:`AI lowers the cost of a convincing fake. The answer is not asking humans to stare harder. It is moving trust away from appearance and toward provenance.`,
+   commercial:`Forgery detection and issuer-backed verification can coexist. Detection estimates whether something looks suspicious. Kweli checks correspondence with a registered issuer record.`,
+   fact:`No visual detector is the same as issuer confirmation. Probabilistic signals and deterministic exact-match proof answer different questions and can be combined.`,
+   visual:'Two perfect-looking documents feeding into “Looks real.” Then a second test asks “Registered by the named issuer?”',
+   founder:`AI makes Kweli more necessary, but I do not want to use fear as the whole pitch. The positive story is better: institutions can automate more confidently when their evidence begins with proof.`},
+
+  {type:'Insurance',format:'Founder field note',hook:'The most valuable sentence in an insurer meeting is usually an objection.',
+   scene:`“But our documents are printed.” “What if the garage colludes?” “We already use AI.” “Who pays—the issuer or the insurer?” Each objection exposes a part of the workflow a neat product demo can hide.`,
+   turn:`A good meeting is not one where everybody agrees. It is one where the product leaves with a sharper boundary.`,
+   lesson:`Marketing should share what we are learning, not pretend every conversation validates the original plan.`,
+   question:'What is the hardest objection you would raise if Kweli entered your claims process?',
+   x:`The best customer meeting is not the one with no objections. It is the one that makes the product more honest by the time you leave.`,
+   commercial:`Use objections to scope implementation: digital originals first; named issuer cohort; clear handling for scans; fraud analytics remain separate; buyer and issuer incentives documented.`,
+   fact:`Product-market fit is partly the accumulation of precise “no, not like that” feedback. Infrastructure improves when edge cases become design requirements.`,
+   visual:'Objection wall with four speech bubbles turning into four product requirements.',
+   founder:`I used to hear an objection as something I needed to overcome in the room. I now try to hear the architecture hiding inside it. The customer may be showing us the part of Kweli that still needs to become real.`},
+
+  {type:'Insurance',format:'Pilot scorecard',hook:'A pilot that catches zero fraud can still be valuable.',
+   scene:`Suppose a 90-day pilot processes a controlled set of claim documents and no confirmed fraud occurs. Was the pilot a failure? Not if verification time fell, issuer calls reduced, exceptions became visible and genuine claims moved faster.`,
+   turn:`Fraud is episodic. Operational friction happens every day.`,
+   lesson:`Measure what the pilot can actually observe and attribute.`,
+   question:'What result would justify deployment even before the first prevented loss?',
+   x:`A verification pilot should not need a criminal to appear on schedule. Measure daily value: time, calls, exceptions, auditability and claim turnaround.`,
+   commercial:`Recommended scorecard: documents registered; verification attempts; match/failed/not-found rates; median verification time; manual confirmations avoided; exception handling time; user adoption; claimant turnaround.`,
+   fact:`“Fraud prevented” is difficult to prove without a counterfactual. Operational metrics provide earlier, cleaner evidence of value.`,
+   visual:'Scorecard carousel with seven pilot metrics and a final “expand / adjust / stop” decision box.',
+   founder:`We should be commercially ambitious without manufacturing ROI. If a pilot improves speed and control, say that. If it catches a manipulated document, document it. Credibility compounds when the numbers mean exactly what we claim.`},
+
+  {type:'Trust Infrastructure',format:'Vision story',hook:'The day a document no longer has to introduce itself',
+   scene:`Today, every important document arrives saying “trust me”: logo, signature, stamp, email attachment. The recipient carries the burden of deciding whether those signals are enough.`,
+   turn:`In a mature trust network, the document does not argue for itself. The issuer's independent record answers who registered it, when, whether it matches and whether it is still current.`,
+   lesson:`That is the future Kweli is working toward—beginning with insurance workflows in Africa, not pretending the whole network exists on day one.`,
+   question:'What changes when proof becomes a default property of a document rather than a manual service?',
+   x:`The future document will not say “trust me.” It will carry a route to independent proof. We are starting with insurance because infrastructure has to earn its first market.`,
+   commercial:`The path is practical: prove one insurer workflow; onboard issuers; create repeat verification behaviour; expand across document types and markets; turn events into trust intelligence.`,
+   fact:`Networks become more useful as issuer coverage and relying-party adoption grow. The early product must still deliver value before network effects are complete.`,
+   visual:'Five-stage roadmap: Workflow proof → Issuer network → Cross-insurer use → Regional coverage → Trust intelligence.',
+   founder:`My vision is still to make Kweli the trust layer for the world. The discipline is admitting how that vision is earned: one workflow, one insurer, one issuer and one reliable proof at a time.`}
+];
+
+function buildNewsroomWeek(story,index){
+  const label=story.format||'Story';
+  const linkedIn=`${story.hook}\n\n${story.scene}\n\n${story.turn}\n\n${story.lesson}\n\n${story.question}`;
+  return {w:index+1,items:[
+    {day:'mon',platform:'LinkedIn',type:story.type,title:story.hook,desc:'Flagship '+label+' — the week begins with a scene, tension and useful conclusion.',copy:linkedIn},
+    {day:'mon',platform:'X',type:story.type,title:story.hook,desc:'Standalone X adaptation, written for the format.',copy:story.x},
+    {day:'tue',platform:'LinkedIn',type:'Problem/Solution',title:'The workflow hiding inside this story',desc:'Commercial application without turning the flagship into an advert.',copy:story.commercial},
+    {day:'wed',platform:'LinkedIn',type:'Did You Know?',title:'The distinction most teams miss',desc:'One precise, useful idea readers can carry into their work.',copy:story.fact},
+    {day:'thu',platform:'Instagram',type:'Carousel',title:story.hook,desc:'Instagram-first visual adaptation.',copy:`${story.hook}\n\n${story.lesson}\n\n#InsuranceInnovation #Claims #DocumentVerification #Kweli`,image:story.visual},
+    {day:'fri',platform:'LinkedIn',type:'Honest reflections',title:'What this week’s story means for how we are building Kweli',desc:'Founder Friday — first-person reflection grounded in the real product journey.',copy:story.founder}
+  ]};
+}
+const CURATED_CALENDAR_WEEKS=NEWSROOM_WEEKS.map(buildNewsroomWeek);
+
 /* Builds the flat marketing_items rows from the curated calendar above.
    Pure, deterministic, offline — no network call, no CRM dependency (this
    plan never references organisations/contacts, unlike the old distribution
@@ -6814,8 +7149,8 @@ function vMarketingRebuildPanel(){
   const kv=(k,v,mono,color)=>'<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)"><span class="faint" style="font-size:12px">'+k+'</span><span'+(mono?' class="mono"':'')+' style="font-size:12px;text-align:right'+(color?';color:'+color:'')+'">'+v+'</span></div>';
   const clean = info.legacy===0 && info.current===info.expected;
   return '<div class="card" style="border:1px solid var(--gold);box-shadow:0 0 0 1px rgba(212,175,55,.15)">'+
-    '<div style="font-weight:680;font-size:15px;margin-bottom:4px">Marketing plan</div>'+
-    '<div class="muted" style="font-size:12px;margin-bottom:12px">Fixed weekly rhythm — Mon flagship (LinkedIn + X) · Tue commercial story · Wed educational · Thu Instagram visual · Fri founder. Every weekday populated, weekends always empty. '+info.expected+' finished, ready-to-post items across the 6-month plan.</div>'+
+    '<div style="font-weight:680;font-size:15px;margin-bottom:4px">Kweli Newsroom</div>'+
+    '<div class="muted" style="font-size:12px;margin-bottom:12px">Story first, format second — real public cases, clearly labelled scenarios, useful facts, experiments, fables and honest founder field notes. More than 80% of the 26 weekly stories are insurance-led; each is adapted for LinkedIn, X and Instagram without inventing customer outcomes. '+info.expected+' finished, ready-to-post items.</div>'+
     kv('Current campaign key', esc(info.campaign), true)+
     kv('Items in current plan', info.current+' / '+info.expected, true, info.current===info.expected?'var(--gold)':'var(--amber,#F59E0B)')+
     kv('Legacy / old seeded items', info.legacy, true, info.legacy?'var(--amber,#F59E0B)':'')+
@@ -6824,7 +7159,7 @@ function vMarketingRebuildPanel(){
     (clean
       ? '<div class="faint" style="font-size:11px;margin-top:14px;line-height:1.5">Plan looks clean — '+info.expected+' current rows and no legacy items. You can still rebuild to reset.</div>'
       : '<div class="muted" style="font-size:12px;margin-top:14px;line-height:1.5">Rebuild will delete <b>'+info.deletable+'</b> auto-generated row(s) (legacy campaigns, the bulk content-library, and any untouched current rows), keep <b>'+info.preserved+'</b> published/edited item(s), then reseed the current rhythm to exactly '+info.expected+' rows and verify the day counts.</div>')+
-    '<button class="btn gold" style="margin-top:14px;width:100%;font-weight:640" onclick="rebuildMarketingPlan()">Rebuild Marketing Plan</button>'+
+    '<button class="btn gold" style="margin-top:14px;width:100%;font-weight:640" onclick="rebuildMarketingPlan()">Install Newsroom Calendar</button>'+
   '</div>';
 }
 /* Legacy "Rebuild plan" buttons now use the safe, work-preserving rebuild. */
@@ -7416,7 +7751,7 @@ function distributionSuggestionHtml(){
 function vCampaignsTab(){
   const groups=buildCampaignGroups();
   const t=today();
-  return '<div class="page-sub" style="margin-bottom:14px">A curated, ready-to-post editorial calendar — every weekday has something prepared (Mon flagship, Tue story, Wed educational, Thu Instagram, Fri founder). Weekends stay empty.</div>'+
+  return '<div class="page-sub" style="margin-bottom:14px">An insurance-first newsroom calendar built from stories, documented facts, fables, experiments and founder field notes. One strong weekly idea is adapted across platforms; weekends stay empty.</div>'+
   groups.map(g=>{
     const current = t>=g.start && t<=g.end;
     const upcoming = g.start>t;
@@ -7448,7 +7783,7 @@ function vCampaignsTab(){
 function vMarketing(){
   if(!state.marketing_items.length && !route.marketingOnboardingDismissed){
     return '<div class="page-head"><div><div class="eyebrow">Growth</div><div class="page-title">Marketing Assistant</div>'+
-      '<div class="page-sub">Your personal Head of Marketing — a content library plus a real editorial calendar.</div></div></div>'+
+      '<div class="page-sub">Your Kweli newsroom — captivating insurance stories first, platform formats second.</div></div></div>'+
       '<div class="restore-panel"><div style="font-size:15px;font-weight:640;margin-bottom:8px">No marketing plan installed yet</div>'+
       '<div class="muted" style="font-size:12.5px;margin-bottom:18px">Nothing is created automatically \u2014 install the curated 6-month plan below whenever you\u2019re ready, or start with an empty library.</div>'+
       '<button class="btn gold" style="margin-right:10px" onclick="confirmInstallCuratedMarketingPlan()">Install Curated Marketing Plan</button>'+
@@ -8841,4 +9176,3 @@ function vBackupPanel(){
 </script>
 </body>
 </html>
-
