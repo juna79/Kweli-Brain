@@ -4039,7 +4039,7 @@ async function saveInvestorForm(id){
 =========================================================================== */
 const ICRM_STATUSES=['Not contacted','Contacted','Call scheduled','In conversation','Committed','Passed','On hold'];
 const ICRM_PRIORITIES=['A','B','C','D'];
-const INVESTOR_CRM_SEED = [
+const LEGACY_INVESTOR_CRM_SEED = [
 {
 "dedupe_key": "omobola-johnson__tlcom-capital",
 "investor": "Omobola Johnson",
@@ -4534,19 +4534,143 @@ const INVESTOR_CRM_SEED = [
 "notes": "Ground the category vision in the live insurer wedge — he can over-index on vision. Email via EchoVC."
 }
 ];
-function icrmApproachGroup(a){ a=(a||''); if(/^warm intro/i.test(a)) return 'Warm intro'; if(/^linkedin first/i.test(a)) return 'LinkedIn first'; if(/^continue/i.test(a)) return 'Continue'; return 'Email'; }
+
+/* Focused investor pipeline V2 — 12 real relationships, not a padded list.
+   Strategic operators are explicitly labelled as relationships unless they
+   are known to be active angels. Institutional funds remain in the pipeline
+   only where stage and thesis genuinely fit. */
+const INVESTOR_CRM_SEED = [
+  {
+    dedupe_key:'peter-nduati__strategic-angel', investor:'Peter Nduati', company:'Peter Nduati Group / former Resolution Insurance founder',
+    email:'Direct WhatsApp / warm relationship', linkedin:'https://ke.linkedin.com/in/peterkennethnduati', fit_score:10, priority:'A',
+    why_fit:'The strongest strategic-angel relationship in the pipeline: built and scaled an East African insurance group, understands medical and general insurance workflows, has raised angel capital himself, and can open insurer doors across the region.',
+    recommended_approach:'Continue live conversation', subject:'Kweli — strategic insurance angel conversation',
+    email_body:`Peter, thank you again for being open to hearing more about Kweli. We are building the verification layer before insurers and their AI systems rely on third-party documents. Insurance is our beachhead, and I believe your experience building Resolution makes your perspective—and potentially your involvement—particularly valuable. I would like to use our meeting to pressure-test the commercial model, show you the product and explore whether there is a role for you as a strategic angel and industry partner.`,
+    linkedin_message:'Already connected directly. Do not cold-message. Continue via WhatsApp and the agreed meeting route.',
+    status:'In conversation', next_followup:null,
+    notes:'LIVE RELATIONSHIP. Peter has seen the investment deck through a warm introduction and is keen to explore Kweli further. Objective: product feedback, strategic-angel interest and insurer introductions. Do not treat as generic outbound.'
+  },
+  {
+    dedupe_key:'antler-kenya__antler-kenya', investor:'Antler Kenya Investment Team', company:'Antler Kenya',
+    email:'Existing direct meeting route', linkedin:'https://www.linkedin.com/company/antlerglobal/', fit_score:9, priority:'A',
+    why_fit:'Live meeting and genuine pre-seed fit. Antler Kenya officially welcomes existing teams with an MVP or early customer validation. The value is capital plus structured support, investor access and pressure-testing the enterprise go-to-market.',
+    recommended_approach:'Continue live process', subject:'Friday meeting — Kweli',
+    email_body:`Thank you for making time to meet. I will keep the discussion focused on three things: the insurance problem we are solving, what has been validated through our current insurer conversations, and the specific milestones a small pre-seed investment would help us reach. I would also value a direct assessment of what Antler would need to see for Kweli to progress.`,
+    linkedin_message:'Meeting already scheduled. No cold outreach required.', status:'Call scheduled', next_followup:'2026-08-21',
+    notes:'LIVE PROCESS. Meeting Friday, 21 August 2026. Prepare a tight founder story, working product demonstration, insurer pipeline evidence, pilot conversion plan, round terms and clear Antler ask.'
+  },
+  {
+    dedupe_key:'nairobi-business-angel-network__naiban', investor:'Nairobi Business Angel Network', company:'NaiBAN',
+    email:'https://naiban.co.ke/', linkedin:'https://www.linkedin.com/company/nairobi-business-angel-network/', fit_score:9, priority:'A',
+    why_fit:'Best local route to several Kenyan angels in one room, including operators who may understand insurance, enterprise sales and regulated industries. The ask should be a curated pitch session and introductions to relevant members—not a generic inbox pitch.',
+    recommended_approach:'Warm pitch-session introduction', subject:'Nairobi insurance infrastructure company for a curated angel session',
+    email_body:`Hi NaiBAN team,\n\nI am building Kweli, the verification layer before insurers and their AI systems rely on third-party documents. We are currently progressing insurer conversations in Kenya and raising a small strategic angel round.\n\nRather than send a generic funding application, I would value a curated pitch session with members who understand insurance, enterprise software or regulated financial services. Our immediate goal is to convert a focused insurance workflow into a repeatable paid deployment.\n\nWould you be open to a short conversation about the right member group for this?\n\nArjun Vidyarthi\nFounder, Kweli`,
+    linkedin_message:'Nairobi founder building the verification layer for insurance documents. We are raising a small strategic angel round and would value a curated session with NaiBAN members who know insurance or enterprise software. Could we connect?',
+    status:'Not contacted', next_followup:null, notes:'Local angel route. Find a member or ecosystem partner who can introduce Arjun to the programme lead before sending the pitch-session request.'
+  },
+  {
+    dedupe_key:'stephen-gugu__viktoria-ventures-angel', investor:'Stephen Gugu', company:'Viktoria Ventures / Angel',
+    email:'Warm introduction / direct LinkedIn', linkedin:'https://www.linkedin.com/in/stephengugu/', fit_score:9, priority:'A',
+    why_fit:'Kenyan angel ecosystem operator with early-stage investing experience and access to local founders and investors. Useful both as a potential investor and as a route to a small syndicate of relevant angels.',
+    recommended_approach:'Warm intro', subject:'Building a strategic Kenyan angel syndicate around Kweli',
+    email_body:`Hi Stephen,\n\nI am building Kweli, the verification layer before insurers and their AI systems rely on third-party documents. We have a working product and live insurer conversations in Kenya, and we are now assembling a small strategic angel round.\n\nI would value your view on the company and, if it resonates, your help identifying two or three Kenyan angels who understand insurance, enterprise software or regulated financial services.\n\nWould you be open to a short conversation?\n\nArjun`,
+    linkedin_message:'Hi Stephen — I am building Kweli, the verification layer for insurance documents. Working product, live insurer conversations and a small strategic angel round. I would value your read and advice on the right Kenyan angels. Open to connecting?',
+    status:'Not contacted', next_followup:null, notes:'Ask for judgement and syndicate-building help, not merely a cheque. Warm introduction strongly preferred.'
+  },
+  {
+    dedupe_key:'jihan-abass__lami-strategic-relationship', investor:'Jihan Abass', company:'Lami Technologies',
+    email:'Warm introduction required', linkedin:'https://www.linkedin.com/in/jihan-abass/', fit_score:9, priority:'A',
+    why_fit:'Strategic insurtech founder relationship. Jihan has built and funded insurance technology from Nairobi and can provide unusually relevant feedback on insurer integrations, positioning and investor expectations. Do not assume she is currently investing personally.',
+    recommended_approach:'Warm strategic introduction', subject:'Founder-to-founder perspective on Kweli’s insurance wedge',
+    email_body:`Hi Jihan,\n\nI am building Kweli, a verification layer that sits before insurers and their AI systems rely on third-party documents. We are deliberately starting with one insurance workflow in Kenya rather than trying to sell a universal trust platform from day one.\n\nGiven what you have built with Lami, I would value a candid founder-to-founder read on the insurer integration model and what investors will need to see before treating this as infrastructure rather than a feature.\n\nWould you be open to a short conversation?\n\nArjun`,
+    linkedin_message:'Hi Jihan — Nairobi founder building Kweli, a verification layer for insurance documents. I would value a candid founder-to-founder read on the insurer integration model and investment story. Would you be open to connecting?',
+    status:'Not contacted', next_followup:null, notes:'STRATEGIC RELATIONSHIP, not a confirmed angel lead. Best outcome: product insight, investor calibration and warm introductions.'
+  },
+  {
+    dedupe_key:'thomas-njeru__pula-strategic-relationship', investor:'Thomas Njeru', company:'Pula',
+    email:'Warm introduction required', linkedin:'https://www.linkedin.com/in/thomas-njeru/', fit_score:9, priority:'A',
+    why_fit:'Strategic insurtech founder relationship with experience scaling African insurance infrastructure and raising institutional capital. Particularly valuable for understanding insurer distribution, evidence, data and the path from a Kenyan wedge to a regional company. Do not assume personal angel activity.',
+    recommended_approach:'Warm strategic introduction', subject:'A founder’s read on Kweli’s insurance infrastructure thesis',
+    email_body:`Hi Thomas,\n\nI am building Kweli, the verification layer before insurers and their AI systems rely on third-party documents. We are starting with focused medical and motor workflows in Kenya and intend to earn the broader regional infrastructure vision from there.\n\nGiven Pula's experience building insurance infrastructure across markets, I would value your candid read on our wedge, issuer-network challenge and what evidence serious investors will expect.\n\nWould you be open to a short founder conversation?\n\nArjun`,
+    linkedin_message:'Hi Thomas — I am building Kweli, a verification layer for insurance documents, starting in Kenya. Given Pula’s regional insurance journey, I would value your candid read on the wedge and issuer-network challenge. Open to connecting?',
+    status:'Not contacted', next_followup:null, notes:'STRATEGIC RELATIONSHIP, not a confirmed angel lead. Seek a warm introduction through insurance or investor networks.'
+  },
+  {
+    dedupe_key:'aicha-toure__ventures-platform', investor:'Ventures Platform Investment Team', company:'Ventures Platform',
+    email:'https://www.venturesplatform.com/apply', linkedin:'https://www.linkedin.com/company/ventures-platform/', fit_score:9, priority:'B',
+    why_fit:'One of the cleanest institutional thesis matches: pre-seed to Series A with explicit interest in insurance, enterprise SaaS and digital infrastructure. Approach after a concrete pilot milestone or through a warm portfolio/investor introduction.',
+    recommended_approach:'Milestone-triggered warm intro', subject:'Kenyan insurance verification infrastructure — pilot milestone',
+    email_body:`Hi Ventures Platform team,\n\nKweli is the verification layer before insurers and their AI systems rely on third-party documents. We are starting with a defined insurance workflow in Kenya and are raising $250,000 to convert early validation into repeatable paid deployments.\n\nThe reason for reaching out now is [INSERT CONCRETE MILESTONE: signed pilot, paid deployment, LOI or measured usage]. That gives us evidence beyond customer conversations.\n\nGiven your focus on insurance, enterprise SaaS and digital infrastructure, I would welcome a short discussion.\n\nArjun Vidyarthi\nFounder, Kweli`,
+    linkedin_message:'Kweli is building the verification layer for insurance documents in Kenya. Reaching out because we have now achieved [specific pilot milestone], not simply because the thesis fits. Would value a conversation.',
+    status:'On hold', next_followup:null, notes:'REAL FUND FIT. Do not resend the old “pilot discussions” email. Activate only with a concrete pilot/LOI/usage milestone or a credible warm introduction.'
+  },
+  {
+    dedupe_key:'zachariah-george__launch-africa-ventures', investor:'Launch Africa Investment Team', company:'Launch Africa Ventures',
+    email:'https://www.launchafrica.vc/', linkedin:'https://www.linkedin.com/company/launch-africa-ventures/', fit_score:8, priority:'B',
+    why_fit:'Active early-stage African technology investor and plausible round-size fit. High inbound volume means a generic email is unlikely to work; a portfolio-founder, LP or ecosystem introduction plus real insurer evidence is required.',
+    recommended_approach:'Milestone + warm intro', subject:'Kweli — insurer milestone and strategic angel round',
+    email_body:`Hi Launch Africa team,\n\nKweli is building the verification layer before insurers and their AI systems rely on third-party documents. Since our earlier outreach, we have achieved [INSERT SPECIFIC PILOT OR COMMERCIAL MILESTONE].\n\nWe are raising a focused $250,000 round to turn that workflow into a repeatable deployment across insurers in East Africa. I would welcome a short conversation if the milestone meets your current threshold.\n\nArjun`,
+    linkedin_message:'Building Kweli, verification infrastructure for insurance documents. Reaching back out only now because we have achieved [specific milestone]. Would value a conversation if this meets your current pre-seed threshold.',
+    status:'On hold', next_followup:null, notes:'Do not chase the generic inbox. Activate after milestone through a portfolio founder, LP or existing Launch Africa relationship.'
+  },
+  {
+    dedupe_key:'mikael-hajjar__p1-ventures', investor:'P1 Ventures Investment Team', company:'P1 Ventures',
+    email:'https://www.p1.ventures/contact-us', linkedin:'https://www.linkedin.com/company/p1-ventures/', fit_score:8, priority:'B',
+    why_fit:'True 0-to-1 African technology investor with infrastructure appetite. Kweli must be presented through a demanding insurance-market wedge and real enterprise evidence—not blockchain language or a generic AI-fraud narrative.',
+    recommended_approach:'Milestone-triggered introduction', subject:'Insurance verification infrastructure, proven in a demanding market',
+    email_body:`Hi P1 team,\n\nKweli is building the verification layer before insurers and their AI systems rely on third-party documents. Kenya is our first operating environment because the problem is sharp, document-heavy and commercially measurable.\n\nWe have now achieved [INSERT CONCRETE PILOT OR USAGE MILESTONE] and are raising $250,000 to turn that into a repeatable East African deployment.\n\nI would welcome a short conversation if this evidence fits your 0-to-1 investment threshold.\n\nArjun`,
+    linkedin_message:'Kweli is building insurance verification infrastructure from Kenya. We now have [specific milestone], giving us evidence beyond customer conversations. Would value a discussion if it fits P1’s 0-to-1 mandate.',
+    status:'On hold', next_followup:null, notes:'Real fit, wrong timing without stronger evidence. No SHA-256 or blockchain explanation in the opening message.'
+  },
+  {
+    dedupe_key:'iwinnosa-igiehon__future-africa', investor:'Future Africa Investment Team', company:'Future Africa',
+    email:'https://www.future.africa/', linkedin:'https://www.linkedin.com/company/future-africa/', fit_score:8, priority:'B',
+    why_fit:'African pre-seed investor and operator network with potential value beyond capital. The continental trust-layer vision fits, but the approach must lead with one validated insurance workflow and a warm operator introduction.',
+    recommended_approach:'Warm operator intro after milestone', subject:'One validated insurance workflow behind a continental trust thesis',
+    email_body:`Hi Future Africa team,\n\nKweli is building a trust layer for documents across Africa, beginning with one measurable insurance workflow in Kenya. We have now achieved [INSERT CONCRETE MILESTONE] and are raising $250,000 to convert that proof into repeatable insurer deployments.\n\nI would value a conversation about both the round and the operator relationships required to build the issuer network.\n\nArjun`,
+    linkedin_message:'Building Kweli: a continental document-trust thesis grounded in one Kenyan insurance workflow. We now have [specific milestone]. Would value a conversation through the right Future Africa operator.',
+    status:'On hold', next_followup:null, notes:'Activate with real evidence and a warm operator-network route. Do not lead with the full continental vision before proving the wedge.'
+  },
+  {
+    dedupe_key:'john-lazar__enza-capital', investor:'John Lazar / Enza Investment Team', company:'Enza Capital',
+    email:'https://enza.capital/contact', linkedin:'https://www.linkedin.com/company/enza-capital/', fit_score:8, priority:'B',
+    why_fit:'East Africa-relevant enterprise technology investor with strong operator orientation. Potential fit once Kweli shows a credible enterprise pilot, implementation path and evidence that insurer adoption can become repeatable.',
+    recommended_approach:'Warm East Africa introduction', subject:'Enterprise verification infrastructure from Kenya',
+    email_body:`Hi John,\n\nKweli is building the verification layer before insurers and their AI systems rely on third-party documents. We are starting in Kenya with a focused workflow and have now achieved [INSERT CONCRETE PILOT OR COMMERCIAL MILESTONE].\n\nWe are raising $250,000 to make the implementation repeatable across insurers. Given Enza's operator-led approach to East African enterprise technology, I would value your assessment.\n\nArjun`,
+    linkedin_message:'Kenyan founder building verification infrastructure for insurance documents. We now have [specific milestone] and are working toward repeatable insurer deployment. Would value Enza’s operator-led read.',
+    status:'On hold', next_followup:null, notes:'Good institutional target after pilot evidence. Warm East African founder or investor introduction preferred.'
+  },
+  {
+    dedupe_key:'mbwana-alliy__savannah-fund', investor:'Mbwana Alliy', company:'Savannah Fund',
+    email:'https://savannah.vc/contact', linkedin:'https://www.linkedin.com/company/savannah-fund/', fit_score:8, priority:'B',
+    why_fit:'East African pre-seed experience and potential appreciation for infrastructure and network effects. The approach should emphasise one working insurance wedge and founder execution—not an abstract registry moat.',
+    recommended_approach:'Warm founder introduction', subject:'A working insurance wedge for document verification infrastructure',
+    email_body:`Hi Mbwana,\n\nKweli is building the verification layer before insurers and their AI systems rely on third-party documents. We have deliberately narrowed the first market to insurance and now have [INSERT CONCRETE PILOT OR USAGE MILESTONE].\n\nWe are raising $250,000 to turn that workflow into a repeatable East African product. I would value your read on the company and the round.\n\nArjun`,
+    linkedin_message:'Kweli is building verification infrastructure from one working insurance wedge in Kenya. We now have [specific milestone] and are raising a focused pre-seed round. Would value your read.',
+    status:'On hold', next_followup:null, notes:'One row only—do not duplicate Mbwana as both fund and angel. Activate through a warm East African founder introduction after a milestone.'
+  }
+];
+
+function icrmApproachGroup(a){ a=(a||''); if(/warm|strategic introduction/i.test(a)) return 'Warm intro'; if(/live|continue/i.test(a)) return 'Continue'; if(/linkedin first/i.test(a)) return 'LinkedIn first'; return 'Email'; }
 function icrmFitColor(f){ return f>=8?'var(--green)':f>=6?'var(--amber)':'var(--red)'; }
 function icrmPriorityColor(p){ return {A:'var(--green)',B:'var(--blue)',C:'var(--amber)',D:'var(--red)'}[p]||'var(--muted)'; }
 
 function vInvestorCrm(){
   const f = route.icrmFilter = route.icrmFilter || {q:'',priority:'',status:'',fit:'',approach:''};
-  const all = [...state.investor_crm].sort((a,b)=> (a.priority||'Z').localeCompare(b.priority||'Z') || (b.fit_score||0)-(a.fit_score||0) || (a.investor||'').localeCompare(b.investor||''));
+  const focusedKeys=new Set(INVESTOR_CRM_SEED.map(r=>r.dedupe_key));
+  const allRows=[...state.investor_crm];
+  const focusedRows=allRows.filter(r=>focusedKeys.has(r.dedupe_key));
+  const legacyRows=allRows.filter(r=>!focusedKeys.has(r.dedupe_key));
+  const showLegacy=!!route.icrmShowLegacy;
+  const all = (showLegacy?legacyRows:focusedRows).sort((a,b)=> (a.priority||'Z').localeCompare(b.priority||'Z') || (b.fit_score||0)-(a.fit_score||0) || (a.investor||'').localeCompare(b.investor||''));
   const header = '<div class="page-head"><div><div class="eyebrow">Fundraising</div><div class="page-title">Investor CRM</div>'+
-    '<div class="page-sub">'+all.length+' outreach package'+(all.length===1?'':'s')+' for the angel round</div></div>'+
-    '<div style="display:flex;gap:8px">'+(all.length?'<button class="btn sm" onclick="importInvestorCrmSeed()">↻ Re-sync from seed</button>':'')+'</div></div>';
-  if(!all.length){
+    '<div class="page-sub">'+(showLegacy?legacyRows.length+' parked legacy targets':focusedRows.length+' focused relationships — strategic angels first, funds after evidence')+'</div></div>'+
+    '<div style="display:flex;gap:8px">'+
+      '<button class="btn sm" onclick="route.icrmShowLegacy=!route.icrmShowLegacy;renderCurrent()">'+(showLegacy?'← Focused 12':'Legacy / parked ('+legacyRows.length+')')+'</button>'+
+      '<button class="btn sm" onclick="importInvestorCrmSeed()">↻ Apply focused strategy</button></div></div>';
+  if(!allRows.length){
     return header+'<div class="empty"><div class="empty-ico">❖</div>No investors imported yet.'+
-      '<div style="margin-top:14px"><button class="btn gold" onclick="importInvestorCrmSeed()">Import '+INVESTOR_CRM_SEED.length+' investors</button></div>'+
+      '<div style="margin-top:14px"><button class="btn gold" onclick="importInvestorCrmSeed()">Install focused '+INVESTOR_CRM_SEED.length+'</button></div>'+
       '<div class="faint" style="margin-top:10px;font-size:11px">Safe to run more than once — existing rows are never overwritten.</div></div>';
   }
   const contacted = all.filter(r=>r.status && r.status!=='Not contacted').length;
@@ -4651,14 +4775,40 @@ async function copyIcrmField(id, field){
   catch(e){ toast('Could not copy — select the text and copy manually'); }
 }
 async function importInvestorCrmSeed(){
+  if(state.investor_crm.length && !confirm('Apply the focused 12-relationship investor strategy?\n\n• Peter Nduati stays In conversation.\n• Antler stays Call scheduled for Friday 21 August.\n• Existing tracking notes and statuses are preserved for other focused relationships.\n• Old non-core targets are moved to the Legacy / parked view, not deleted.')) return;
   try{
-    const {error}=await sb.from('investor_crm').upsert(INVESTOR_CRM_SEED,{onConflict:'dedupe_key',ignoreDuplicates:true});
-    if(error){ toast('Import failed: '+error.message); console.error(error); return; }
-    const {data,error:selErr}=await sb.from('investor_crm').select('*');
-    if(!selErr) state.investor_crm=data||[];
+    const focusedKeys=new Set(INVESTOR_CRM_SEED.map(r=>r.dedupe_key));
+    const existingByKey=new Map(state.investor_crm.map(r=>[r.dedupe_key,r]));
+    let created=0,updated=0,parked=0;
+    for(const seed of INVESTOR_CRM_SEED){
+      const existing=existingByKey.get(seed.dedupe_key);
+      if(!existing){ await dbInsert('investor_crm',seed); created++; continue; }
+      const patch={};
+      ['investor','company','email','linkedin','fit_score','why_fit','priority','recommended_approach','subject','email_body','linkedin_message'].forEach(k=>patch[k]=seed[k]);
+      // These two live facts were explicitly supplied by Arjun and must not
+      // be lost behind an old seed status.
+      if(seed.dedupe_key==='peter-nduati__strategic-angel'){
+        patch.status='In conversation';
+        patch.notes=seed.notes+(existing.notes&&existing.notes!==seed.notes?'\n\nPrior notes: '+existing.notes:'');
+      }
+      if(seed.dedupe_key==='antler-kenya__antler-kenya'){
+        patch.status='Call scheduled'; patch.next_followup='2026-08-21';
+        patch.notes=seed.notes+(existing.notes&&existing.notes!==seed.notes?'\n\nPrior notes: '+existing.notes:'');
+      }
+      await dbUpdate('investor_crm',existing.id,patch); updated++;
+    }
+    for(const old of state.investor_crm){
+      if(focusedKeys.has(old.dedupe_key)) continue;
+      if(['Call scheduled','In conversation','Committed'].includes(old.status)) continue;
+      if(old.status!=='On hold'){ await dbUpdate('investor_crm',old.id,{status:'On hold'}); parked++; }
+    }
+    const {data,error}=await sb.from('investor_crm').select('*');
+    if(error) throw error;
+    state.investor_crm=data||[];
+    route.icrmShowLegacy=false;
     renderCurrent();
-    toast('Investor CRM synced — '+state.investor_crm.length+' rows (duplicates skipped)');
-  }catch(e){ toast('Import error — see console'); console.error(e); }
+    toast('Focused CRM ready — '+created+' added, '+updated+' refreshed, '+parked+' old targets parked');
+  }catch(e){ toast('Focused CRM update failed: '+(e&&e.message?e.message:'Please try again')); console.error(e); }
 }
 
 /* ---------------------------------------------------------------------------
