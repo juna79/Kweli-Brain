@@ -926,7 +926,7 @@ function allCalendarItemsForRange(start,end){
   };
   state.tasks.forEach(t=>{
     const date=calendarDateKey(t.due_at);
-    if(t.calendar_visible===false||!inRange(date)) return;
+    if(t.calendar_visible===false||taskIsParked(t)||!inRange(date)) return;
     const taskTime=taskCalendarTime(t);
     out.push({date,time:taskTime,allDay:!taskTime,label:t.title,type:'tasks',done:['Completed','Cancelled','Closed / Lost'].includes(t.status),onclick:"openTaskModal('"+t.id+"')"});
   });
@@ -1564,7 +1564,7 @@ function calendarDateKey(value){
 function dailyWorkspaceData(dateISO){
   const dateStart=new Date(dateISO+'T00:00:00');
   const dateEnd=new Date(dateStart);dateEnd.setDate(dateEnd.getDate()+1);
-  const allDue=state.tasks.filter(t=>t.calendar_visible!==false&&calendarDateKey(t.due_at)===dateISO);
+  const allDue=state.tasks.filter(t=>t.calendar_visible!==false&&!taskIsParked(t)&&calendarDateKey(t.due_at)===dateISO);
   const due=allDue.filter(t=>!['Completed','Cancelled','Closed / Lost'].includes(t.status));
   const overdue=dateISO===today()?openTasks().filter(t=>t.due_at&&t.due_at<today()):[];
   const meetings=state.meetings.filter(m=>calendarDateKey(m.scheduled_at)===dateISO).sort((a,b)=>new Date(a.scheduled_at)-new Date(b.scheduled_at));
@@ -3077,7 +3077,7 @@ function isoDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(
 function calendarItemsFor(year,month){
   const items=[];
   state.tasks.forEach(t=>{
-    if(t.calendar_visible===false || !t.due_at) return;
+    if(t.calendar_visible===false || taskIsParked(t) || !t.due_at) return;
     const d=new Date(t.due_at); if(d.getFullYear()!==year||d.getMonth()!==month) return;
     const done=['Completed','Cancelled','Closed / Lost'].includes(t.status);
     items.push({date:t.due_at, label:t.title, type:'tasks', done, overdue:!done&&t.due_at<today(), onclick:"openTaskModal('"+t.id+"')"});
