@@ -8277,6 +8277,7 @@ async function setContentStage(id,stage){
   const patch={description:setContentStageMarker(mi.description,stage), status:STAGE_TO_DB_STATUS[stage]};
   if(stage==='Published') patch.completed_at=new Date().toISOString();
   if(stage==='Scheduled' && !mi.scheduled_at) patch.scheduled_at=today();
+  if(stage==='Archived') patch.scheduled_at=null;
   await dbUpdate('marketing_items',id,patch);
   return byId(state.marketing_items,id);
 }
@@ -8721,24 +8722,50 @@ function contentRow(mi,opts){
     '<span class="drow-icon">'+marketingIcon(mi.item_type)+'</span>'+
     '<div class="drow-main"><div class="drow-title">'+esc(mi.title)+'</div>'+
     '<div class="drow-meta">'+esc(mi.item_type)+(flds.topic?' · '+esc(flds.topic):'')+' · '+esc(stage)+(flds.sourceTitle?' · ↳ '+esc(flds.sourceTitle):'')+'</div></div>'+
-    '<div class="drow-right">'+(mi.scheduled_at?fmtDate(mi.scheduled_at):'')+'</div></div>';
+    '<div class="drow-right">'+(mi.scheduled_at?fmtDate(mi.scheduled_at):'')+
+    (opts.archive?' <button class="btn sm" style="margin-left:10px" onclick="event.stopPropagation();archiveMarketingItem(\''+mi.id+'\')">Remove</button>':'')+'</div></div>';
+}
+
+function oldMarketingItems(){
+  return state.marketing_items.filter(mi=>mi.scheduled_at && mi.scheduled_at.slice(0,10)<today() &&
+    !['Published','Repurposing','Archived'].includes(getContentStage(mi)));
+}
+async function archiveMarketingItem(id){
+  const mi=byId(state.marketing_items,id);
+  if(!mi) return;
+  try{
+    await setContentStage(id,'Archived');
+    renderCurrent(); toast('Removed from the plan. Find it in Content Library → Archived.');
+  }catch(e){console.error(e);}
+}
+async function archiveOldMarketingItems(){
+  const old=oldMarketingItems();
+  if(!old.length){toast('No old marketing items to clear');return;}
+  if(!confirm('Remove '+old.length+' past-dated marketing item(s) from the plan?\n\nThey will be archived, not deleted. You can find and restore them in Content Library → Archived.')) return;
+  let saved=0;
+  for(let i=0;i<old.length;i+=6){
+    const results=await Promise.allSettled(old.slice(i,i+6).map(mi=>setContentStage(mi.id,'Archived')));
+    saved+=results.filter(r=>r.status==='fulfilled').length;
+  }
+  renderCurrent();
+  toast(saved===old.length?'Cleared '+saved+' old items. Restore them from Content Library → Archived.':'Cleared '+saved+' of '+old.length+' old items. Try again for the rest.');
 }
 
 function vMarketingTodayTab(){
-  const scheduled=state.marketing_items.filter(mi=>mi.scheduled_at && getContentStage(mi)!=='Published' && getContentStage(mi)!=='Archived')
+  const scheduled=state.marketing_items.filter(mi=>mi.scheduled_at && !['Published','Repurposing','Archived'].includes(getContentStage(mi)))
     .sort((a,b)=>a.scheduled_at.localeCompare(b.scheduled_at));
-  const overdue=scheduled.filter(mi=>mi.scheduled_at<today());
-  const dueToday=scheduled.filter(mi=>mi.scheduled_at===today());
-  const upcoming=scheduled.filter(mi=>mi.scheduled_at>today()).slice(0,6);
-  const nextUp=overdue[0]||dueToday[0]||upcoming[0];
+  const overdue=scheduled.filter(mi=>mi.scheduled_at.slice(0,10)<today());
+  const dueToday=scheduled.filter(mi=>mi.scheduled_at.slice(0,10)===today());
+  const upcoming=scheduled.filter(mi=>mi.scheduled_at.slice(0,10)>today()).slice(0,6);
+  const nextUp=dueToday[0]||upcoming[0];
   const published=state.marketing_items.filter(mi=>getContentStage(mi)==='Published').sort((a,b)=>(b.completed_at||'').localeCompare(a.completed_at||'')).slice(0,5);
 
   let body='';
   if(nextUp){
     const stage=getContentStage(nextUp);
     body+='<div class="card" style="border-color:var(--gold);margin-bottom:20px">'+
-      '<div class="eyebrow">Today\u2019s Marketing</div>'+
-      '<div style="font-size:16px;font-weight:660;margin:8px 0">Ready to post: '+esc(nextUp.title)+'</div>'+
+      '<div class="eyebrow">'+(dueToday.length?'Today\u2019s Marketing':'Next marketing item')+'</div>'+
+      '<div style="font-size:16px;font-weight:660;margin:8px 0">'+(dueToday.length?'Ready to post: ':'Coming up: ')+esc(nextUp.title)+'</div>'+
       '<div class="grid g2" style="margin-bottom:14px">'+
         kv('Audience',nextUp.audience||'—')+kv('Platform',contentPlatform(nextUp.item_type))+
         kv('Content type',parseContentFields(nextUp.description).topic||nextUp.item_type)+kv('Stage',stage)+
@@ -8756,7 +8783,11 @@ function vMarketingTodayTab(){
     return '<div class="dsec"><div class="dsec-h"><h2>'+title+'</h2><span class="count">'+arr.length+'</span></div>'+
       (arr.length?'<div class="dlist">'+arr.map(mi=>contentRow(mi,{alert:mi.scheduled_at<today()})).join('')+'</div>':'<div class="dempty">'+emptyNote+'</div>')+'</div>';
   };
-  body+=dsec('Overdue',overdue.slice(1))+dsec('Upcoming this week',upcoming,'Nothing else scheduled soon.')+dsec('Recently published',published);
+  body+=dsec('Coming up',upcoming.filter(mi=>mi.id!==nextUp?.id),'Nothing else scheduled soon.');
+  if(overdue.length) body+='<details class="dsec" style="margin-top:20px"><summary style="cursor:pointer;font-size:16px;font-weight:650">Past dates to clear ('+overdue.length+')</summary>'+
+    '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0"><button class="btn" onclick="archiveOldMarketingItems()">Clear all '+overdue.length+' old items</button><span class="muted">Moves them to Archived. You can still restore or delete them later.</span></div>'+
+    '<div class="dlist">'+overdue.map(mi=>contentRow(mi,{archive:true})).join('')+'</div></details>';
+  body+=dsec('Recently published',published);
   return body;
 }
 function estimateLabel(mi){
@@ -8822,7 +8853,7 @@ function vEditorialCalendarTab(){
     '<div class="sec-h" style="margin-top:24px"><h2>Upcoming, by week</h2></div>'+
     (weekList.length?weekList.map(([monday,items])=>'<div class="dsec"><div class="dsec-h"><h2>Week of '+fmtDate(monday)+'</h2><span class="count">'+items.length+'</span></div>'+
       '<div class="dlist">'+items.map(mi=>contentRow(mi)).join('')+'</div></div>').join(''):'<div class="empty" style="margin-top:16px">No future marketing items scheduled. Add one or reschedule a past item.</div>')+
-    (past.length?'<details class="dsec" style="margin-top:20px"><summary style="cursor:pointer;font-size:16px;font-weight:650">Past dates to review ('+past.length+')</summary><div class="muted" style="margin:12px 0">These items still have old dates. Open an item to reschedule, publish, archive or delete it.</div><div class="dlist">'+past.map(mi=>contentRow(mi)).join('')+'</div></details>':'');
+    (past.length?'<details class="dsec" style="margin-top:20px"><summary style="cursor:pointer;font-size:16px;font-weight:650">Past dates to clear ('+past.length+')</summary><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0"><button class="btn" onclick="archiveOldMarketingItems()">Clear all '+past.length+' old items</button><span class="muted">Moves them to Archived. Open one to reschedule it instead.</span></div><div class="dlist">'+past.map(mi=>contentRow(mi,{archive:true})).join('')+'</div></details>':'');
 }
 
 function openMarketingDetail(id){
@@ -8935,7 +8966,7 @@ async function saveMarketingDetail(id){
     priority:document.getElementById('f_mdpriority').value,
     status:STAGE_TO_DB_STATUS[stage],
     description:serializeContentFields(stage,fields),
-    scheduled_at
+    scheduled_at:stage==='Archived'?null:scheduled_at
   };
   if(stage==='Published') patch.completed_at=new Date().toISOString();
   await dbUpdate('marketing_items',id,patch);
